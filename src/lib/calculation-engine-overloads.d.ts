@@ -1,15 +1,23 @@
 import type {
   BlockCalculationResult,
   HolidayInfo,
-  LaborRuleDTO,
   SurchargeConfigDTO,
 } from '@/lib/types';
+
+type TestLaborRules = {
+  maxWeeklyHours: number;
+  maxDailyHours: number;
+  minRestBetweenShiftsH: number;
+  maxConsecutiveDays: number;
+  nightStartHour: number;
+  nightEndHour: number;
+};
 
 declare module '@/lib/calculation-engine' {
   export function calculateServiceBlock(params: {
     block: Record<string, unknown>;
     holidays: HolidayInfo[];
     surcharges: SurchargeConfigDTO[];
-    laborRules: LaborRuleDTO;
+    laborRules: TestLaborRules;
   }): BlockCalculationResult;
 }
