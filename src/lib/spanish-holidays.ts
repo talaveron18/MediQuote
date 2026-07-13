@@ -1,17 +1,18 @@
 // ─── Festivos de España — Datos de ejemplo ───────────────────────
 import type { HolidayInfo, HolidayType } from './types';
 
-// Festivos nacionales (recurrentes — solo mes-día)
-const NACIONALES: { month: number; day: number; name: string }[] = [
-  { month: 1, day: 1, name: 'Año Nuevo' },
-  { month: 1, day: 6, name: 'Reyes Magos' },
-  { month: 5, day: 1, name: 'Día del Trabajador' },
-  { month: 8, day: 15, name: 'Asunción de la Virgen' },
-  { month: 10, day: 12, name: 'Fiesta Nacional de España' },
-  { month: 11, day: 1, name: 'Todos los Santos' },
-  { month: 12, day: 6, name: 'Día de la Constitución' },
-  { month: 12, day: 8, name: 'Inmaculada Concepción' },
-  { month: 12, day: 25, name: 'Navidad' },
+// Festivos nacionales fijos: recurrentes por mes-día.
+// Los festivos móviles (Semana Santa) NO deben ser recurrentes.
+const NACIONALES: { month: number; day: number; name: string; recurring: true }[] = [
+  { month: 1, day: 1, name: 'Año Nuevo', recurring: true },
+  { month: 1, day: 6, name: 'Reyes Magos', recurring: true },
+  { month: 5, day: 1, name: 'Día del Trabajador', recurring: true },
+  { month: 8, day: 15, name: 'Asunción de la Virgen', recurring: true },
+  { month: 10, day: 12, name: 'Fiesta Nacional de España', recurring: true },
+  { month: 11, day: 1, name: 'Todos los Santos', recurring: true },
+  { month: 12, day: 6, name: 'Día de la Constitución', recurring: true },
+  { month: 12, day: 8, name: 'Inmaculada Concepción', recurring: true },
+  { month: 12, day: 25, name: 'Navidad', recurring: true },
 ];
 
 // Festivos autonómicos de ejemplo (Comunidad de Madrid)
@@ -41,7 +42,7 @@ const PROVINCIALES: { month: number; day: number; name: string; province: string
 export function generateHolidaysForYear(year: number, location?: { cc?: string; province?: string }): HolidayInfo[] {
   const holidays: HolidayInfo[] = [];
 
-  // Nacionales
+  // Nacionales fijos: recurrentes
   for (const h of NACIONALES) {
     const mm = String(h.month).padStart(2, '0');
     const dd = String(h.day).padStart(2, '0');
@@ -49,10 +50,11 @@ export function generateHolidaysForYear(year: number, location?: { cc?: string; 
       date: `${year}-${mm}-${dd}`,
       name: h.name,
       type: 'nacional',
+      recurring: true,
     });
   }
 
-  // Autonómicos
+  // Autonómicos de ejemplo: no se marcan recurrentes por defecto hasta validar calendario/localización oficial.
   for (const h of AUTONOMICOS) {
     if (location && location.cc && location.cc !== h.cc) continue;
     const mm = String(h.month).padStart(2, '0');
@@ -62,10 +64,11 @@ export function generateHolidaysForYear(year: number, location?: { cc?: string; 
       name: h.name,
       type: 'autonomico',
       autonomousCommunity: h.cc,
+      recurring: false,
     });
   }
 
-  // Provinciales
+  // Provinciales de ejemplo: no recurrentes por defecto hasta validar calendario/localización oficial.
   for (const h of PROVINCIALES) {
     if (location && location.province && location.province !== h.province) continue;
     const mm = String(h.month).padStart(2, '0');
@@ -75,6 +78,7 @@ export function generateHolidaysForYear(year: number, location?: { cc?: string; 
       name: h.name,
       type: 'provincial',
       province: h.province,
+      recurring: false,
     });
   }
 
@@ -92,11 +96,13 @@ export function generateHolidaysForYear(year: number, location?: { cc?: string; 
     date: formatDate(juevesSanto),
     name: 'Jueves Santo',
     type: 'nacional',
+    recurring: false,
   });
   holidays.push({
     date: formatDate(viernesSanto),
     name: 'Viernes Santo',
     type: 'nacional',
+    recurring: false,
   });
 
   return holidays;
@@ -141,6 +147,7 @@ export function generateSeedHolidays(startYear: number = 2025, endYear: number =
 export function getHolidaysForDBSeed(): {
   date: string; name: string; type: HolidayType;
   autonomousCommunity?: string; province?: string;
+  recurring?: boolean;
 }[] {
   const all = generateSeedHolidays(2025, 2028);
   return all.map(h => ({
@@ -149,5 +156,6 @@ export function getHolidaysForDBSeed(): {
     type: h.type,
     autonomousCommunity: h.autonomousCommunity,
     province: h.province,
+    recurring: h.recurring ?? false,
   }));
 }
