@@ -84,6 +84,7 @@ model ServiceBlock {
   budget                 Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   serviceName            String
   professionalCategory   String
+  blockType              String   @default("profesional_hora")
   professionalsRequested Int      @default(1)
   pricePerHour           Float
   internalCostPerHour    Float?
@@ -91,6 +92,7 @@ model ServiceBlock {
 
   // Date configuration
   dateMode               String   @default("range") // specific, range
+  dateUIMode             String?  // weekly, specific, month — preserves commercial calendar UI mode
   specificDates          String?  // JSON: ["2026-01-15","2026-01-16"]
   dateRangeStart         String?  // ISO date
   dateRangeEnd           String?  // ISO date
@@ -110,6 +112,16 @@ model ServiceBlock {
   unitType               String   @default("hora") // hora, dia, servicio, kilometro, unidad, turno
   quantity               Float    @default(1)
   fixedPrice             Float?   // for fixed-price services like ambulance
+
+  // Special block metadata
+  courseName             String?
+  courseTeacher          String?
+  courseModality         String?
+  courseSessions         Float?
+  materialName           String?
+  accommodationNights    Float?
+  accommodationPersons   Float?
+  transportType          String?
 
   // Cached calculation results
   totalWorkingDays       Int      @default(0)
