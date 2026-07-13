@@ -10,6 +10,9 @@ jobs:
   validate:
     name: Validate project
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./db/test.db
+      NEXT_TELEMETRY_DISABLED: 1
 
     steps:
       - name: Checkout
@@ -27,8 +30,14 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Push test database schema
+        run: npx prisma db push --skip-generate
+
       - name: TypeScript check
         run: npx tsc --noEmit
 
       - name: Run tests
         run: npm test
+
+      - name: Build Next.js app
+        run: npm run build
