@@ -46,12 +46,12 @@ jobs:
           path: tsc.log
           if-no-files-found: ignore
 
-      - name: Fail if TypeScript failed
-        if: steps.tsc.outcome == 'failure'
-        run: cat tsc.log && exit 1
-
       - name: Run tests
         run: npm test
 
       - name: Build Next.js app
         run: npm run build
+
+      - name: Fail if TypeScript failed
+        if: steps.tsc.outcome == 'failure'
+        run: cat tsc.log && exit 1
