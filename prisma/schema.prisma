@@ -180,7 +180,8 @@ model Holiday {
   province             String?
   municipality          String?
   year                 Int?
-  recurring            Boolean  @default(true)
+  // Default must be false. Only fixed annual holidays should opt into MM-DD matching.
+  recurring            Boolean  @default(false)
   createdAt            DateTime @default(now())
 }
 
