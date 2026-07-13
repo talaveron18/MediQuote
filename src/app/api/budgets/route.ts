@@ -31,24 +31,31 @@ function todayPrefix(): string {
   return `PRES-${y}${m}${d}-`
 }
 
+function jsonOrNull(value: unknown): string | null {
+  if (value == null) return null
+  if (Array.isArray(value)) return JSON.stringify(value)
+  if (typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
 function serializeServiceBlockData(block: Record<string, any>): Record<string, any> {
   return {
     serviceName: block.serviceName,
     professionalCategory: block.professionalCategory,
+    blockType: block.blockType ?? 'profesional_hora',
     professionalsRequested: block.puestosSimultaneos ?? block.professionalsRequested ?? 1,
     pricePerHour: block.pricePerHour,
     internalCostPerHour: block.internalCostPerHour ?? null,
     internalMargin: block.internalMargin ?? null,
     dateMode: block.dateMode,
-    specificDates: block.specificDates ? JSON.stringify(block.specificDates) : null,
+    dateUIMode: block.dateUIMode ?? null,
+    specificDates: jsonOrNull(block.specificDates),
     dateRangeStart: block.dateRangeStart ?? null,
     dateRangeEnd: block.dateRangeEnd ?? null,
-    daysOfWeek: block.daysOfWeek ? JSON.stringify(block.daysOfWeek) : null,
+    daysOfWeek: jsonOrNull(block.daysOfWeek),
     excludeSundays: block.excludeSundays ?? false,
     excludeHolidays: block.excludeHolidays ?? false,
-    holidayTypesExcluded: block.holidayTypesExcluded
-      ? JSON.stringify(block.holidayTypesExcluded)
-      : null,
+    holidayTypesExcluded: jsonOrNull(block.holidayTypesExcluded),
     shiftType: block.shiftType,
     shiftStartTime: block.shiftStartTime ?? null,
     shiftEndTime: block.shiftEndTime ?? null,
@@ -57,9 +64,17 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     unitType: block.unitType ?? 'hora',
     quantity: block.quantity ?? 1,
     fixedPrice: block.fixedPrice ?? null,
+    courseName: block.courseName ?? null,
+    courseTeacher: block.courseTeacher ?? null,
+    courseModality: block.courseModality ?? null,
+    courseSessions: block.courseSessions ?? null,
+    materialName: block.materialName ?? null,
+    accommodationNights: block.accommodationNights ?? null,
+    accommodationPersons: block.accommodationPersons ?? null,
+    transportType: block.transportType ?? null,
     selectedProfessionals: block.plantillaSeleccionada ?? block.selectedProfessionals ?? 1,
     observations: block.observations ?? null,
-    enabledSurcharges: block.enabledSurcharges ? JSON.stringify(block.enabledSurcharges) : null,
+    enabledSurcharges: jsonOrNull(block.enabledSurcharges),
   }
 }
 
@@ -181,7 +196,7 @@ export async function POST(request: NextRequest) {
     const code = generateBudgetCode(todayCount)
 
     // Security: strip internal fields for commercial users; admin/maestro keeps full data
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro';
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
     const blocksToSave = canSeeInternal
       ? (serviceBlocks ?? [])
       : (serviceBlocks?.map(stripInternalFields) ?? [])
@@ -234,13 +249,12 @@ export async function POST(request: NextRequest) {
     }).catch(err => console.error('[POST /api/budgets] Auto-export error:', err))
 
     // Sanitize response for comercial users
-    const result = { budget }
     if (!canSeeInternal) {
       return NextResponse.json({
         budget: sanitizeBudgetForCommercial(budget),
       }, { status: 201 })
     }
-    return NextResponse.json(result, { status: 201 })
+    return NextResponse.json({ budget }, { status: 201 })
   } catch (error) {
     console.error('[POST /api/budgets] Error:', error)
     return NextResponse.json(
@@ -321,7 +335,7 @@ export async function PUT(request: NextRequest) {
     } = updateData
 
     // For comercial users, strip internal fields from service block updates
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro';
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
     let processedBlocks = serviceBlocks
     if (processedBlocks && !canSeeInternal) {
       processedBlocks = processedBlocks.map((block: any) => {
