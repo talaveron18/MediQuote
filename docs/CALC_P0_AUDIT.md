@@ -34,23 +34,30 @@ Corrección:
 - `prisma db push --skip-generate` para validar esquema.
 - `npm test`.
 - `npm run build`.
+- Temporalmente usa `npm install` hasta regenerar y commitear un `package-lock.json` completo.
+
+### 4. Plantilla mínima basada en horas reales
+
+Problema: el subtotal usaba horas reales calculadas por turno, pero la plantilla mínima y avisos laborales podían usar `hoursPerDay - break`. En turnos custom podía infraestimar necesidad de personal.
+
+Corrección:
+
+- `calculateServiceBlock` acumula horas reales por fecha desde `calculateShiftHours`.
+- La plantilla mínima, weekly breakdown, overtime y warnings se calculan con esas horas reales.
+- Test: custom 05:00-23:00, 5 días, `hoursPerDay=8` pero 18h reales/día → 90h/semana → 3 profesionales.
+
+### 5. Bloques simples y ceros explícitos
+
+Problema: `quantity=0`, `fixedPrice=0` o `accommodationNights=0` se podían sustituir por defaults por usar `||`.
+
+Corrección:
+
+- Bloques simples usan `??` y clamps explícitos.
+- Tests para material y alojamiento bloquean que cero se convierta en valor ausente.
 
 ## P0 pendientes de cálculo
 
-### 1. Plantilla mínima basada en horas reales
-
-Riesgo: el subtotal usa horas reales calculadas por turno, pero la plantilla mínima y avisos laborales usan `hoursPerDay - break`. En turnos custom puede infraestimar necesidad de personal.
-
-Caso a blindar:
-
-- Turno custom 05:00-23:00 = 18h reales.
-- Si `hoursPerDay` llega como 8, el precio saldrá con 18h, pero la plantilla mínima puede calcularse como si fueran 8h.
-
-### 2. Bloques simples y operador `||`
-
-Riesgo: `quantity=0` o `fixedPrice=0` se sustituyen por defaults porque el motor usa `||`. Debe usar `??` y clamps explícitos.
-
-### 3. Persistencia de campos especiales
+### 1. Persistencia de campos especiales
 
 Riesgo: el motor acepta `blockType`, `dateUIMode`, `accommodationNights`, etc., pero Prisma todavía no persiste todos esos campos. Puede calcular bien y reabrir mal.
 
