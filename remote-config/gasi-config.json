@@ -1,0 +1,799 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "exportedAt": "2026-07-09T19:14:47.477Z",
+    "exportedBy": "admin@gasi.local",
+    "calculationEngineVersion": "2.0.0",
+    "appMinVersion": "1.0.0"
+  },
+  "categories": [
+    {
+      "name": "Ambulancia",
+      "defaultPricePerHour": 180,
+      "defaultInternalCost": 180,
+      "description": "Servicio de transporte sanitario",
+      "active": true
+    },
+    {
+      "name": "Auxiliar Administrativo",
+      "defaultPricePerHour": 12,
+      "defaultInternalCost": 8,
+      "active": true
+    },
+    {
+      "name": "Coordinación",
+      "defaultPricePerHour": 28,
+      "defaultInternalCost": 18,
+      "description": "Coordinación y gestión sanitaria",
+      "active": true
+    },
+    {
+      "name": "Enfermero",
+      "defaultPricePerHour": 22,
+      "defaultInternalCost": 14,
+      "active": true
+    },
+    {
+      "name": "Enfermero/a",
+      "defaultPricePerHour": 22,
+      "defaultInternalCost": 14,
+      "description": "Personal de enfermería",
+      "active": true
+    },
+    {
+      "name": "Fisioterapeuta",
+      "defaultPricePerHour": 28,
+      "defaultInternalCost": 18,
+      "active": true
+    },
+    {
+      "name": "Material Sanitario",
+      "defaultPricePerHour": 50,
+      "defaultInternalCost": 30,
+      "description": "Material sanitario",
+      "active": true
+    },
+    {
+      "name": "Matrona",
+      "defaultPricePerHour": 32,
+      "defaultInternalCost": 20,
+      "active": true
+    },
+    {
+      "name": "Médico",
+      "defaultPricePerHour": 35,
+      "defaultInternalCost": 22,
+      "description": "Personal médico",
+      "active": true
+    },
+    {
+      "name": "Psicólogo",
+      "defaultPricePerHour": 30,
+      "defaultInternalCost": 20,
+      "active": true
+    },
+    {
+      "name": "TCAE",
+      "defaultPricePerHour": 14,
+      "defaultInternalCost": 9,
+      "active": true
+    },
+    {
+      "name": "Telemedicina",
+      "defaultPricePerHour": 30,
+      "defaultInternalCost": 20,
+      "description": "Servicios de telemedicina",
+      "active": true
+    },
+    {
+      "name": "Técnico Sanitario",
+      "defaultPricePerHour": 20,
+      "defaultInternalCost": 13,
+      "description": "Técnico sanitario",
+      "active": true
+    }
+  ],
+  "surcharges": [
+    {
+      "name": "Desplazamiento",
+      "type": "desplazamiento",
+      "surchargeType": "fixed",
+      "value": 25,
+      "description": "Desplazamiento",
+      "active": true
+    },
+    {
+      "name": "Difícil Cobertura",
+      "type": "dificil_cobertura",
+      "surchargeType": "percentage",
+      "value": 20,
+      "active": true
+    },
+    {
+      "name": "Difícil cobertura",
+      "type": "dificil_cobertura",
+      "surchargeType": "percentage",
+      "value": 30,
+      "description": "Difícil cobertura",
+      "active": true
+    },
+    {
+      "name": "Domingo",
+      "type": "domingo",
+      "surchargeType": "percentage",
+      "value": 50,
+      "description": "Recargo domingo",
+      "active": true
+    },
+    {
+      "name": "Festivo Autonómico",
+      "type": "festivo_autonomico",
+      "surchargeType": "percentage",
+      "value": 50,
+      "active": true
+    },
+    {
+      "name": "Festivo Municipal",
+      "type": "festivo_municipal",
+      "surchargeType": "percentage",
+      "value": 20,
+      "active": true
+    },
+    {
+      "name": "Festivo Nacional",
+      "type": "festivo_nacional",
+      "surchargeType": "percentage",
+      "value": 75,
+      "active": true
+    },
+    {
+      "name": "Festivo Provincial",
+      "type": "festivo_provincial",
+      "surchargeType": "percentage",
+      "value": 30,
+      "active": true
+    },
+    {
+      "name": "Festivo autonómico",
+      "type": "festivo_autonomico",
+      "surchargeType": "percentage",
+      "value": 50,
+      "description": "Festivo autonómico",
+      "active": true
+    },
+    {
+      "name": "Festivo nacional",
+      "type": "festivo_nacional",
+      "surchargeType": "percentage",
+      "value": 75,
+      "description": "Festivo nacional",
+      "active": true
+    },
+    {
+      "name": "Festivo provincial",
+      "type": "festivo_provincial",
+      "surchargeType": "percentage",
+      "value": 25,
+      "description": "Festivo provincial",
+      "active": true
+    },
+    {
+      "name": "Fin de Semana",
+      "type": "fin_de_semana",
+      "surchargeType": "percentage",
+      "value": 30,
+      "active": true
+    },
+    {
+      "name": "Fin de semana",
+      "type": "fin_de_semana",
+      "surchargeType": "percentage",
+      "value": 25,
+      "description": "Fin de semana",
+      "active": true
+    },
+    {
+      "name": "Guardia 24h",
+      "type": "guardia_24h",
+      "surchargeType": "fixed",
+      "value": 45,
+      "description": "Guardia 24h",
+      "active": true
+    },
+    {
+      "name": "Nocturnidad",
+      "type": "nocturnidad",
+      "surchargeType": "percentage",
+      "value": 25,
+      "description": "Recargo nocturno",
+      "active": true
+    },
+    {
+      "name": "Urgencia",
+      "type": "urgencia",
+      "surchargeType": "percentage",
+      "value": 100,
+      "description": "Urgencia",
+      "active": true
+    }
+  ],
+  "laborRules": [
+    {
+      "name": "Estándar España",
+      "maxWeeklyHours": 40,
+      "maxDailyHours": 12,
+      "minRestBetweenShiftsH": 11,
+      "maxConsecutiveDays": 6,
+      "nightStartHour": 22,
+      "nightEndHour": 6
+    },
+    {
+      "name": "Regla General 40h",
+      "maxWeeklyHours": 40,
+      "maxDailyHours": 12,
+      "minRestBetweenShiftsH": 11,
+      "maxConsecutiveDays": 6,
+      "nightStartHour": 22,
+      "nightEndHour": 6
+    }
+  ],
+  "holidays": [
+    {
+      "date": "2025-01-01",
+      "name": "Año Nuevo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-01-06",
+      "name": "Reyes Magos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-02-28",
+      "name": "Día de Andalucía",
+      "type": "autonomico",
+      "autonomousCommunity": "Andalucía",
+      "recurring": true
+    },
+    {
+      "date": "2025-04-17",
+      "name": "Jueves Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-04-18",
+      "name": "Viernes Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-05-01",
+      "name": "Día del Trabajador",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-05-02",
+      "name": "Día de la Comunidad de Madrid",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2025-05-15",
+      "name": "San Isidro Labrador",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2025-05-17",
+      "name": "Día das Letras Galegas",
+      "type": "autonomico",
+      "autonomousCommunity": "Galicia",
+      "recurring": true
+    },
+    {
+      "date": "2025-06-24",
+      "name": "Sant Joan",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2025-06-29",
+      "name": "San Pedro",
+      "type": "provincial",
+      "province": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2025-08-15",
+      "name": "Asunción de la Virgen",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-09-11",
+      "name": "Diada Nacional de Catalunya",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2025-10-09",
+      "name": "Comunidad Valenciana",
+      "type": "autonomico",
+      "autonomousCommunity": "Valencia",
+      "recurring": true
+    },
+    {
+      "date": "2025-10-12",
+      "name": "Fiesta Nacional de España",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-10-25",
+      "name": "Euskadi Eguna",
+      "type": "autonomico",
+      "autonomousCommunity": "País Vasco",
+      "recurring": true
+    },
+    {
+      "date": "2025-11-01",
+      "name": "Todos los Santos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-11-09",
+      "name": "Almudena",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2025-12-06",
+      "name": "Día de la Constitución",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-12-08",
+      "name": "Inmaculada Concepción",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2025-12-25",
+      "name": "Navidad",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-01-01",
+      "name": "Año Nuevo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-01-06",
+      "name": "Reyes Magos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-02-28",
+      "name": "Día de Andalucía",
+      "type": "autonomico",
+      "autonomousCommunity": "Andalucía",
+      "recurring": true
+    },
+    {
+      "date": "2026-04-02",
+      "name": "Jueves Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-04-03",
+      "name": "Viernes Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-05-01",
+      "name": "Día del Trabajador",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-05-02",
+      "name": "Día de la Comunidad de Madrid",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2026-05-15",
+      "name": "San Isidro Labrador",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2026-05-17",
+      "name": "Día das Letras Galegas",
+      "type": "autonomico",
+      "autonomousCommunity": "Galicia",
+      "recurring": true
+    },
+    {
+      "date": "2026-06-24",
+      "name": "Sant Joan",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2026-06-29",
+      "name": "San Pedro",
+      "type": "provincial",
+      "province": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2026-08-15",
+      "name": "Asunción de la Virgen",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-09-11",
+      "name": "Diada Nacional de Catalunya",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2026-10-09",
+      "name": "Comunidad Valenciana",
+      "type": "autonomico",
+      "autonomousCommunity": "Valencia",
+      "recurring": true
+    },
+    {
+      "date": "2026-10-12",
+      "name": "Fiesta Nacional de España",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-10-25",
+      "name": "Euskadi Eguna",
+      "type": "autonomico",
+      "autonomousCommunity": "País Vasco",
+      "recurring": true
+    },
+    {
+      "date": "2026-11-01",
+      "name": "Todos los Santos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-11-09",
+      "name": "Almudena",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2026-12-06",
+      "name": "Día de la Constitución",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-12-08",
+      "name": "Inmaculada Concepción",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2026-12-25",
+      "name": "Navidad",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-01-01",
+      "name": "Año Nuevo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-01-06",
+      "name": "Reyes Magos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-02-28",
+      "name": "Día de Andalucía",
+      "type": "autonomico",
+      "autonomousCommunity": "Andalucía",
+      "recurring": true
+    },
+    {
+      "date": "2027-03-25",
+      "name": "Jueves Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-03-26",
+      "name": "Viernes Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-05-01",
+      "name": "Día del Trabajador",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-05-02",
+      "name": "Día de la Comunidad de Madrid",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2027-05-15",
+      "name": "San Isidro Labrador",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2027-05-17",
+      "name": "Día das Letras Galegas",
+      "type": "autonomico",
+      "autonomousCommunity": "Galicia",
+      "recurring": true
+    },
+    {
+      "date": "2027-06-24",
+      "name": "Sant Joan",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2027-06-29",
+      "name": "San Pedro",
+      "type": "provincial",
+      "province": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2027-08-15",
+      "name": "Asunción de la Virgen",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-09-11",
+      "name": "Diada Nacional de Catalunya",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2027-10-09",
+      "name": "Comunidad Valenciana",
+      "type": "autonomico",
+      "autonomousCommunity": "Valencia",
+      "recurring": true
+    },
+    {
+      "date": "2027-10-12",
+      "name": "Fiesta Nacional de España",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-10-25",
+      "name": "Euskadi Eguna",
+      "type": "autonomico",
+      "autonomousCommunity": "País Vasco",
+      "recurring": true
+    },
+    {
+      "date": "2027-11-01",
+      "name": "Todos los Santos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-11-09",
+      "name": "Almudena",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2027-12-06",
+      "name": "Día de la Constitución",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-12-08",
+      "name": "Inmaculada Concepción",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2027-12-25",
+      "name": "Navidad",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-01-01",
+      "name": "Año Nuevo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-01-06",
+      "name": "Reyes Magos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-02-28",
+      "name": "Día de Andalucía",
+      "type": "autonomico",
+      "autonomousCommunity": "Andalucía",
+      "recurring": true
+    },
+    {
+      "date": "2028-04-13",
+      "name": "Jueves Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-04-14",
+      "name": "Viernes Santo",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-05-01",
+      "name": "Día del Trabajador",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-05-02",
+      "name": "Día de la Comunidad de Madrid",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2028-05-15",
+      "name": "San Isidro Labrador",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2028-05-17",
+      "name": "Día das Letras Galegas",
+      "type": "autonomico",
+      "autonomousCommunity": "Galicia",
+      "recurring": true
+    },
+    {
+      "date": "2028-06-24",
+      "name": "Sant Joan",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2028-06-29",
+      "name": "San Pedro",
+      "type": "provincial",
+      "province": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2028-08-15",
+      "name": "Asunción de la Virgen",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-09-11",
+      "name": "Diada Nacional de Catalunya",
+      "type": "autonomico",
+      "autonomousCommunity": "Cataluña",
+      "recurring": true
+    },
+    {
+      "date": "2028-10-09",
+      "name": "Comunidad Valenciana",
+      "type": "autonomico",
+      "autonomousCommunity": "Valencia",
+      "recurring": true
+    },
+    {
+      "date": "2028-10-12",
+      "name": "Fiesta Nacional de España",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-10-25",
+      "name": "Euskadi Eguna",
+      "type": "autonomico",
+      "autonomousCommunity": "País Vasco",
+      "recurring": true
+    },
+    {
+      "date": "2028-11-01",
+      "name": "Todos los Santos",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-11-09",
+      "name": "Almudena",
+      "type": "autonomico",
+      "autonomousCommunity": "Madrid",
+      "recurring": true
+    },
+    {
+      "date": "2028-12-06",
+      "name": "Día de la Constitución",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-12-08",
+      "name": "Inmaculada Concepción",
+      "type": "nacional",
+      "recurring": true
+    },
+    {
+      "date": "2028-12-25",
+      "name": "Navidad",
+      "type": "nacional",
+      "recurring": true
+    }
+  ],
+  "appConfig": {
+    "company_name": "GASI",
+    "company_cif": "B12345678",
+    "company_address": "Calle Mayor 15, 28013 Madrid",
+    "company_phone": "911234567",
+    "company_email": "info@gasi.es",
+    "iva_default": "21",
+    "valid_days_default": "30",
+    "ivaPercent": "21",
+    "maxDiscountPercent": "15",
+    "calculationEngineVersion": "2.0.0",
+    "appMinVersion": "1.0.0"
+  }
+}

@@ -1,0 +1,204 @@
+import { db } from '@/lib/db';
+import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
+
+export const SESSION_COOKIE = 'gasi_session';
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  active: boolean;
+  mustChangePassword: boolean;
+};
+
+/**
+ * Reads session cookie and returns user from DB or null.
+ */
+export async function getCurrentUser(request: Request): Promise<AuthUser | null> {
+  const cookieHeader = request.headers.get('cookie');
+  if (!cookieHeader) return null;
+
+  const match = cookieHeader
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${SESSION_COOKIE}=`));
+
+  if (!match) return null;
+
+  const email = decodeURIComponent(match.split('=')[1]);
+  if (!email) return null;
+
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user || !user.active) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    active: user.active,
+    mustChangePassword: user.mustChangePassword,
+  };
+}
+
+/**
+ * Returns 401 if not logged in.
+ */
+export async function requireAuth(
+  request: Request
+): Promise<AuthUser | NextResponse> {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  }
+  return user;
+}
+
+/**
+ * Returns 403 if user role not in allowedRoles.
+ * maestro always has access.
+ */
+export async function requireRole(
+  request: Request,
+  allowedRoles: string[]
+): Promise<AuthUser | NextResponse> {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  }
+  // maestro has access to everything
+  if (user.role === 'maestro') return user;
+  if (!allowedRoles.includes(user.role)) {
+    return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+  }
+  return user;
+}
+
+/**
+ * Returns 403 if user is not maestro.
+ */
+export async function requireMaestro(
+  request: Request
+): Promise<AuthUser | NextResponse> {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  }
+  if (user.role !== 'maestro') {
+    return NextResponse.json({ error: 'Acceso denegado. Solo el titular puede acceder.' }, { status: 403 });
+  }
+  return user;
+}
+
+/**
+ * Hash a password with bcrypt.
+ */
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 12);
+}
+
+/**
+ * Verify a password against a bcrypt hash or plain text (migration support).
+ */
+export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
+  // If stored starts with $2, it's a bcrypt hash
+  if (stored.startsWith('$2')) {
+    return bcrypt.compare(plain, stored);
+  }
+  // Legacy plain-text comparison
+  if (plain === stored) {
+    // Auto-migrate: re-hash and save
+    try {
+      const hash = await hashPassword(plain);
+      await db.user.updateMany({ where: { password: stored }, data: { password: hash } });
+    } catch {
+      // Silent — don't break login flow
+    }
+    return true;
+  }
+  return false;
+}
+
+// ─── Internal field sanitization ──────────────────────────────────
+
+const INTERNAL_FIELDS = [
+  'internalCostPerHour',
+  'internalMargin',
+  'margin',
+  'profit',
+  'commission',
+  'costeInterno',
+  'precioMaximo',
+  'precioRecomendado',
+  'precioCatalogo',
+  'precioTrabajo',
+  'defaultInternalCost',
+  'password',
+  'mustChangePassword',
+  'lastLoginAt',
+  'createdById',
+]
+
+/**
+ * Strip internal financial fields from data for non-admin/non-maestro roles.
+ * maestro and admin see everything. comercial/gestor/readonly get stripped.
+ */
+export function sanitizeForRole<T>(data: T, role: string): T {
+  if (role === 'maestro' || role === 'admin') return data
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeForRole(item, role)) as T
+  }
+  if (data && typeof data === 'object') {
+    const clean = { ...data }
+    for (const key of INTERNAL_FIELDS) {
+      delete (clean as any)[key]
+    }
+    for (const key of Object.keys(clean)) {
+      if ((clean as any)[key] && typeof (clean as any)[key] === 'object') {
+        (clean as any)[key] = sanitizeForRole((clean as any)[key], role)
+      }
+    }
+    return clean as T
+  }
+  return data
+}
+
+// ─── Audit Log Helper ──────────────────────────────────────────
+
+export async function logAudit(params: {
+  action: string;
+  entity?: string;
+  entityId?: string;
+  userId?: string;
+  userName?: string;
+  userRole?: string;
+  summary?: string;
+  oldData?: string;
+  newData?: string;
+  result?: string;
+  errorMessage?: string;
+}): Promise<void> {
+  try {
+    await db.auditLog.create({
+      data: {
+        action: params.action,
+        entity: params.entity ?? null,
+        entityId: params.entityId ?? null,
+        userId: params.userId ?? null,
+        userName: params.userName ?? null,
+        userRole: params.userRole ?? null,
+        summary: params.summary ?? null,
+        oldData: params.oldData ?? null,
+        newData: params.newData ?? null,
+        result: params.result ?? 'success',
+        errorMessage: params.errorMessage ?? null,
+        appVersion: process.env.APP_VERSION || null,
+        engineVersion: process.env.CALCULATION_ENGINE_VERSION || null,
+      },
+    })
+  } catch {
+    // Audit should never break the main flow
+  }
+}
