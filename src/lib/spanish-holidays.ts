@@ -15,12 +15,13 @@ const NACIONALES: { month: number; day: number; name: string; recurring: true }[
   { month: 12, day: 25, name: 'Navidad', recurring: true },
 ];
 
-// Festivos autonómicos de ejemplo (Comunidad de Madrid)
+// Festivos autonómicos/locales de ejemplo.
+// Importante: NO se incluyen en el seed global. Solo se devuelven si se pide una localización explícita.
 const AUTONOMICOS: { month: number; day: number; name: string; cc: string }[] = [
   { month: 5, day: 2, name: 'Día de la Comunidad de Madrid', cc: 'Madrid' },
   { month: 5, day: 15, name: 'San Isidro Labrador', cc: 'Madrid' },
   { month: 11, day: 9, name: 'Almudena', cc: 'Madrid' },
-  // Cataluña
+  // Cataluña se mantiene solo como dato de ejemplo localizable, nunca en el seed GASI por defecto.
   { month: 6, day: 24, name: 'Sant Joan', cc: 'Cataluña' },
   { month: 9, day: 11, name: 'Diada Nacional de Catalunya', cc: 'Cataluña' },
   // Andalucía
@@ -33,16 +34,19 @@ const AUTONOMICOS: { month: number; day: number; name: string; cc: string }[] = 
   { month: 5, day: 17, name: 'Día das Letras Galegas', cc: 'Galicia' },
 ];
 
-// Festivos provinciales de ejemplo
+// Festivos provinciales de ejemplo.
+// Tampoco se incluyen sin provincia explícita.
 const PROVINCIALES: { month: number; day: number; name: string; province: string }[] = [
   { month: 6, day: 29, name: 'San Pedro', province: 'Madrid' },
 ];
 
-// Generar festivos para un año específico
+// Generar festivos para un año específico.
+// Sin localización: solo nacionales. Esto evita que festivos autonómicos no operativos
+// (p. ej. Cataluña) contaminen presupuestos de GASI.
 export function generateHolidaysForYear(year: number, location?: { cc?: string; province?: string }): HolidayInfo[] {
   const holidays: HolidayInfo[] = [];
 
-  // Nacionales fijos: recurrentes
+  // Nacionales fijos: recurrentes y aplican a todos.
   for (const h of NACIONALES) {
     const mm = String(h.month).padStart(2, '0');
     const dd = String(h.day).padStart(2, '0');
@@ -54,32 +58,36 @@ export function generateHolidaysForYear(year: number, location?: { cc?: string; 
     });
   }
 
-  // Autonómicos de ejemplo: no se marcan recurrentes por defecto hasta validar calendario/localización oficial.
-  for (const h of AUTONOMICOS) {
-    if (location && location.cc && location.cc !== h.cc) continue;
-    const mm = String(h.month).padStart(2, '0');
-    const dd = String(h.day).padStart(2, '0');
-    holidays.push({
-      date: `${year}-${mm}-${dd}`,
-      name: h.name,
-      type: 'autonomico',
-      autonomousCommunity: h.cc,
-      recurring: false,
-    });
+  // Autonómicos: solo con comunidad explícita.
+  if (location?.cc) {
+    for (const h of AUTONOMICOS) {
+      if (location.cc !== h.cc) continue;
+      const mm = String(h.month).padStart(2, '0');
+      const dd = String(h.day).padStart(2, '0');
+      holidays.push({
+        date: `${year}-${mm}-${dd}`,
+        name: h.name,
+        type: 'autonomico',
+        autonomousCommunity: h.cc,
+        recurring: false,
+      });
+    }
   }
 
-  // Provinciales de ejemplo: no recurrentes por defecto hasta validar calendario/localización oficial.
-  for (const h of PROVINCIALES) {
-    if (location && location.province && location.province !== h.province) continue;
-    const mm = String(h.month).padStart(2, '0');
-    const dd = String(h.day).padStart(2, '0');
-    holidays.push({
-      date: `${year}-${mm}-${dd}`,
-      name: h.name,
-      type: 'provincial',
-      province: h.province,
-      recurring: false,
-    });
+  // Provinciales: solo con provincia explícita.
+  if (location?.province) {
+    for (const h of PROVINCIALES) {
+      if (location.province !== h.province) continue;
+      const mm = String(h.month).padStart(2, '0');
+      const dd = String(h.day).padStart(2, '0');
+      holidays.push({
+        date: `${year}-${mm}-${dd}`,
+        name: h.name,
+        type: 'provincial',
+        province: h.province,
+        recurring: false,
+      });
+    }
   }
 
   // Jueves Santo y Viernes Santo (Semana Santa — variable)
@@ -119,7 +127,7 @@ function computeEaster(year: number): Date {
   const g = Math.floor((b - f + 1) / 3);
   const h = (19 * a + b - d - g + 15) % 30;
   const i = Math.floor(c / 4);
-  const k = c % 4;
+  const k = c % 100;
   const l = (32 + 2 * e + 2 * i - h - k) % 7;
   const m = Math.floor((a + 11 * h + 22 * l) / 451);
   const month = Math.floor((h + l - 7 * m + 114) / 31);
@@ -134,7 +142,8 @@ function formatDate(d: Date): string {
   return `${y}-${m}-${dd}`;
 }
 
-// Generar datos para el seed (rango de años)
+// Generar datos para el seed (rango de años).
+// Sin localización explícita, solo nacionales.
 export function generateSeedHolidays(startYear: number = 2025, endYear: number = 2027): HolidayInfo[] {
   const all: HolidayInfo[] = [];
   for (let y = startYear; y <= endYear; y++) {
@@ -143,7 +152,8 @@ export function generateSeedHolidays(startYear: number = 2025, endYear: number =
   return all;
 }
 
-// Get holidays for DB seed
+// Get holidays for DB seed: GASI no debe cargar festivos autonómicos/locales de territorios
+// no operativos como Cataluña. Los locales se añadirán por ubicación cuando exista filtro geográfico.
 export function getHolidaysForDBSeed(): {
   date: string; name: string; type: HolidayType;
   autonomousCommunity?: string; province?: string;
