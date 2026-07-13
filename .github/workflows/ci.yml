@@ -25,7 +25,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --silent
 
       - name: Generate Prisma client
         run: npx prisma generate
@@ -34,7 +34,21 @@ jobs:
         run: npx prisma db push --skip-generate
 
       - name: TypeScript check
-        run: npx tsc --noEmit
+        id: tsc
+        continue-on-error: true
+        run: npx tsc --noEmit --pretty false > tsc.log 2>&1
+
+      - name: Upload TypeScript log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-log
+          path: tsc.log
+          if-no-files-found: ignore
+
+      - name: Fail if TypeScript failed
+        if: steps.tsc.outcome == 'failure'
+        run: cat tsc.log && exit 1
 
       - name: Run tests
         run: npm test
