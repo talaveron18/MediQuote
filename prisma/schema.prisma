@@ -12,7 +12,7 @@ datasource db {
 model User {
   id                 String    @id @default(cuid())
   email              String    @unique
-  password           String
+  password           String    @default("")
   name               String
   role               String    @default("comercial")
   active             Boolean   @default(true)
@@ -89,6 +89,10 @@ model ServiceBlock {
   internalCostPerHour    Float?
   internalMargin         Float?
 
+  // Block type and UI mode
+  blockType              String?  // profesional_hora, servicio_fijo, material, alojamiento, curso, etc.
+  dateUIMode             String?  // weekly, specific, month
+
   // Date configuration
   dateMode               String   @default("range") // specific, range
   specificDates          String?  // JSON: ["2026-01-15","2026-01-16"]
@@ -110,6 +114,16 @@ model ServiceBlock {
   unitType               String   @default("hora") // hora, dia, servicio, kilometro, unidad, turno
   quantity               Float    @default(1)
   fixedPrice             Float?   // for fixed-price services like ambulance
+
+  // Special block fields
+  courseName             String?
+  courseTeacher          String?
+  courseModality         String?
+  courseSessions         Int?
+  materialName           String?
+  accommodationNights    Float?
+  accommodationPersons   Float?
+  transportType          String?
 
   // Cached calculation results
   totalWorkingDays       Int      @default(0)
@@ -180,7 +194,8 @@ model Holiday {
   province             String?
   municipality          String?
   year                 Int?
-  recurring            Boolean  @default(true)
+  // Default must be false. Only fixed annual holidays should opt into MM-DD matching.
+  recurring            Boolean  @default(false)
   createdAt            DateTime @default(now())
 }
 
