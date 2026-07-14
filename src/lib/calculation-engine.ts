@@ -5,6 +5,7 @@
 // - Recargos de día especial mutuamente excluyentes; nocturnidad compatible.
 // - Bloques simples respetan ceros explícitos con ??, no ||.
 // - Plantilla mínima en calculateServiceBlock usa horas reales de turno.
+// - Turnos que cruzan medianoche reparten festivo/domingo/fin de semana por fecha real.
 
 import type {
   DateConfig, ShiftConfig, ShiftHourBreakdown, HolidayInfo,
@@ -49,6 +50,10 @@ function addDays(date: Date, days: number): Date {
   const result = new Date(date);
   result.setDate(result.getDate() + days);
   return result;
+}
+
+function nextDateStr(dateStr: string): string {
+  return formatDate(addDays(parseDate(dateStr), 1));
 }
 
 function isSunday(date: Date): boolean {
@@ -188,6 +193,57 @@ export function calculateWorkingDates(config: DateConfig, holidays: HolidayInfo[
 
 // ─── 2. Calculate Shift Hours ────────────────────────────────────
 
+function addSpecialDayHours(result: ShiftHourBreakdown, dateStr: string, hours: number, holidays: HolidayInfo[]): void {
+  if (hours <= 0) return;
+
+  const date = parseDate(dateStr);
+  const holiday = findHolidayForDate(dateStr, holidays);
+
+  // Día especial exclusivo por tramo real de calendario: festivo > domingo > fin de semana.
+  if (holiday) {
+    result.holiday += hours;
+    if (holiday.type === 'nacional') result.holidayNational += hours;
+    else if (holiday.type === 'autonomico') result.holidayAutonomico += hours;
+    else if (holiday.type === 'provincial') result.holidayProvincial += hours;
+    else if (holiday.type === 'municipal') result.holidayMunicipal += hours;
+  } else if (isSunday(date)) {
+    result.sunday += hours;
+  } else if (isWeekend(date)) {
+    result.weekend += hours;
+  }
+}
+
+function addSpecialDayHoursForShift(
+  result: ShiftHourBreakdown,
+  shift: ShiftConfig,
+  dateStr: string,
+  holidays: HolidayInfo[],
+  rawTotal?: number,
+): void {
+  const effectiveTotal = result.total;
+  if (effectiveTotal <= 0) return;
+
+  const hasExplicitTimes = !!(shift.shiftStartTime && shift.shiftEndTime);
+  const start = hasExplicitTimes ? parseHHMM(shift.shiftStartTime) : NaN;
+  const end = hasExplicitTimes ? parseHHMM(shift.shiftEndTime) : NaN;
+
+  if (hasExplicitTimes && Number.isFinite(start) && Number.isFinite(end)) {
+    const intervalTotal = rawTotal ?? (end <= start ? (24 - start) + end : end - start);
+    if (intervalTotal <= 0) return;
+    const factor = effectiveTotal / intervalTotal;
+
+    if (end <= start) {
+      addSpecialDayHours(result, dateStr, (24 - start) * factor, holidays);
+      addSpecialDayHours(result, nextDateStr(dateStr), end * factor, holidays);
+    } else {
+      addSpecialDayHours(result, dateStr, (end - start) * factor, holidays);
+    }
+    return;
+  }
+
+  addSpecialDayHours(result, dateStr, effectiveTotal, holidays);
+}
+
 export function calculateShiftHours(
   shift: ShiftConfig,
   dateStr: string,
@@ -195,19 +251,16 @@ export function calculateShiftHours(
   nightStart: number = 22,
   nightEnd: number = 6,
 ): ShiftHourBreakdown {
-  const date = parseDate(dateStr);
-  const sunday = isSunday(date);
-  const weekend = isWeekend(date);
-  const holiday = findHolidayForDate(dateStr, holidays);
-
   const result = emptyBreakdown();
   const hoursPerDay = Math.max(0, toFiniteNumber(shift.hoursPerDay, 0));
   const breakH = Math.max(0, toFiniteNumber(shift.breakMinutes, 0)) / 60;
+  let rawTotalForSpecialDay: number | undefined;
 
   if (shift.shiftType === '24h') {
     result.total = Math.max(0, 24 - breakH);
     result.night = compute24hNight(nightStart, nightEnd, result.total);
     result.regular = Math.max(0, result.total - result.night);
+    rawTotalForSpecialDay = 24;
   } else if (shift.shiftType === 'custom' && shift.shiftStartTime && shift.shiftEndTime) {
     const start = parseHHMM(shift.shiftStartTime);
     const end = parseHHMM(shift.shiftEndTime);
@@ -217,6 +270,7 @@ export function calculateShiftHours(
       const rawNight = nightHoursInInterval(start, end, nightStart, nightEnd);
       result.night = Math.min(rawNight, result.total);
       result.regular = Math.max(0, result.total - result.night);
+      rawTotalForSpecialDay = rawTotal;
     }
   } else if (shift.shiftType === 'night') {
     result.total = Math.max(0, hoursPerDay - breakH);
@@ -225,9 +279,11 @@ export function calculateShiftHours(
       const start = parseHHMM(shift.shiftStartTime);
       const end = parseHHMM(shift.shiftEndTime);
       if (Number.isFinite(start) && Number.isFinite(end)) {
+        const rawTotal = end <= start ? (24 - start) + end : end - start;
         const rawNight = nightHoursInInterval(start, end, nightStart, nightEnd);
         result.night = Math.min(rawNight, result.total);
         result.regular = Math.max(0, result.total - result.night);
+        rawTotalForSpecialDay = rawTotal;
       } else {
         result.night = result.total;
       }
@@ -239,19 +295,7 @@ export function calculateShiftHours(
     result.regular = result.total;
   }
 
-  // Día especial exclusivo: festivo > domingo > fin de semana.
-  if (holiday) {
-    result.holiday = result.total;
-    if (holiday.type === 'nacional') result.holidayNational = result.total;
-    else if (holiday.type === 'autonomico') result.holidayAutonomico = result.total;
-    else if (holiday.type === 'provincial') result.holidayProvincial = result.total;
-    else if (holiday.type === 'municipal') result.holidayMunicipal = result.total;
-  } else if (sunday) {
-    result.sunday = result.total;
-  } else if (weekend) {
-    result.weekend = result.total;
-  }
-
+  addSpecialDayHoursForShift(result, shift, dateStr, holidays, rawTotalForSpecialDay);
   return result;
 }
 
@@ -698,7 +742,7 @@ export function calculateServiceBlock(params: {
   const coverageHours = hoursPerPosition * puestosSimultaneos;
 
   const { minStaff, weeklyBreakdown } = calculateMinStaffFromDailyHours(dailyHours, laborRules.maxWeeklyHours);
-  const plantillaSeleccionada = explicitPlantilla == null ? safePlantilla : safePlantilla;
+  const plantillaSeleccionada = safePlantilla;
   const deficitPlantilla = Math.max(0, minStaff - plantillaSeleccionada);
 
   const laborWarnings = validateLaborRulesFromDailyHours(
