@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
 import { exportBudgetLightweight } from '@/lib/export-budget-lightweight'
+import {
+  budgetListWhereForUser,
+  canManageAllBudgets,
+  canModifyBudget,
+  canWriteBudgets,
+} from '@/lib/budget-permissions'
 import type { BudgetStatus, ServiceBlockInput } from '@/lib/types'
 
 // Strip internal fields before saving (commercial security)
@@ -10,6 +16,13 @@ function stripInternalFields(block: Record<string, any>): Record<string, any> {
   delete clean['internalCostPerHour']
   delete clean['internalMargin']
   return clean
+}
+
+function forbiddenBudgetResponse() {
+  return NextResponse.json(
+    { error: 'No tienes permisos para operar sobre este presupuesto' },
+    { status: 403 },
+  )
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -74,7 +87,7 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
 }
 
 /**
- * Sanitize budget response for comercial users:
+ * Sanitize budget response for comercial/gestor/readonly users:
  * - Remove internalNotes from budget
  * - Remove internalCostPerHour, internalMargin from serviceBlocks
  */
@@ -106,7 +119,9 @@ export async function GET(request: NextRequest) {
     const clientId = searchParams.get('clientId')
     const search = searchParams.get('search')
 
-    const where: Record<string, unknown> = {}
+    const where: Record<string, unknown> = {
+      ...budgetListWhereForUser(auth),
+    }
 
     if (status) {
       where.status = status
@@ -158,6 +173,10 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth(request)
     if (auth instanceof NextResponse) return auth
 
+    if (!canWriteBudgets(auth)) {
+      return forbiddenBudgetResponse()
+    }
+
     const body = await request.json()
     const {
       clientId,
@@ -191,7 +210,7 @@ export async function POST(request: NextRequest) {
     const code = generateBudgetCode(todayCount)
 
     // Security: strip internal fields for commercial users; admin/maestro keeps full data
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
+    const canSeeInternal = canManageAllBudgets(auth)
     const blocksToSave = canSeeInternal
       ? (serviceBlocks ?? [])
       : (serviceBlocks?.map(stripInternalFields) ?? [])
@@ -277,7 +296,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    // Fetch existing budget to detect status change
+    // Fetch existing budget to detect status change and verify ownership
     const existing = await db.budget.findUnique({
       where: { id },
     })
@@ -287,6 +306,10 @@ export async function PUT(request: NextRequest) {
         { error: 'Presupuesto no encontrado' },
         { status: 404 },
       )
+    }
+
+    if (!canModifyBudget(auth, existing)) {
+      return forbiddenBudgetResponse()
     }
 
     const userId = auth.id
@@ -331,7 +354,7 @@ export async function PUT(request: NextRequest) {
     } = updateData
 
     // For comercial users, strip internal fields from service block updates
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
+    const canSeeInternal = canManageAllBudgets(auth)
     let processedBlocks = serviceBlocks
     if (processedBlocks && !canSeeInternal) {
       processedBlocks = processedBlocks.map((block: any) => {
@@ -440,6 +463,10 @@ export async function DELETE(request: NextRequest) {
         { error: 'Presupuesto no encontrado' },
         { status: 404 },
       )
+    }
+
+    if (!canModifyBudget(auth, existing)) {
+      return forbiddenBudgetResponse()
     }
 
     // Soft-delete: set status to caducado
