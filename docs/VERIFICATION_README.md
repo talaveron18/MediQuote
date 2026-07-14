@@ -65,7 +65,7 @@ Incluye:
 
 Estado conocido: CI verde.
 
-### PR pendiente — `fix/calc-midnight-holiday`
+### PR #9 — `fix(calc): split overnight holiday hours`
 
 Rama: `fix/calc-midnight-holiday`
 
@@ -77,8 +77,9 @@ Incluye:
 - Ejemplo cubierto: 31/12 22:00-06:00 con 01/01 festivo nacional.
 - Mantiene nocturnidad compatible con festivo porque son conceptos distintos.
 - Añade tests específicos en `src/lib/midnight-holiday.test.ts`.
+- Añade este README de verificación.
 
-Estado: pendiente de CI en el momento de crear este README.
+Estado conocido: CI verde.
 
 ## Issues de seguimiento
 
@@ -93,6 +94,8 @@ Criterio esperado:
 - Festivo > domingo > fin de semana por tramo.
 - Nocturnidad se mantiene aparte y puede acumularse con festivo.
 
+Estado: cubierto por PR #9. No cerrar hasta mergear el PR.
+
 ### Issue #7 — P1-LEGAL: documentar supuesto de jornada diaria máxima 12h
 
 No cambiar motor de precios. Alcance: documentación y trazabilidad legal.
@@ -106,7 +109,7 @@ Decisión pendiente: el descanso en turnos 24h se prorratea actualmente. No es P
 1. Verificar PR #1.
 2. Verificar PR #4.
 3. Verificar PR #6.
-4. Verificar PR `fix/calc-midnight-holiday`.
+4. Verificar PR #9.
 5. Solo después entrar con Fernando al motor de costes/precios/margen.
 
 ## Comandos de verificación local
