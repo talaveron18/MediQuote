@@ -1,10 +1,10 @@
 // ─── Motor de Cálculo de Presupuestos Sanitarios v2 ──────────
-// CORRECCIONES v2:
-// - puestosSimultaneos vs plantillaMinimaRecomendada separados
-// - Semanas ISO agrupadas por año (no mezcla semana 1 de años distintos)
-// - Recargos automáticos vs opt-in/manuales
-// - Subtotal = horasCobertura × precioHora (NO multiplica por plantilla)
-// - Días por defecto: todos (0-6), solo excluye si excludeSundays=true
+// Reglas clave:
+// - puestosSimultaneos multiplica horas/precio; plantillaSeleccionada NO multiplica precio.
+// - Festivos por fecha completa salvo recurring=true.
+// - Recargos de día especial mutuamente excluyentes; nocturnidad compatible.
+// - Bloques simples respetan ceros explícitos con ??, no ||.
+// - Plantilla mínima en calculateServiceBlock usa horas reales de turno.
 
 import type {
   DateConfig, ShiftConfig, ShiftHourBreakdown, HolidayInfo,
@@ -14,7 +14,15 @@ import type {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-/** E4: Parse 'HH:MM' to decimal hours. Returns NaN for invalid input. */
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function parseHHMM(timeStr: string | undefined | null): number {
   if (!timeStr) return NaN;
   const parts = timeStr.split(':');
@@ -23,25 +31,6 @@ function parseHHMM(timeStr: string | undefined | null): number {
   const m = Number(parts[1]);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
   return h + m / 60;
-}
-
-/** E1: Compute night hours for a 24h shift using dual-window overlap.
- * Reuses the same logic as the 'custom' branch (A4 fix).
- * A 24h shift spans [0, 24). Break is distributed uniformly.
- * Night fraction = nightH(0,24) / 24; actual night = total * fraction.
- */
-function compute24hNight(nightStart: number, nightEnd: number, totalH: number): number {
-  // Compute raw night hours for the full 24h span
-  let rawNight = 0;
-  if (nightEnd <= nightStart) {
-    // Two windows: [0, nightEnd] and [nightStart, 24)
-    rawNight = nightEnd + (24 - nightStart);
-  } else {
-    // Single window: [nightStart, nightEnd)
-    rawNight = nightEnd - nightStart;
-  }
-  // Scale by the ratio of actual hours to 24h (uniform break distribution)
- return (rawNight / 24) * totalH;
 }
 
 function parseDate(s: string): Date {
@@ -56,6 +45,12 @@ function formatDate(d: Date): string {
   return `${y}-${m}-${dd}`;
 }
 
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
 function isSunday(date: Date): boolean {
   return date.getDay() === 0;
 }
@@ -65,7 +60,6 @@ function isWeekend(date: Date): boolean {
   return day === 0 || day === 6;
 }
 
-/** Returns ISO week number AND year for that week (not the calendar year of the date) */
 function getISOWeekYear(date: Date): { year: number; week: number } {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
@@ -79,24 +73,53 @@ function weekKey(y: number, w: number): string {
   return `${y}-W${String(w).padStart(2, '0')}`;
 }
 
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
+function emptyBreakdown(): ShiftHourBreakdown {
+  return {
+    total: 0,
+    regular: 0,
+    night: 0,
+    sunday: 0,
+    holiday: 0,
+    holidayNational: 0,
+    holidayAutonomico: 0,
+    holidayProvincial: 0,
+    holidayMunicipal: 0,
+    weekend: 0,
+  };
+}
+
+function nightHoursInInterval(start: number, end: number, nightStart: number, nightEnd: number): number {
+  const intervals = end <= start
+    ? [[start, 24], [0, end]]
+    : [[start, end]];
+
+  const nightWindows = nightEnd <= nightStart
+    ? [[nightStart, 24], [0, nightEnd]]
+    : [[nightStart, nightEnd]];
+
+  let total = 0;
+  for (const [a, b] of intervals) {
+    for (const [c, d] of nightWindows) {
+      total += Math.max(0, Math.min(b, d) - Math.max(a, c));
+    }
+  }
+  return total;
+}
+
+function compute24hNight(nightStart: number, nightEnd: number, totalH: number): number {
+  const rawNight = nightEnd <= nightStart
+    ? nightEnd + (24 - nightStart)
+    : nightEnd - nightStart;
+  return (rawNight / 24) * totalH;
 }
 
 // ─── Holiday Matching ────────────────────────────────────────────
-// A3 FIX: Emparejar por FECHA COMPLETA por defecto.
-// Solo los festivos marcados como recurring=true coinciden por mes-día
-// (festivos fijos como 01-01, 06-01, 25-12, etc.).
 
 export function findHolidayForDate(dateStr: string, holidays: HolidayInfo[]): HolidayInfo | null {
-  // 1. Búsqueda exacta por fecha completa (año-mes-día)
   const exact = holidays.find(h => h.date === dateStr);
   if (exact) return exact;
 
-  // 2. Búsqueda recurrente por mes-día (solo si recurring=true)
-  const monthDay = dateStr.slice(5); // "MM-DD"
+  const monthDay = dateStr.slice(5);
   const recurring = holidays.find(h => h.recurring === true && h.date.slice(5) === monthDay);
   return recurring || null;
 }
@@ -110,25 +133,25 @@ export function calculateWorkingDates(config: DateConfig, holidays: HolidayInfo[
     for (const ds of config.specificDates) {
       const d = parseDate(ds);
       if (config.excludeSundays && isSunday(d)) continue;
+
       if (config.excludeHolidays) {
         const h = findHolidayForDate(ds, holidays);
-        if (h) {
-          if (!config.holidayTypesExcluded || config.holidayTypesExcluded.length === 0 || config.holidayTypesExcluded.includes(h.type)) {
-            continue;
-          }
+        if (h && (!config.holidayTypesExcluded || config.holidayTypesExcluded.length === 0 || config.holidayTypesExcluded.includes(h.type))) {
+          continue;
         }
       }
+
       dates.push(ds);
     }
     return dates.sort();
   }
 
-  // Range mode
   if (!config.dateRangeStart || !config.dateRangeEnd) return dates;
 
   const start = parseDate(config.dateRangeStart);
   const end = parseDate(config.dateRangeEnd);
-  // Default: all days (0-6). If daysOfWeek is explicitly set, use that.
+  if (end < start) return dates;
+
   const daysOfWeek = config.daysOfWeek && config.daysOfWeek.length > 0
     ? config.daysOfWeek
     : [0, 1, 2, 3, 4, 5, 6];
@@ -138,28 +161,21 @@ export function calculateWorkingDates(config: DateConfig, holidays: HolidayInfo[
     const dayOfWeek = current.getDay();
     const dateStr = formatDate(current);
 
-    // Check day of week filter (only if explicitly set)
-    if (config.daysOfWeek && config.daysOfWeek.length > 0) {
-      if (!daysOfWeek.includes(dayOfWeek)) {
-        current = addDays(current, 1);
-        continue;
-      }
+    if (config.daysOfWeek && config.daysOfWeek.length > 0 && !daysOfWeek.includes(dayOfWeek)) {
+      current = addDays(current, 1);
+      continue;
     }
 
-    // Check Sunday exclusion
     if (config.excludeSundays && isSunday(current)) {
       current = addDays(current, 1);
       continue;
     }
 
-    // Check holiday exclusion
     if (config.excludeHolidays) {
       const h = findHolidayForDate(dateStr, holidays);
-      if (h) {
-        if (!config.holidayTypesExcluded || config.holidayTypesExcluded.length === 0 || config.holidayTypesExcluded.includes(h.type)) {
-          current = addDays(current, 1);
-          continue;
-        }
+      if (h && (!config.holidayTypesExcluded || config.holidayTypesExcluded.length === 0 || config.holidayTypesExcluded.includes(h.type))) {
+        current = addDays(current, 1);
+        continue;
       }
     }
 
@@ -184,113 +200,54 @@ export function calculateShiftHours(
   const weekend = isWeekend(date);
   const holiday = findHolidayForDate(dateStr, holidays);
 
-  const result: ShiftHourBreakdown = {
-    total: 0, regular: 0, night: 0,
-    sunday: 0, holiday: 0,
-    holidayNational: 0, holidayAutonomico: 0,
-    holidayProvincial: 0, holidayMunicipal: 0,
-    weekend: 0,
-  };
+  const result = emptyBreakdown();
+  const hoursPerDay = Math.max(0, toFiniteNumber(shift.hoursPerDay, 0));
+  const breakH = Math.max(0, toFiniteNumber(shift.breakMinutes, 0)) / 60;
 
   if (shift.shiftType === '24h') {
-    // A1 FIX + E1 FIX: 24h turnos facturan todas sus horas.
-    // Nocturnidad calculada con la misma lógica dual-window que 'custom' (A4),
-    // no con fórmula hardcodeada. Break distribuido uniformemente.
-    result.total = Math.max(0, 24 - (shift.breakMinutes / 60));
+    result.total = Math.max(0, 24 - breakH);
     result.night = compute24hNight(nightStart, nightEnd, result.total);
     result.regular = Math.max(0, result.total - result.night);
-  } else if (shift.shiftType === 'morning') {
-    result.total = Math.max(0, shift.hoursPerDay - (shift.breakMinutes / 60));
-    result.regular = result.total;
-  } else if (shift.shiftType === 'afternoon') {
-    result.total = Math.max(0, shift.hoursPerDay - (shift.breakMinutes / 60));
-    result.regular = result.total;
+  } else if (shift.shiftType === 'custom' && shift.shiftStartTime && shift.shiftEndTime) {
+    const start = parseHHMM(shift.shiftStartTime);
+    const end = parseHHMM(shift.shiftEndTime);
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      const rawTotal = end <= start ? (24 - start) + end : end - start;
+      result.total = Math.max(0, rawTotal - breakH);
+      const rawNight = nightHoursInInterval(start, end, nightStart, nightEnd);
+      result.night = Math.min(rawNight, result.total);
+      result.regular = Math.max(0, result.total - result.night);
+    }
   } else if (shift.shiftType === 'night') {
-    result.total = Math.max(0, shift.hoursPerDay - (shift.breakMinutes / 60));
-    // A5 FIX: Calcular nocturnidad REAL si hay horario, no asumir 100%.
+    result.total = Math.max(0, hoursPerDay - breakH);
+
     if (shift.shiftStartTime && shift.shiftEndTime) {
-      const [sh, sm] = shift.shiftStartTime.split(':').map(Number);
-      const [eh, em] = shift.shiftEndTime.split(':').map(Number);
-      const startDecimal = sh + sm / 60;
-      const endDecimal = eh + em / 60;
-      const crossesMidnight = endDecimal <= startDecimal;
-      let nightH = 0;
-      if (nightEnd <= nightStart) {
-        if (crossesMidnight) {
-          const nightBeforeMidnight = startDecimal >= nightStart
-            ? (24 - startDecimal) : (24 - nightStart);
-          const nightAfterMidnight = Math.min(endDecimal, nightEnd);
-          nightH = nightBeforeMidnight + nightAfterMidnight;
-        } else {
-          const w1 = Math.max(0, Math.min(endDecimal, nightEnd) - Math.max(startDecimal, 0));
-          const w2 = Math.max(0, Math.min(endDecimal, 24) - Math.max(startDecimal, nightStart));
-          nightH = w1 + w2;
-        }
+      const start = parseHHMM(shift.shiftStartTime);
+      const end = parseHHMM(shift.shiftEndTime);
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        const rawNight = nightHoursInInterval(start, end, nightStart, nightEnd);
+        result.night = Math.min(rawNight, result.total);
+        result.regular = Math.max(0, result.total - result.night);
+      } else {
+        result.night = result.total;
       }
-      result.night = Math.min(nightH, result.total);
-      result.regular = result.total - result.night;
     } else {
-      // Sin horario explícito: asumir todo nocturno (comportamiento original seguro)
       result.night = result.total;
     }
-  } else if (shift.shiftType === 'custom' && shift.shiftStartTime && shift.shiftEndTime) {
-    const [sh, sm] = shift.shiftStartTime.split(':').map(Number);
-    const [eh, em] = shift.shiftEndTime.split(':').map(Number);
-    const startDecimal = sh + sm / 60;
-    const endDecimal = eh + em / 60;
-    const breakH = shift.breakMinutes / 60;
-    const crossesMidnight = endDecimal <= startDecimal;
-
-    let totalH: number;
-    if (crossesMidnight) {
-      totalH = (24 - startDecimal) + endDecimal - breakH;
-    } else {
-      totalH = endDecimal - startDecimal - breakH;
-    }
-    totalH = Math.max(0, totalH);
-    result.total = totalH;
-
-    // A4 FIX: Night hours — two independent windows
-    // Window 1: [0, nightEnd]   (e.g. [0, 6])
-    // Window 2: [nightStart, 24) (e.g. [22, 24))
-    // A non-midnight-crossing shift can overlap BOTH windows (e.g. 05:00–23:00).
-    // Must sum both overlaps instead of using exclusive if/else-if.
-    let nightH = 0;
-    if (nightEnd <= nightStart) {
-      if (crossesMidnight) {
-        const nightBeforeMidnight = startDecimal >= nightStart
-          ? (24 - startDecimal) : (24 - nightStart);
-        const nightAfterMidnight = Math.min(endDecimal, nightEnd);
-        nightH = nightBeforeMidnight + nightAfterMidnight;
-      } else {
-        // Window 1: overlap of [start, end] with [0, nightEnd]
-        const w1 = Math.max(0, Math.min(endDecimal, nightEnd) - Math.max(startDecimal, 0));
-        // Window 2: overlap of [start, end] with [nightStart, 24)
-        const w2 = Math.max(0, Math.min(endDecimal, 24) - Math.max(startDecimal, nightStart));
-        nightH = w1 + w2;
-      }
-    }
-    result.night = Math.min(nightH, totalH);
-    result.regular = totalH - result.night;
   } else {
-    result.total = shift.hoursPerDay - (shift.breakMinutes / 60);
+    result.total = Math.max(0, hoursPerDay - breakH);
     result.regular = result.total;
   }
 
-  // A2 FIX: Exclusive special-day flags
-  // Jerarquía: festivo (nacional > autonomico > provincial > municipal) > domingo > fin_de_semana
-  // Cada hora solo marca UN tipo de "día especial", evitando dobles/triples recargos.
-  // La nocturnidad es compatible y se suma aparte (concepto distinto).
+  // Día especial exclusivo: festivo > domingo > fin de semana.
   if (holiday) {
     result.holiday = result.total;
     if (holiday.type === 'nacional') result.holidayNational = result.total;
     else if (holiday.type === 'autonomico') result.holidayAutonomico = result.total;
     else if (holiday.type === 'provincial') result.holidayProvincial = result.total;
     else if (holiday.type === 'municipal') result.holidayMunicipal = result.total;
-    // Los festivos NO marcan domingo ni weekend (la jerarquía los excluye)
   } else if (sunday) {
     result.sunday = result.total;
-    // Sunday es weekend, pero solo se marca como domingo (domingo > fin_de_semana)
   } else if (weekend) {
     result.weekend = result.total;
   }
@@ -298,73 +255,45 @@ export function calculateShiftHours(
   return result;
 }
 
-// ─── 3. Calculate Minimum Staff (Plantilla Mínima) ───────────────
-// Groups by year+week to avoid mixing ISO weeks across years
-//
-// B1 FIX: Dos criterios para plantilla mínima:
-//   criterio_horas = ceil(maxHorasSemana / maxWeeklyHours)
-//     → tope legal semanal (ej: 40h ET art. 34). La jornada de convenio,
-//       si fuera menor, la fija administración (no se hardcodea aquí).
-//   criterio_descanso = 2 si el servicio cubre los 7 días de la semana
-//     o tiene ≥7 días consecutivos (ET art. 37: mínimo 1,5 días de
-//     descanso semanal → una persona no puede cubrir 7 días seguidos).
-//   minStaff = max(criterio_horas, criterio_descanso)
+// ─── 3. Calculate Minimum Staff ──────────────────────────────────
 
-export function calculateMinStaff(
-  workingDates: string[],
-  hoursPerDay: number,
-  maxWeeklyHours: number = 40,
-): { minStaff: number; weeklyBreakdown: WeeklyHoursEntry[] } {
-  if (workingDates.length === 0 || hoursPerDay <= 0) {
-    return { minStaff: 1, weeklyBreakdown: [] };
-  }
-
-  // Group by year+week
+function buildWeeklyBreakdownFromDailyHours(entries: { date: string; hours: number }[]): WeeklyHoursEntry[] {
   const weekMap = new Map<string, number>();
-  for (const dateStr of workingDates) {
-    const d = parseDate(dateStr);
+
+  for (const entry of entries) {
+    const d = parseDate(entry.date);
     const { year, week } = getISOWeekYear(d);
     const key = weekKey(year, week);
-    weekMap.set(key, (weekMap.get(key) || 0) + hoursPerDay);
+    weekMap.set(key, (weekMap.get(key) || 0) + Math.max(0, entry.hours));
   }
 
-  const weeklyBreakdown: WeeklyHoursEntry[] = [];
-  let maxWeekHours = 0;
+  return [...weekMap.entries()]
+    .map(([key, hours]) => {
+      const [yStr, wStr] = key.split('-W');
+      return {
+        weekKey: key,
+        year: parseInt(yStr, 10),
+        week: parseInt(wStr, 10),
+        hours: round2(hours),
+      };
+    })
+    .sort((a, b) => a.weekKey.localeCompare(b.weekKey));
+}
 
-  for (const [key, hours] of weekMap) {
-    const [yStr, wStr] = key.split('-W');
-    const entry: WeeklyHoursEntry = {
-      weekKey: key,
-      year: parseInt(yStr),
-      week: parseInt(wStr),
-      hours: Math.round(hours * 100) / 100,
-    };
-    weeklyBreakdown.push(entry);
-    if (hours > maxWeekHours) maxWeekHours = hours;
-  }
+function restCriterionForDates(workingDates: string[]): number {
+  if (workingDates.length === 0) return 1;
 
-  weeklyBreakdown.sort((a, b) => a.weekKey.localeCompare(b.weekKey));
-
-  // Criterio 1: horas semanales
-  const hoursCriterion = Math.max(1, Math.ceil(maxWeekHours / maxWeeklyHours));
-
-  // Criterio 2: descanso semanal (ET art. 37)
-  // Se necesitan ≥2 personas si se cubren los 7 días de la semana
-  // o si hay ≥7 días consecutivos (una persona necesita descanso).
   const uniqueDaysOfWeek = new Set<number>();
-  for (const dateStr of workingDates) {
-    uniqueDaysOfWeek.add(parseDate(dateStr).getDay());
-  }
-  const coversAll7Days = uniqueDaysOfWeek.size === 7;
+  for (const dateStr of workingDates) uniqueDaysOfWeek.add(parseDate(dateStr).getDay());
 
-  // Max consecutive days
   const sortedDates = [...workingDates].sort();
   let maxConsecutive = 1;
   let currentStreak = 1;
+
   for (let i = 1; i < sortedDates.length; i++) {
     const prev = parseDate(sortedDates[i - 1]);
     const curr = parseDate(sortedDates[i]);
-    const diff = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    const diff = (curr.getTime() - prev.getTime()) / 86400000;
     if (diff === 1) {
       currentStreak++;
       maxConsecutive = Math.max(maxConsecutive, currentStreak);
@@ -372,14 +301,132 @@ export function calculateMinStaff(
       currentStreak = 1;
     }
   }
-  const needsRestRelief = coversAll7Days || maxConsecutive >= 7;
-  const restCriterion = needsRestRelief ? 2 : 1;
 
-  const minStaff = Math.max(hoursCriterion, restCriterion);
-  return { minStaff, weeklyBreakdown };
+  return uniqueDaysOfWeek.size === 7 || maxConsecutive >= 7 ? 2 : 1;
+}
+
+function calculateMinStaffFromDailyHours(
+  entries: { date: string; hours: number }[],
+  maxWeeklyHours: number = 40,
+): { minStaff: number; weeklyBreakdown: WeeklyHoursEntry[] } {
+  if (entries.length === 0 || entries.every(e => e.hours <= 0)) {
+    return { minStaff: 1, weeklyBreakdown: [] };
+  }
+
+  const weeklyBreakdown = buildWeeklyBreakdownFromDailyHours(entries);
+  const maxWeekHours = weeklyBreakdown.reduce((max, w) => Math.max(max, w.hours), 0);
+  const hoursCriterion = Math.max(1, Math.ceil(maxWeekHours / maxWeeklyHours));
+  const restCriterion = restCriterionForDates(entries.map(e => e.date));
+
+  return { minStaff: Math.max(hoursCriterion, restCriterion), weeklyBreakdown };
+}
+
+export function calculateMinStaff(
+  workingDates: string[],
+  hoursPerDay: number,
+  maxWeeklyHours: number = 40,
+): { minStaff: number; weeklyBreakdown: WeeklyHoursEntry[] } {
+  const daily = workingDates.map(date => ({ date, hours: Math.max(0, hoursPerDay) }));
+  return calculateMinStaffFromDailyHours(daily, maxWeeklyHours);
 }
 
 // ─── 4. Labor Validation ─────────────────────────────────────────
+
+function validateLaborRulesFromDailyHours(
+  dailyHours: { date: string; hours: number }[],
+  shift: ShiftConfig,
+  plantillaSeleccionada: number,
+  maxWeeklyHours: number = 40,
+  maxDailyHours: number = 12,
+  maxConsecutiveDays: number = 6,
+  minRestHours: number = 11,
+): LaborWarning[] {
+  const warnings: LaborWarning[] = [];
+  if (dailyHours.length === 0) return warnings;
+
+  const maxDaily = Math.max(...dailyHours.map(d => d.hours));
+  if (maxDaily > maxDailyHours) {
+    warnings.push({
+      type: 'max_daily_exceeded',
+      severity: 'error',
+      message: `Turno de ${maxDaily}h excede el maximo de ${maxDailyHours}h diarias.`,
+    });
+  }
+
+  if (shift.shiftType === '24h') {
+    warnings.push({
+      type: '24h_shift',
+      severity: 'warning',
+      message: 'Turnos de 24 horas configurados. Verificar descanso minimo entre turnos.',
+    });
+  }
+
+  if (shift.shiftType === 'night' || (shift.shiftType === 'custom' && shift.shiftStartTime && parseHHMM(shift.shiftStartTime) >= 22)) {
+    warnings.push({
+      type: 'night_shift',
+      severity: 'info',
+      message: 'Turno nocturno detectado. Se aplicara recargo de nocturnidad si esta configurado.',
+    });
+  }
+
+  const weeklyBreakdown = buildWeeklyBreakdownFromDailyHours(dailyHours);
+  for (const week of weeklyBreakdown) {
+    const hoursPerPro = week.hours / Math.max(1, plantillaSeleccionada);
+    if (hoursPerPro > maxWeeklyHours) {
+      const overtime = hoursPerPro - maxWeeklyHours;
+      const needed = Math.ceil(week.hours / maxWeeklyHours);
+      warnings.push({
+        type: 'max_weekly_exceeded',
+        severity: 'error',
+        message: `Semana ${week.weekKey}: ${hoursPerPro.toFixed(1)}h/profesional (max ${maxWeeklyHours}h). Exceso de ${overtime.toFixed(1)}h.`,
+        weekKey: week.weekKey,
+        details: `Con ${plantillaSeleccionada} profesional(es), cada uno haria ${hoursPerPro.toFixed(1)}h semanales. Se necesitan al menos ${needed} profesional(es).`,
+      });
+    }
+
+    if (hoursPerPro > maxWeeklyHours * 1.2) {
+      warnings.push({
+        type: 'overtime_needed',
+        severity: 'warning',
+        message: `Semana ${week.weekKey}: Se requeririan muchas horas extra (${(hoursPerPro - maxWeeklyHours).toFixed(1)}h extra por profesional).`,
+        weekKey: week.weekKey,
+      });
+    }
+  }
+
+  const sortedDates = dailyHours.map(d => d.date).sort();
+  let maxConsecutive = 1;
+  let currentStreak = 1;
+  for (let i = 1; i < sortedDates.length; i++) {
+    const prev = parseDate(sortedDates[i - 1]);
+    const curr = parseDate(sortedDates[i]);
+    const diff = (curr.getTime() - prev.getTime()) / 86400000;
+    if (diff === 1) {
+      currentStreak++;
+      maxConsecutive = Math.max(maxConsecutive, currentStreak);
+    } else {
+      currentStreak = 1;
+    }
+  }
+
+  if (maxConsecutive > maxConsecutiveDays) {
+    warnings.push({
+      type: 'continuous_coverage',
+      severity: 'warning',
+      message: `Cobertura continua de ${maxConsecutive} dias seguidos (max recomendado: ${maxConsecutiveDays}).`,
+    });
+  }
+
+  if (maxDaily >= 12 || shift.shiftType === '24h') {
+    warnings.push({
+      type: 'rest_violation',
+      severity: 'warning',
+      message: `Con turnos de ${maxDaily.toFixed(1)}h, verificar descanso minimo de ${minRestHours}h entre turnos consecutivos.`,
+    });
+  }
+
+  return warnings;
+}
 
 export function validateLaborRules(
   workingDates: string[],
@@ -392,110 +439,21 @@ export function validateLaborRules(
   maxConsecutiveDays: number = 6,
   minRestHours: number = 11,
 ): LaborWarning[] {
-  const warnings: LaborWarning[] = [];
-  if (workingDates.length === 0) return warnings;
-
-  const effectiveDailyHours = hoursPerDay - (shift.breakMinutes / 60);
-
-  // Max daily hours
-  if (effectiveDailyHours > maxDailyHours) {
-    warnings.push({
-      type: 'max_daily_exceeded',
-      severity: 'error',
-      message: `Turno de ${effectiveDailyHours}h excede el maximo de ${maxDailyHours}h diarias.`,
-    });
-  }
-
-  // 24h shifts
-  if (shift.shiftType === '24h') {
-    warnings.push({
-      type: '24h_shift',
-      severity: 'warning',
-      message: 'Turnos de 24 horas configurados. Verificar descanso minimo entre turnos.',
-    });
-  }
-
-  // Night shift info
-  if (shift.shiftType === 'night' || (shift.shiftType === 'custom' && shift.shiftStartTime && parseHHMM(shift.shiftStartTime) >= 22)) {
-    warnings.push({
-      type: 'night_shift',
-      severity: 'info',
-      message: 'Turno nocturno detectado. Se aplicara recargo de nocturnidad si esta configurado.',
-    });
-  }
-
-  // Weekly hours per professional — grouped by year+week
-  const weekMap = new Map<string, number>();
-  for (const ds of workingDates) {
-    const d = parseDate(ds);
-    const { year, week } = getISOWeekYear(d);
-    const key = weekKey(year, week);
-    weekMap.set(key, (weekMap.get(key) || 0) + effectiveDailyHours);
-  }
-
-  for (const [key, weekHours] of weekMap) {
-    const hoursPerPro = weekHours / plantillaSeleccionada;
-
-    if (hoursPerPro > maxWeeklyHours) {
-      const overtime = hoursPerPro - maxWeeklyHours;
-      const needed = Math.ceil(weekHours / maxWeeklyHours);
-      warnings.push({
-        type: 'max_weekly_exceeded',
-        severity: 'error',
-        message: `Semana ${key}: ${hoursPerPro.toFixed(1)}h/profesional (max ${maxWeeklyHours}h). Exceso de ${overtime.toFixed(1)}h.`,
-        weekKey: key,
-        details: `Con ${plantillaSeleccionada} profesional(es), cada uno haria ${hoursPerPro.toFixed(1)}h semanales. Se necesitan al menos ${needed} profesional(es).`,
-      });
-    }
-
-    if (hoursPerPro > maxWeeklyHours * 1.2) {
-      warnings.push({
-        type: 'overtime_needed',
-        severity: 'warning',
-        message: `Semana ${key}: Se requeririan muchas horas extra (${(hoursPerPro - maxWeeklyHours).toFixed(1)}h extra por profesional).`,
-        weekKey: key,
-      });
-    }
-  }
-
-  // Consecutive days
-  const sortedDates = [...workingDates].sort();
-  let maxConsecutive = 1;
-  let currentStreak = 1;
-  for (let i = 1; i < sortedDates.length; i++) {
-    const prev = parseDate(sortedDates[i - 1]);
-    const curr = parseDate(sortedDates[i]);
-    const diff = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
-    if (diff === 1) {
-      currentStreak++;
-      maxConsecutive = Math.max(maxConsecutive, currentStreak);
-    } else {
-      currentStreak = 1;
-    }
-  }
-  if (maxConsecutive > maxConsecutiveDays) {
-    warnings.push({
-      type: 'continuous_coverage',
-      severity: 'warning',
-      message: `Cobertura continua de ${maxConsecutive} dias seguidos (max recomendado: ${maxConsecutiveDays}).`,
-    });
-  }
-
-  // Rest violation
-  if (effectiveDailyHours >= 12 || shift.shiftType === '24h') {
-    warnings.push({
-      type: 'rest_violation',
-      severity: 'warning',
-      message: `Con turnos de ${effectiveDailyHours.toFixed(1)}h, verificar descanso minimo de ${minRestHours}h entre turnos consecutivos.`,
-    });
-  }
-
-  return warnings;
+  void puestosSimultaneos;
+  const effectiveDailyHours = Math.max(0, hoursPerDay - (Math.max(0, toFiniteNumber(shift.breakMinutes, 0)) / 60));
+  const daily = workingDates.map(date => ({ date, hours: effectiveDailyHours }));
+  return validateLaborRulesFromDailyHours(
+    daily,
+    shift,
+    plantillaSeleccionada,
+    maxWeeklyHours,
+    maxDailyHours,
+    maxConsecutiveDays,
+    minRestHours,
+  );
 }
 
 // ─── 5. Surcharge Calculation ────────────────────────────────────
-// Automatic: nocturnidad, domingo, festivo*, fin_de_semana
-// Opt-in (manual): urgencia, desplazamiento, dificil_cobertura, servicio_premium, municipio_especial, guardia_24h
 
 const AUTO_SURCHARGE_TYPES: SurchargeType[] = [
   'nocturnidad', 'domingo', 'festivo', 'festivo_nacional', 'festivo_autonomico',
@@ -509,70 +467,64 @@ export function calculateSurcharges(
   enabledSurcharges: SurchargeType[] = [],
 ): SurchargeEntry[] {
   const entries: SurchargeEntry[] = [];
+  const safePrice = Math.max(0, toFiniteNumber(pricePerHour, 0));
 
-  // A2 (corregido, multi-día): el marcado por día en calculateShiftHours YA es
-  // mutuamente excluyente (un festivo no marca domingo ni weekend; un domingo no
-  // marca weekend). Por tanto los buckets sunday/weekend/holiday* NO se solapan y
-  // se usan DIRECTAMENTE. NO se restan horas agregadas: hacerlo mezclaba días
-  // distintos (un festivo entre semana restaba horas a un domingo normal de otra
-  // fecha) y anulaba recargos legítimos → infrafacturación.
-  // El 'festivo' genérico cubre solo las horas de festivo NO cubiertas por un tipo
-  // específico activo (auto o habilitado), evitando doble conteo festivo+específico.
-  const especificoActivo = (t: SurchargeType, h: number): number => {
-    const s = allSurcharges.find(x => x.type === t && x.value);
-    if (!s) return 0;
-    return (AUTO_SURCHARGE_TYPES.includes(t) || enabledSurcharges.includes(t)) ? h : 0;
+  const specificActiveHours = (type: SurchargeType, hours: number): number => {
+    const surcharge = allSurcharges.find(s => s.type === type && toFiniteNumber(s.value, 0) !== 0);
+    if (!surcharge) return 0;
+    return AUTO_SURCHARGE_TYPES.includes(type) || enabledSurcharges.includes(type) ? hours : 0;
   };
 
   for (const surcharge of allSurcharges) {
-    if (!surcharge.value || surcharge.value === 0) continue;
+    const value = toFiniteNumber(surcharge.value, 0);
+    if (value === 0) continue;
 
     const isAuto = AUTO_SURCHARGE_TYPES.includes(surcharge.type);
     const isManualEnabled = enabledSurcharges.includes(surcharge.type);
-
-    // Auto surcharges: apply if hours > 0
-    // Manual surcharges: apply only if explicitly enabled
-    if (isAuto && !isManualEnabled) {
-      // auto-apply logic
-    } else if (!isAuto && !isManualEnabled) {
-      continue; // skip manual surcharges not enabled
-    }
+    if (!isAuto && !isManualEnabled) continue;
 
     let hours = 0;
     switch (surcharge.type) {
-      case 'nocturnidad': hours = totalBreakdown.night; break;
-      // A2 FIX: Use exclusive hours for special-day surcharges
-      case 'domingo': hours = totalBreakdown.sunday; break;
+      case 'nocturnidad':
+        hours = totalBreakdown.night;
+        break;
+      case 'domingo':
+        hours = totalBreakdown.sunday;
+        break;
       case 'festivo': {
         const specificH =
-          especificoActivo('festivo_nacional', totalBreakdown.holidayNational) +
-          especificoActivo('festivo_autonomico', totalBreakdown.holidayAutonomico) +
-          especificoActivo('festivo_provincial', totalBreakdown.holidayProvincial) +
-          especificoActivo('festivo_municipal', totalBreakdown.holidayMunicipal);
+          specificActiveHours('festivo_nacional', totalBreakdown.holidayNational) +
+          specificActiveHours('festivo_autonomico', totalBreakdown.holidayAutonomico) +
+          specificActiveHours('festivo_provincial', totalBreakdown.holidayProvincial) +
+          specificActiveHours('festivo_municipal', totalBreakdown.holidayMunicipal);
         hours = Math.max(0, totalBreakdown.holiday - specificH);
         break;
       }
-      case 'festivo_nacional': hours = totalBreakdown.holidayNational; break;
-      case 'festivo_autonomico': hours = totalBreakdown.holidayAutonomico; break;
-      case 'festivo_provincial': hours = totalBreakdown.holidayProvincial; break;
-      case 'festivo_municipal': hours = totalBreakdown.holidayMunicipal; break;
-      case 'fin_de_semana': hours = totalBreakdown.weekend; break;
-      // Manual surcharges apply to total hours
+      case 'festivo_nacional':
+        hours = totalBreakdown.holidayNational;
+        break;
+      case 'festivo_autonomico':
+        hours = totalBreakdown.holidayAutonomico;
+        break;
+      case 'festivo_provincial':
+        hours = totalBreakdown.holidayProvincial;
+        break;
+      case 'festivo_municipal':
+        hours = totalBreakdown.holidayMunicipal;
+        break;
+      case 'fin_de_semana':
+        hours = totalBreakdown.weekend;
+        break;
       case 'urgencia':
       case 'dificil_cobertura':
       case 'desplazamiento':
       case 'servicio_premium':
       case 'municipio_especial':
-        hours = totalBreakdown.total;
-        break;
-      // A6 FIX: special_price usa horas totales (faltaba case)
       case 'special_price':
         hours = totalBreakdown.total;
         break;
-      case 'guardia_24h':
-        // Per-shift fixed amount, handled differently
-        break;
-      default: break;
+      default:
+        hours = 0;
     }
 
     if (hours <= 0) continue;
@@ -580,30 +532,28 @@ export function calculateSurcharges(
     let amount = 0;
     switch (surcharge.surchargeType) {
       case 'percentage':
-        amount = (pricePerHour * hours) * (surcharge.value / 100);
+        amount = safePrice * hours * (value / 100);
         break;
       case 'fixed':
-        amount = surcharge.value * hours;
+        amount = value * hours;
         break;
       case 'multiplier':
-        amount = (pricePerHour * hours) * (surcharge.value - 1);
+        amount = safePrice * hours * (value - 1);
         break;
       case 'special_price':
-        amount = (surcharge.value - pricePerHour) * hours;
+        amount = (value - safePrice) * hours;
         break;
     }
 
-    // A6 FIX: special_price permite importes negativos (descuentos de tarifa reducida).
-    // El resto de recargos siguen filtrando negativos (amount > 0).
     const isSpecialPrice = surcharge.surchargeType === 'special_price';
     if ((isSpecialPrice && amount !== 0) || (!isSpecialPrice && amount > 0)) {
       entries.push({
         type: surcharge.type,
         name: surcharge.name,
-        hours: Math.round(hours * 100) / 100,
+        hours: round2(hours),
         surchargeType: surcharge.surchargeType,
-        value: surcharge.value,
-        amount: Math.round(amount * 100) / 100,
+        value,
+        amount: round2(amount),
       });
     }
   }
@@ -612,12 +562,6 @@ export function calculateSurcharges(
 }
 
 // ─── 6. Full Block Calculation ───────────────────────────────────
-
-/** E6: Coerce any value to a finite number, falling back to default. */
-function toFiniteNumber(value: unknown, fallback = 0): number {
-  const n = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 export function calculateServiceBlock(params: {
   block: {
@@ -652,68 +596,54 @@ export function calculateServiceBlock(params: {
   laborRules: { maxWeeklyHours: number; maxDailyHours: number; minRestBetweenShiftsH: number; maxConsecutiveDays: number; nightStartHour: number; nightEndHour: number };
 }): BlockCalculationResult {
   const { block, holidays, surcharges, laborRules } = params;
-
-  // E6 FIX: Input guards — clamp numeric inputs to safe ranges
   const safeHPD = Math.max(0, toFiniteNumber(block.hoursPerDay, 0));
   const safeBreak = Math.max(0, toFiniteNumber(block.breakMinutes, 0));
-  const safePlantilla = Math.max(1, Math.round(toFiniteNumber(block.plantillaSeleccionada, 0)));
+  const explicitPlantilla = block.plantillaSeleccionada;
+  const safePlantilla = Math.max(1, Math.round(toFiniteNumber(explicitPlantilla, 1)));
 
-  // E6: Validate date range (inverted → empty dates → 0 result)
-  if (block.dateMode === 'range' && block.dateRangeStart && block.dateRangeEnd) {
-    if (block.dateRangeEnd < block.dateRangeStart) {
-      return {
-        workingDates: [], totalWorkingDays: 0, hoursPerPosition: 0,
-        coverageHours: 0, totalHours: 0,
-        shiftBreakdown: { total: 0, regular: 0, night: 0, sunday: 0, holiday: 0, holidayNational: 0, holidayAutonomico: 0, holidayProvincial: 0, holidayMunicipal: 0, weekend: 0 },
-        surcharges: [], totalSurcharges: 0, puestosSimultaneos: Math.max(1, Math.round(toFiniteNumber(block.puestosSimultaneos, 1))),
-        plantillaMinimaRecomendada: 1, plantillaSeleccionada: safePlantilla, deficitPlantilla: 0,
-        weeklyHoursPerPro: [], overtimeHours: 0, laborWarnings: [],
-        subtotal: 0, totalWithSurcharges: 0,
-      };
-    }
+  if (block.dateMode === 'range' && block.dateRangeStart && block.dateRangeEnd && block.dateRangeEnd < block.dateRangeStart) {
+    return {
+      workingDates: [], totalWorkingDays: 0, hoursPerPosition: 0,
+      coverageHours: 0, totalHours: 0, shiftBreakdown: emptyBreakdown(),
+      surcharges: [], totalSurcharges: 0,
+      puestosSimultaneos: Math.max(1, Math.round(toFiniteNumber(block.puestosSimultaneos, 1))),
+      plantillaMinimaRecomendada: 1, plantillaSeleccionada: safePlantilla, deficitPlantilla: 0,
+      weeklyHoursPerPro: [], overtimeHours: 0, laborWarnings: [], subtotal: 0, totalWithSurcharges: 0,
+    };
   }
 
-  // E5 FIX: Explicit simple-block routing.
-  // A block is "simple" (price × quantity, no dates/shifts) when:
-  //   - blockType is a non-temporal category: material, desplazamiento, dietas,
-  //     alojamiento, ambulancia, telemedicina, curso, otros, servicio_fijo
-  //   - OR unitType is servicio/kilometro/unidad (always simple)
-  // Everything else (hora, turno, dia with profesional_hora) goes to temporal calc.
-  const SIMPLE_BLOCK_TYPES = new Set([
+  const simpleBlockTypes = new Set([
     'material', 'desplazamiento', 'dietas', 'alojamiento', 'ambulancia',
     'telemedicina', 'curso', 'otros', 'servicio_fijo',
   ]);
-  const SIMPLE_UNIT_TYPES = new Set(['servicio', 'kilometro', 'unidad']);
-
-  const isSimpleBlock = SIMPLE_BLOCK_TYPES.has(block.blockType || '')
-    || (SIMPLE_UNIT_TYPES.has(block.unitType) && block.unitType !== 'dia');
+  const simpleUnitTypes = new Set(['servicio', 'kilometro', 'unidad']);
+  const isSimpleBlock = simpleBlockTypes.has(block.blockType || '') || (simpleUnitTypes.has(block.unitType) && block.unitType !== 'dia');
 
   if (isSimpleBlock) {
-    // Special handling for accommodation: nights × persons × price per night
     let subtotal: number;
     let effectiveQuantity: number;
-    
+
     if (block.blockType === 'alojamiento') {
-      const nights = block.accommodationNights || block.quantity || 1;
-      const persons = block.accommodationPersons || 1;
-      const pricePerNight = block.fixedPrice || block.pricePerHour;
+      const nights = Math.max(0, toFiniteNumber(block.accommodationNights ?? block.quantity, 1));
+      const persons = Math.max(0, toFiniteNumber(block.accommodationPersons, 1));
+      const pricePerNight = Math.max(0, toFiniteNumber(block.fixedPrice ?? block.pricePerHour, 0));
       effectiveQuantity = nights * persons;
       subtotal = pricePerNight * effectiveQuantity;
     } else {
-      const basePrice = block.fixedPrice || block.pricePerHour;
-      effectiveQuantity = block.quantity || 1;
+      const basePrice = Math.max(0, toFiniteNumber(block.fixedPrice ?? block.pricePerHour, 0));
+      effectiveQuantity = Math.max(0, toFiniteNumber(block.quantity, 1));
       subtotal = basePrice * effectiveQuantity;
     }
-    
-    subtotal = Math.round(subtotal * 100) / 100;
-    
+
+    subtotal = round2(subtotal);
+
     return {
       workingDates: [],
       totalWorkingDays: 0,
       hoursPerPosition: effectiveQuantity,
       coverageHours: effectiveQuantity,
       totalHours: 0,
-      shiftBreakdown: { total: 0, regular: 0, night: 0, sunday: 0, holiday: 0, holidayNational: 0, holidayAutonomico: 0, holidayProvincial: 0, holidayMunicipal: 0, weekend: 0 },
+      shiftBreakdown: emptyBreakdown(),
       surcharges: [],
       totalSurcharges: 0,
       puestosSimultaneos: 1,
@@ -728,7 +658,6 @@ export function calculateServiceBlock(params: {
     };
   }
 
-  // 1. Calculate working dates
   const workingDates = calculateWorkingDates({
     dateMode: block.dateMode as 'specific' | 'range',
     specificDates: block.specificDates,
@@ -740,55 +669,54 @@ export function calculateServiceBlock(params: {
     holidayTypesExcluded: block.holidayTypesExcluded,
   }, holidays);
 
-  // 2. Calculate shift hours per date, aggregate per-position breakdown
-  const posBreakdown: ShiftHourBreakdown = {
-    total: 0, regular: 0, night: 0, sunday: 0, holiday: 0,
-    holidayNational: 0, holidayAutonomico: 0, holidayProvincial: 0, holidayMunicipal: 0, weekend: 0,
-  };
+  const posBreakdown = emptyBreakdown();
+  const dailyHours: { date: string; hours: number }[] = [];
 
   for (const dateStr of workingDates) {
     const dayBD = calculateShiftHours(
-      { shiftType: block.shiftType as any, shiftStartTime: block.shiftStartTime, shiftEndTime: block.shiftEndTime, hoursPerDay: safeHPD, breakMinutes: safeBreak },
-      dateStr, holidays, laborRules.nightStartHour, laborRules.nightEndHour,
+      {
+        shiftType: block.shiftType as any,
+        shiftStartTime: block.shiftStartTime,
+        shiftEndTime: block.shiftEndTime,
+        hoursPerDay: safeHPD,
+        breakMinutes: safeBreak,
+      },
+      dateStr,
+      holidays,
+      laborRules.nightStartHour,
+      laborRules.nightEndHour,
     );
-    posBreakdown.total += dayBD.total;
-    posBreakdown.regular += dayBD.regular;
-    posBreakdown.night += dayBD.night;
-    posBreakdown.sunday += dayBD.sunday;
-    posBreakdown.holiday += dayBD.holiday;
-    posBreakdown.holidayNational += dayBD.holidayNational;
-    posBreakdown.holidayAutonomico += dayBD.holidayAutonomico;
-    posBreakdown.holidayProvincial += dayBD.holidayProvincial;
-    posBreakdown.holidayMunicipal += dayBD.holidayMunicipal;
-    posBreakdown.weekend += dayBD.weekend;
+
+    for (const key of Object.keys(posBreakdown) as (keyof ShiftHourBreakdown)[]) {
+      posBreakdown[key] += dayBD[key];
+    }
+    dailyHours.push({ date: dateStr, hours: dayBD.total });
   }
 
-  // E2 FIX: Do NOT round per-position hours. Keep full precision internally.
-  // Only round monetary amounts (subtotal, surcharges, totals) at the end.
-
-  // 3. Key metrics
   const puestosSimultaneos = Math.max(1, Math.round(toFiniteNumber(block.puestosSimultaneos, 1)));
   const hoursPerPosition = posBreakdown.total;
   const coverageHours = hoursPerPosition * puestosSimultaneos;
 
-  // 4. Plantilla minima recomendada (based on per-position hours)
-  const effectiveHPD = Math.max(0, safeHPD - (safeBreak / 60));
-  const { minStaff, weeklyBreakdown } = calculateMinStaff(
-    workingDates, effectiveHPD, laborRules.maxWeeklyHours,
-  );
-
-  const plantillaSeleccionada = safePlantilla || minStaff;
+  const { minStaff, weeklyBreakdown } = calculateMinStaffFromDailyHours(dailyHours, laborRules.maxWeeklyHours);
+  const plantillaSeleccionada = explicitPlantilla == null ? safePlantilla : safePlantilla;
   const deficitPlantilla = Math.max(0, minStaff - plantillaSeleccionada);
 
-  // 5. Labor warnings (uses plantillaSeleccionada for per-professional hours)
-  const laborWarnings = validateLaborRules(
-    workingDates, effectiveHPD,
-    { shiftType: block.shiftType as any, shiftStartTime: block.shiftStartTime, shiftEndTime: block.shiftEndTime, hoursPerDay: safeHPD, breakMinutes: safeBreak },
-    plantillaSeleccionada, puestosSimultaneos,
-    laborRules.maxWeeklyHours, laborRules.maxDailyHours, laborRules.maxConsecutiveDays, laborRules.minRestBetweenShiftsH,
+  const laborWarnings = validateLaborRulesFromDailyHours(
+    dailyHours,
+    {
+      shiftType: block.shiftType as any,
+      shiftStartTime: block.shiftStartTime,
+      shiftEndTime: block.shiftEndTime,
+      hoursPerDay: safeHPD,
+      breakMinutes: safeBreak,
+    },
+    plantillaSeleccionada,
+    laborRules.maxWeeklyHours,
+    laborRules.maxDailyHours,
+    laborRules.maxConsecutiveDays,
+    laborRules.minRestBetweenShiftsH,
   );
 
-  // Staff deficit warning
   if (deficitPlantilla > 0) {
     laborWarnings.push({
       type: 'staff_deficit',
@@ -798,37 +726,26 @@ export function calculateServiceBlock(params: {
     });
   }
 
-  // 6. Overtime calculation
   let overtimeHours = 0;
   if (plantillaSeleccionada < minStaff) {
     for (const w of weeklyBreakdown) {
       const perPro = w.hours / plantillaSeleccionada;
-      if (perPro > laborRules.maxWeeklyHours) {
-        overtimeHours += perPro - laborRules.maxWeeklyHours;
-      }
+      if (perPro > laborRules.maxWeeklyHours) overtimeHours += perPro - laborRules.maxWeeklyHours;
     }
   }
-  overtimeHours = Math.round(overtimeHours * 100) / 100;
+  overtimeHours = round2(overtimeHours);
 
-  // 7. Surcharges (on coverage hours = per-position breakdown × puestos)
-  // E2 FIX: Use unrounded posBreakdown × puestos for coverage hours (no intermediate rounding)
   const coverageBreakdown: ShiftHourBreakdown = { ...posBreakdown };
-  for (const k of Object.keys(coverageBreakdown) as (keyof ShiftHourBreakdown)[]) {
-    coverageBreakdown[k] = posBreakdown[k] * puestosSimultaneos;
+  for (const key of Object.keys(coverageBreakdown) as (keyof ShiftHourBreakdown)[]) {
+    coverageBreakdown[key] = posBreakdown[key] * puestosSimultaneos;
   }
 
-  const surchargeEntries = calculateSurcharges(
-    coverageBreakdown, surcharges, block.pricePerHour, block.enabledSurcharges || [],
-  );
+  const safePrice = Math.max(0, toFiniteNumber(block.pricePerHour, 0));
+  const surchargeEntries = calculateSurcharges(coverageBreakdown, surcharges, safePrice, block.enabledSurcharges || []);
   const totalSurcharges = surchargeEntries.reduce((sum, s) => sum + s.amount, 0);
 
-  // 8. Subtotal: horasCobertura × precioHora
-  // E2 FIX: Use unrounded hoursBase, same base as surcharges
-  // E6 FIX: Clamp pricePerHour to non-negative
-  const safePrice = Math.max(0, toFiniteNumber(block.pricePerHour, 0));
   const hoursBase = posBreakdown.regular + posBreakdown.night;
   const subtotal = Math.max(0, hoursBase * safePrice * puestosSimultaneos);
-
   const totalWithSurcharges = subtotal + totalSurcharges;
 
   return {
@@ -839,7 +756,7 @@ export function calculateServiceBlock(params: {
     totalHours: posBreakdown.total,
     shiftBreakdown: posBreakdown,
     surcharges: surchargeEntries,
-    totalSurcharges: Math.round(totalSurcharges * 100) / 100,
+    totalSurcharges: round2(totalSurcharges),
     puestosSimultaneos,
     plantillaMinimaRecomendada: minStaff,
     plantillaSeleccionada,
@@ -847,8 +764,8 @@ export function calculateServiceBlock(params: {
     weeklyHoursPerPro: weeklyBreakdown,
     overtimeHours,
     laborWarnings,
-    subtotal: Math.round(subtotal * 100) / 100,
-    totalWithSurcharges: Math.round(totalWithSurcharges * 100) / 100,
+    subtotal: round2(subtotal),
+    totalWithSurcharges: round2(totalWithSurcharges),
   };
 }
 
@@ -860,11 +777,9 @@ export function calculateBudgetTotals(
   ivaPercent: number = 21,
 ): { subtotal: number; totalSurcharges: number; discountAmount: number; ivaAmount: number; totalFinal: number } {
   const safeBlocks = Array.isArray(blockResults) ? blockResults : [];
-
   const subtotal = safeBlocks.reduce((s, b) => s + toFiniteNumber(b?.subtotal), 0);
   const totalSurcharges = safeBlocks.reduce((s, b) => s + toFiniteNumber(b?.totalSurcharges), 0);
-  const cleanDiscount = Math.min(Math.max(toFiniteNumber(discountPercent), 0), 100);
-  // E3 FIX: Clamp IVA to [0, 100] to prevent typos like 2100%
+  const cleanDiscount = Math.min(Math.max(toFiniteNumber(discountPercent, 0), 0), 100);
   const cleanIva = Math.min(Math.max(toFiniteNumber(ivaPercent, 21), 0), 100);
 
   const baseForDiscount = subtotal + totalSurcharges;
@@ -874,10 +789,10 @@ export function calculateBudgetTotals(
   const totalFinal = afterDiscount + ivaAmount;
 
   return {
-    subtotal: Math.round(subtotal * 100) / 100,
-    totalSurcharges: Math.round(totalSurcharges * 100) / 100,
-    discountAmount: Math.round(discountAmount * 100) / 100,
-    ivaAmount: Math.round(ivaAmount * 100) / 100,
-    totalFinal: Math.round(totalFinal * 100) / 100,
+    subtotal: round2(subtotal),
+    totalSurcharges: round2(totalSurcharges),
+    discountAmount: round2(discountAmount),
+    ivaAmount: round2(ivaAmount),
+    totalFinal: round2(totalFinal),
   };
 }

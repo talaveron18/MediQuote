@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Plus, Pencil, Trash2, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -41,19 +43,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  Search,
-} from 'lucide-react';
-import { toast } from 'sonner';
 import { LegalBadgeButton } from '@/components/legal/legal-badge-button';
 import { LegalRecordDrawer, type LegalRecordData } from '@/components/legal/legal-record-drawer';
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
 
 interface LegalRecordSummary {
   id: string;
@@ -103,15 +94,11 @@ interface LegalParameterFormData {
   legalRecordId: string;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
-
 const CATEGORIES: Record<string, string> = {
   'Salario mínimo': 'Salario mínimo',
   'Seguridad Social empresa': 'Seguridad Social empresa',
-  'IVA': 'IVA',
-  'Convenios': 'Convenios',
+  IVA: 'IVA',
+  Convenios: 'Convenios',
 };
 
 const EMPTY_FORM: LegalParameterFormData = {
@@ -124,49 +111,79 @@ const EMPTY_FORM: LegalParameterFormData = {
   effectiveTo: '',
   isActive: true,
   notes: '',
-  legalRecordId: '',
+  legalRecordId: 'none',
 };
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
+function normalizeRecord(record: LegalRecordSummary): LegalRecordSummary {
+  return {
+    id: record.id,
+    key: record.key,
+    title: record.title,
+    reference: record.reference,
+    norm: record.norm,
+    location: record.location,
+    eliUrl: record.eliUrl,
+    officialUrl: record.officialUrl,
+    status: record.status,
+    category: record.category,
+    hasLiteralQuote: record.hasLiteralQuote,
+    literalQuote: record.literalQuote,
+    quoteSource: record.quoteSource,
+    operativeSummary: record.operativeSummary,
+    reviewDate: record.reviewDate,
+  };
+}
+
+function toDrawerRecord(record: LegalRecordSummary): LegalRecordData {
+  return {
+    id: record.id,
+    key: record.key,
+    title: record.title,
+    category: record.category ?? 'Registro legal',
+    norm: record.norm,
+    location: record.location,
+    reference: record.reference,
+    eliUrl: record.eliUrl,
+    officialUrl: record.officialUrl,
+    hasLiteralQuote: record.hasLiteralQuote ?? false,
+    literalQuote: record.literalQuote,
+    quoteSource: record.quoteSource,
+    operativeSummary: record.operativeSummary,
+    status: record.status ?? 'pendiente_revision',
+    reviewDate: record.reviewDate,
+  };
+}
+
+function emptyToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
 
 export default function LegalParametersPanel() {
-  /* ---- Data state ---- */
   const [parameters, setParameters] = useState<LegalParameter[]>([]);
   const [legalRecords, setLegalRecords] = useState<LegalRecordSummary[]>([]);
   const [loading, setLoading] = useState(true);
-
-  /* ---- Filters ---- */
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
 
-  /* ---- Legal record drawer ---- */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<LegalRecordData | null>(null);
 
-  /* ---- Create / Edit dialog ---- */
   const [formOpen, setFormOpen] = useState(false);
   const [editingParam, setEditingParam] = useState<LegalParameter | null>(null);
   const [form, setForm] = useState<LegalParameterFormData>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
-  /* ---- Delete confirmation ---- */
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingParam, setDeletingParam] = useState<LegalParameter | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  /* ---------------------------------------------------------------- */
-  /*  Fetch parameters                                                 */
-  /* ---------------------------------------------------------------- */
-
   const fetchParameters = useCallback(async () => {
     setLoading(true);
     try {
-      const url =
-        categoryFilter !== 'all'
-          ? `/api/legal-parameters?category=${categoryFilter}`
-          : '/api/legal-parameters';
+      const url = categoryFilter !== 'all'
+        ? `/api/legal-parameters?category=${encodeURIComponent(categoryFilter)}`
+        : '/api/legal-parameters';
       const res = await fetch(url);
       if (!res.ok) throw new Error('Error al cargar parámetros');
       const data = await res.json();
@@ -178,53 +195,15 @@ export default function LegalParametersPanel() {
     }
   }, [categoryFilter]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Fetch legal records (for dropdown)                               */
-  /* ---------------------------------------------------------------- */
-
   const fetchLegalRecords = useCallback(async () => {
     try {
       const res = await fetch('/api/legal-records');
       if (!res.ok) return;
       const data = await res.json();
-      const list: LegalRecordSummary[] = Array.isArray(data)
-        ? data.map((r: LegalRecordSummary) => ({
-            id: r.id,
-            key: r.key,
-            title: r.title,
-            reference: r.reference,
-            norm: r.norm,
-            location: r.location,
-            status: r.status,
-            category: r.category,
-            eliUrl: r.eliUrl,
-            officialUrl: r.officialUrl,
-            hasLiteralQuote: r.hasLiteralQuote,
-            literalQuote: (r as Record<string, unknown>).literalQuote as string | undefined,
-            quoteSource: (r as Record<string, unknown>).quoteSource as string | undefined,
-            operativeSummary: r.operativeSummary,
-            reviewDate: r.reviewDate,
-          }))
-        : (data.records ?? []).map((r: LegalRecordSummary) => ({
-            id: r.id,
-            key: r.key,
-            title: r.title,
-            reference: r.reference,
-            norm: r.norm,
-            location: r.location,
-            status: r.status,
-            category: r.category,
-            eliUrl: r.eliUrl,
-            officialUrl: r.officialUrl,
-            hasLiteralQuote: r.hasLiteralQuote,
-            literalQuote: (r as Record<string, unknown>).literalQuote as string | undefined,
-            quoteSource: (r as Record<string, unknown>).quoteSource as string | undefined,
-            operativeSummary: r.operativeSummary,
-            reviewDate: r.reviewDate,
-          }));
-      setLegalRecords(list);
+      const records: LegalRecordSummary[] = Array.isArray(data) ? data : data.records ?? [];
+      setLegalRecords(records.map(normalizeRecord));
     } catch {
-      /* silently ignore — dropdown will just be empty */
+      // El selector de ficha legal puede quedar vacío sin bloquear el panel.
     }
   }, []);
 
@@ -233,17 +212,23 @@ export default function LegalParametersPanel() {
     fetchLegalRecords();
   }, [fetchParameters, fetchLegalRecords]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Helpers                                                          */
-  /* ---------------------------------------------------------------- */
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return parameters.filter((param) => {
+      const matchesSearch = !q ||
+        param.key.toLowerCase().includes(q) ||
+        param.label.toLowerCase().includes(q) ||
+        param.value.toLowerCase().includes(q) ||
+        (param.unit ?? '').toLowerCase().includes(q) ||
+        param.category.toLowerCase().includes(q);
+      const matchesCategory = categoryFilter === 'all' || param.category === categoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [parameters, searchQuery, categoryFilter]);
 
   function updateForm(field: keyof LegalParameterFormData, value: string | boolean) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
-
-  /* ---------------------------------------------------------------- */
-  /*  Create / Edit                                                    */
-  /* ---------------------------------------------------------------- */
 
   function openCreate() {
     setEditingParam(null);
@@ -263,7 +248,7 @@ export default function LegalParametersPanel() {
       effectiveTo: param.effectiveTo ?? '',
       isActive: param.isActive,
       notes: param.notes ?? '',
-      legalRecordId: param.legalRecordId ?? '',
+      legalRecordId: param.legalRecordId ?? 'none',
     });
     setFormOpen(true);
   }
@@ -280,46 +265,37 @@ export default function LegalParametersPanel() {
         key: form.key.trim(),
         label: form.label.trim(),
         value: form.value.trim(),
-        unit: form.unit.trim() || null,
+        unit: emptyToNull(form.unit),
         category: form.category,
         effectiveFrom: form.effectiveFrom || null,
         effectiveTo: form.effectiveTo || null,
         isActive: form.isActive,
-        notes: form.notes.trim() || null,
-        legalRecordId: form.legalRecordId || null,
+        notes: emptyToNull(form.notes),
+        legalRecordId: form.legalRecordId && form.legalRecordId !== 'none' ? form.legalRecordId : null,
       };
 
-      const isEditing = !!editingParam;
-      const method = isEditing ? 'PUT' : 'POST';
-
-      if (isEditing) {
-        payload.id = editingParam.id;
-      }
+      if (editingParam) payload.id = editingParam.id;
 
       const res = await fetch('/api/legal-parameters', {
-        method,
+        method: editingParam ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? `Error al ${isEditing ? 'actualizar' : 'crear'} parámetro`);
+        throw new Error(err.error ?? `Error al ${editingParam ? 'actualizar' : 'crear'} parámetro`);
       }
 
-      toast.success(isEditing ? 'Parámetro actualizado' : 'Parámetro creado');
+      toast.success(editingParam ? 'Parámetro actualizado' : 'Parámetro creado');
       setFormOpen(false);
-      fetchParameters();
+      await fetchParameters();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error inesperado');
     } finally {
       setSaving(false);
     }
   }
-
-  /* ---------------------------------------------------------------- */
-  /*  Delete                                                           */
-  /* ---------------------------------------------------------------- */
 
   function confirmDelete(param: LegalParameter) {
     setDeletingParam(param);
@@ -338,7 +314,8 @@ export default function LegalParametersPanel() {
       if (!res.ok) throw new Error('Error al eliminar parámetro');
       toast.success('Parámetro eliminado');
       setDeleteOpen(false);
-      fetchParameters();
+      setDeletingParam(null);
+      await fetchParameters();
     } catch {
       toast.error('Error al eliminar parámetro');
     } finally {
@@ -346,69 +323,37 @@ export default function LegalParametersPanel() {
     }
   }
 
-  /* ---------------------------------------------------------------- */
-  /*  Legal record drawer                                              */
-  /* ---------------------------------------------------------------- */
-
   async function openRecordDrawer(param: LegalParameter) {
-    // First try from the included legalRecord
-    if (param.legalRecord) {
-      setDrawerRecord(param.legalRecord as unknown as LegalRecordData);
+    const localRecord = param.legalRecord ?? legalRecords.find((r) => r.id === param.legalRecordId) ?? null;
+    if (localRecord) {
+      setDrawerRecord(toDrawerRecord(localRecord));
       setDrawerOpen(true);
       return;
     }
 
-    // If we have legalRecordId but no full data, try to find in our local list
-    if (param.legalRecordId) {
-      const found = legalRecords.find((r) => r.id === param.legalRecordId);
-      if (found) {
-        setDrawerRecord(found as unknown as LegalRecordData);
-        setDrawerOpen(true);
-        return;
-      }
+    if (!param.legalRecordId) {
+      toast.error('No se encontró la ficha legal vinculada');
+      return;
     }
 
-    // Fallback: try the API (supports ?id= query param or we just use our list)
-    if (param.legalRecordId) {
-      setDrawerRecord(null);
-      setDrawerOpen(true);
-      try {
-        const res = await fetch('/api/legal-records');
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : [data];
-        const record = list.find((r: { id: string }) => r.id === param.legalRecordId);
-        if (record) {
-          setDrawerRecord(record as unknown as LegalRecordData);
-        }
-      } catch {
-        toast.error('No se pudo cargar la ficha legal');
-        setDrawerOpen(false);
-      }
+    setDrawerRecord(null);
+    setDrawerOpen(true);
+    try {
+      const res = await fetch('/api/legal-records');
+      if (!res.ok) throw new Error('No se pudo cargar la ficha legal');
+      const data = await res.json();
+      const records: LegalRecordSummary[] = Array.isArray(data) ? data : data.records ?? [];
+      const found = records.find((record) => record.id === param.legalRecordId);
+      if (!found) throw new Error('No se encontró la ficha legal');
+      setDrawerRecord(toDrawerRecord(found));
+    } catch {
+      toast.error('No se pudo cargar la ficha legal');
+      setDrawerOpen(false);
     }
   }
-
-  /* ---------------------------------------------------------------- */
-  /*  Render                                                           */
-  /* ---------------------------------------------------------------- */
-
-  function getFilteredParameters() {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return parameters;
-    return parameters.filter(
-      (p) =>
-        p.key.toLowerCase().includes(q) ||
-        p.label.toLowerCase().includes(q) ||
-        p.value.toLowerCase().includes(q) ||
-        p.unit?.toLowerCase().includes(q)
-    );
-  }
-
-  const filtered = getFilteredParameters();
 
   return (
     <div className="space-y-4">
-      {/* Header & Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative flex-1 max-w-xs">
@@ -438,7 +383,6 @@ export default function LegalParametersPanel() {
         </Button>
       </div>
 
-      {/* Table */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -475,12 +419,8 @@ export default function LegalParametersPanel() {
                       <TableCell className="font-mono text-xs">{param.key}</TableCell>
                       <TableCell>
                         <span className="font-medium">{param.label}</span>
-                        {/* LegalBadgeButton inline */}
                         {(param.legalRecord || param.legalRecordId) && (
-                          <LegalBadgeButton
-                            onClick={() => openRecordDrawer(param)}
-                            title="Ver soporte legal"
-                          />
+                          <LegalBadgeButton onClick={() => openRecordDrawer(param)} title="Ver soporte legal" />
                         )}
                       </TableCell>
                       <TableCell>{param.value}</TableCell>
@@ -493,13 +433,7 @@ export default function LegalParametersPanel() {
                       <TableCell />
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8"
-                            onClick={() => openEdit(param)}
-                            title="Editar"
-                          >
+                          <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(param)} title="Editar">
                             <Pencil className="size-3.5" />
                           </Button>
                           <Button
@@ -522,22 +456,16 @@ export default function LegalParametersPanel() {
         </CardContent>
       </Card>
 
-      {/* Create / Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingParam ? 'Editar parámetro' : 'Nuevo parámetro'}
-            </DialogTitle>
+            <DialogTitle>{editingParam ? 'Editar parámetro' : 'Nuevo parámetro'}</DialogTitle>
             <DialogDescription>
-              {editingParam
-                ? 'Modifica los campos del parámetro legal.'
-                : 'Rellena los datos para crear un nuevo parámetro legal.'}
+              {editingParam ? 'Modifica los campos del parámetro legal.' : 'Rellena los datos para crear un nuevo parámetro legal.'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-2">
-            {/* Key */}
             <div className="grid gap-1.5">
               <Label htmlFor="param-key">Clave <span className="text-red-500">*</span></Label>
               <Input
@@ -549,44 +477,23 @@ export default function LegalParametersPanel() {
                 className={editingParam ? 'bg-muted cursor-not-allowed' : ''}
               />
             </div>
-
-            {/* Label */}
             <div className="grid gap-1.5">
               <Label htmlFor="param-label">Etiqueta <span className="text-red-500">*</span></Label>
-              <Input
-                id="param-label"
-                placeholder="ej: SMI mensual 2026"
-                value={form.label}
-                onChange={(e) => updateForm('label', e.target.value)}
-              />
+              <Input id="param-label" value={form.label} onChange={(e) => updateForm('label', e.target.value)} />
             </div>
-
-            {/* Value + Unit */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="param-value">Valor <span className="text-red-500">*</span></Label>
-                <Input
-                  id="param-value"
-                  placeholder="ej: 1221"
-                  value={form.value}
-                  onChange={(e) => updateForm('value', e.target.value)}
-                />
+                <Input id="param-value" value={form.value} onChange={(e) => updateForm('value', e.target.value)} />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="param-unit">Unidad</Label>
-                <Input
-                  id="param-unit"
-                  placeholder="ej: €/mes"
-                  value={form.unit}
-                  onChange={(e) => updateForm('unit', e.target.value)}
-                />
+                <Input id="param-unit" value={form.unit} onChange={(e) => updateForm('unit', e.target.value)} />
               </div>
             </div>
-
-            {/* Category */}
             <div className="grid gap-1.5">
               <Label>Categoría <span className="text-red-500">*</span></Label>
-              <Select value={form.category} onValueChange={(v) => updateForm('category', v)}>
+              <Select value={form.category} onValueChange={(value) => updateForm('category', value)}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar categoría" /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(CATEGORIES).map(([value, label]) => (
@@ -595,8 +502,6 @@ export default function LegalParametersPanel() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Dates */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="param-from">Vigencia desde</Label>
@@ -607,21 +512,13 @@ export default function LegalParametersPanel() {
                 <Input id="param-to" type="date" value={form.effectiveTo} onChange={(e) => updateForm('effectiveTo', e.target.value)} />
               </div>
             </div>
-
-            {/* Active */}
             <div className="flex items-center gap-2">
-              <Checkbox
-                id="param-active"
-                checked={form.isActive}
-                onCheckedChange={(checked) => updateForm('isActive', checked === true)}
-              />
+              <Checkbox id="param-active" checked={form.isActive} onCheckedChange={(checked) => updateForm('isActive', checked === true)} />
               <Label htmlFor="param-active" className="cursor-pointer">Parámetro activo</Label>
             </div>
-
-            {/* Legal Record */}
             <div className="grid gap-1.5">
               <Label>Ficha legal vinculada</Label>
-              <Select value={form.legalRecordId} onValueChange={(v) => updateForm('legalRecordId', v)}>
+              <Select value={form.legalRecordId || 'none'} onValueChange={(value) => updateForm('legalRecordId', value)}>
                 <SelectTrigger><SelectValue placeholder="Sin vinculación" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sin vinculación</SelectItem>
@@ -633,17 +530,9 @@ export default function LegalParametersPanel() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Notes */}
             <div className="grid gap-1.5">
               <Label htmlFor="param-notes">Notas</Label>
-              <Textarea
-                id="param-notes"
-                placeholder="Observaciones internas..."
-                value={form.notes}
-                onChange={(e) => updateForm('notes', e.target.value)}
-                rows={3}
-              />
+              <Textarea id="param-notes" value={form.notes} onChange={(e) => updateForm('notes', e.target.value)} rows={3} />
             </div>
           </div>
 
@@ -656,36 +545,25 @@ export default function LegalParametersPanel() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar parámetro?</AlertDialogTitle>
             <AlertDialogDescription>
               Se desactivará el parámetro <strong>{deletingParam?.label}</strong> (
-              <span className="font-mono">{deletingParam?.key}</span>). Esta acción se puede
-              deshacer más tarde.
+              <span className="font-mono">{deletingParam?.key}</span>). Esta acción se puede deshacer más tarde.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700 text-white">
               {deleting ? 'Eliminando...' : 'Eliminar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Legal Record Drawer */}
-      <LegalRecordDrawer
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        record={drawerRecord}
-      />
+      <LegalRecordDrawer open={drawerOpen} onOpenChange={setDrawerOpen} record={drawerRecord} />
     </div>
   );
 }
