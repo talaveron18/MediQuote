@@ -39,6 +39,8 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     pricePerHour: block.pricePerHour,
     internalCostPerHour: block.internalCostPerHour ?? null,
     internalMargin: block.internalMargin ?? null,
+    blockType: block.blockType ?? null,
+    dateUIMode: block.dateUIMode ?? null,
     dateMode: block.dateMode,
     specificDates: block.specificDates ? JSON.stringify(block.specificDates) : null,
     dateRangeStart: block.dateRangeStart ?? null,
@@ -57,6 +59,14 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     unitType: block.unitType ?? 'hora',
     quantity: block.quantity ?? 1,
     fixedPrice: block.fixedPrice ?? null,
+    courseName: block.courseName ?? null,
+    courseTeacher: block.courseTeacher ?? null,
+    courseModality: block.courseModality ?? null,
+    courseSessions: block.courseSessions ?? null,
+    materialName: block.materialName ?? null,
+    accommodationNights: block.accommodationNights ?? null,
+    accommodationPersons: block.accommodationPersons ?? null,
+    transportType: block.transportType ?? null,
     selectedProfessionals: block.plantillaSeleccionada ?? block.selectedProfessionals ?? 1,
     observations: block.observations ?? null,
     enabledSurcharges: block.enabledSurcharges ? JSON.stringify(block.enabledSurcharges) : null,
@@ -181,7 +191,7 @@ export async function POST(request: NextRequest) {
     const code = generateBudgetCode(todayCount)
 
     // Security: strip internal fields for commercial users; admin/maestro keeps full data
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro';
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
     const blocksToSave = canSeeInternal
       ? (serviceBlocks ?? [])
       : (serviceBlocks?.map(stripInternalFields) ?? [])
@@ -321,7 +331,7 @@ export async function PUT(request: NextRequest) {
     } = updateData
 
     // For comercial users, strip internal fields from service block updates
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro';
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
     let processedBlocks = serviceBlocks
     if (processedBlocks && !canSeeInternal) {
       processedBlocks = processedBlocks.map((block: any) => {
