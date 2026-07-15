@@ -19,6 +19,7 @@ import type {
 } from '@/lib/types';
 import type { DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types';
 import { SERVICE_LOCATIONS } from '@/lib/service-locations';
+import { filterHolidaysForLocation } from '@/lib/holiday-location';
 
 export const runtime = 'nodejs';
 
@@ -112,8 +113,9 @@ export async function POST(request: NextRequest) {
     for (const year of years) holidays.push(...generateHolidaysForYear(year, location));
     // La versión territorial generada se añade después de la base global y
     // prevalece por fecha (p. ej., Jueves Santo autonómico frente al seed nacional).
+    const applicableHolidays = filterHolidaysForLocation(holidays, location);
     const deduplicatedHolidays = [...new Map(
-      holidays.map((holiday) => [holiday.date, holiday]),
+      applicableHolidays.map((holiday) => [holiday.date, holiday]),
     ).values()];
 
     // El calendario se ejecuta una sola vez. Se fuerza precio cero para que el
