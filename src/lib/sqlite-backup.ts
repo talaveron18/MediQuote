@@ -2,6 +2,7 @@ import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile }
 import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import { db } from '@/lib/db';
+import { dataPath, dataRoot } from '@/lib/data-paths';
 
 export type BackupKind = 'automatic' | 'manual' | 'pre-import';
 export interface BackupInfo { filename: string; size: number; createdAt: string; kind: BackupKind }
@@ -12,11 +13,13 @@ const BACKUP_FILE = /^gasi-(automatic|manual|pre-import)-\d{4}-\d{2}-\d{2}T\d{2}
 export function resolveSqlitePath(databaseUrl = process.env.DATABASE_URL || 'file:../db/custom.db'): string {
   if (!databaseUrl.startsWith('file:')) throw new Error('El backup automático requiere una base SQLite (DATABASE_URL file:)');
   const raw = databaseUrl.slice(5).split('?')[0];
+  if (path.isAbsolute(raw)) return path.normalize(raw);
+  if (process.env.GASI_DATA_DIR) return path.resolve(dataRoot(), raw);
   return path.resolve(/* turbopackIgnore: true */ process.cwd(), 'prisma', raw);
 }
 
 export function backupDirectory(): string {
-  return path.join(process.cwd(), 'backups');
+  return dataPath('backups');
 }
 
 export async function isValidSqliteFile(filePath: string): Promise<boolean> {
@@ -80,6 +83,7 @@ export function safeBackupPath(filename: string): string {
 
 let automaticPromise: Promise<BackupInfo | null> | null = null;
 export async function ensureDailyAutomaticBackup(now = new Date()): Promise<BackupInfo | null> {
+  if (process.env.NETLIFY || !process.env.DATABASE_URL?.startsWith('file:')) return null;
   if (automaticPromise) return automaticPromise;
   automaticPromise = (async () => {
     const day = now.toISOString().slice(0, 10);

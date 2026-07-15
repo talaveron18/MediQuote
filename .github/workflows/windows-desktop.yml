@@ -1,0 +1,36 @@
+name: Windows desktop installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  package:
+    runs-on: windows-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: 1
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
+          SESSION_SECRET: build-only-session-secret-with-at-least-32-bytes
+      - run: npm run desktop:dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GASI-MediQuote-Windows
+          path: |
+            dist-desktop/GASI-MediQuote-Setup-*.exe
+            dist-desktop/GASI-MediQuote-Setup-*.exe.blockmap
+            dist-desktop/latest.yml
+          if-no-files-found: error

@@ -11,8 +11,9 @@
 import { db } from '@/lib/db';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs';
 import path from 'path';
+import { dataRoot } from '@/lib/data-paths';
 
-const BASE = process.cwd();
+const BASE = dataRoot();
 
 interface ExportUser {
   id: string;
