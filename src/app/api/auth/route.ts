@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, SESSION_COOKIE, getCurrentUser, logAudit } from '@/lib/auth';
+import { createSessionToken, SESSION_MAX_AGE_SECONDS } from '@/lib/session';
+import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
+import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
 export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -21,8 +24,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Se requieren ambos campos' }, { status: 400 });
       }
 
-      if (newPassword.length < 6) {
-        return NextResponse.json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' }, { status: 400 });
+      if (!isStrongEnoughPassword(newPassword)) {
+        return NextResponse.json(
+          { error: `La nueva contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres` },
+          { status: 400 },
+        );
       }
 
       const user = await db.user.findUnique({ where: { id: auth.id } });
@@ -46,6 +52,7 @@ export async function POST(request: NextRequest) {
       }
 
       const hashed = await hashPassword(newPassword);
+      await ensureDailyAutomaticBackup();
       await db.user.update({
         where: { id: auth.id },
         data: { password: hashed, mustChangePassword: false },
@@ -129,7 +136,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Credenciales incorrectas' }, { status: 401 });
     }
 
-    // Update last login
+    // Login actualiza la base; la primera escritura del día queda precedida por backup.
+    await ensureDailyAutomaticBackup();
     await db.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -157,9 +165,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    response.cookies.set(SESSION_COOKIE, user.email, {
+    response.cookies.set(SESSION_COOKIE, createSessionToken(user.id), {
       path: '/',
-      maxAge: 60 * 60 * 24,
+      maxAge: SESSION_MAX_AGE_SECONDS,
       sameSite: 'lax',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

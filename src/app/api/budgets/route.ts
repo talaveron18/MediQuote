@@ -2,15 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
 import { exportBudgetLightweight } from '@/lib/export-budget-lightweight'
-import type { BudgetStatus, ServiceBlockInput } from '@/lib/types'
-
-// Strip internal fields before saving (commercial security)
-function stripInternalFields(block: Record<string, any>): Record<string, any> {
-  const clean: Record<string, unknown> = { ...block }
-  delete clean['internalCostPerHour']
-  delete clean['internalMargin']
-  return clean
-}
+import type { BudgetStatus } from '@/lib/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -39,6 +31,9 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     pricePerHour: block.pricePerHour,
     internalCostPerHour: block.internalCostPerHour ?? null,
     internalMargin: block.internalMargin ?? null,
+    contractType: block.contractType ?? null,
+    blockType: block.blockType ?? null,
+    dateUIMode: block.dateUIMode ?? null,
     dateMode: block.dateMode,
     specificDates: block.specificDates ? JSON.stringify(block.specificDates) : null,
     dateRangeStart: block.dateRangeStart ?? null,
@@ -57,10 +52,96 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     unitType: block.unitType ?? 'hora',
     quantity: block.quantity ?? 1,
     fixedPrice: block.fixedPrice ?? null,
+    courseName: block.courseName ?? null,
+    courseTeacher: block.courseTeacher ?? null,
+    courseModality: block.courseModality ?? null,
+    courseSessions: block.courseSessions ?? null,
+    materialName: block.materialName ?? null,
+    accommodationNights: block.accommodationNights ?? null,
+    accommodationPersons: block.accommodationPersons ?? null,
+    transportType: block.transportType ?? null,
     selectedProfessionals: block.plantillaSeleccionada ?? block.selectedProfessionals ?? 1,
     observations: block.observations ?? null,
     enabledSurcharges: block.enabledSurcharges ? JSON.stringify(block.enabledSurcharges) : null,
+    totalWorkingDays: block.totalWorkingDays ?? 0,
+    totalHours: block.totalHours ?? block.coverageHours ?? 0,
+    totalSurcharges: block.totalSurcharges ?? 0,
+    minProfessionals: block.plantillaMinimaRecomendada ?? block.minProfessionals ?? 1,
+    overtimeHours: block.overtimeHours ?? 0,
+    blockSubtotal: block.blockSubtotal ?? 0,
+    surchargeBreakdown: block.surcharges ? JSON.stringify(block.surcharges) : null,
+    laborWarnings: block.laborWarnings ? JSON.stringify(block.laborWarnings) : null,
   }
+}
+
+function parseJsonArray<T>(value: unknown, fallback: T[]): T[] {
+  if (Array.isArray(value)) return value as T[]
+  if (typeof value !== 'string' || !value) return fallback
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function deserializeServiceBlock(block: Record<string, any>): Record<string, any> {
+  return {
+    ...block,
+    puestosSimultaneos: block.professionalsRequested ?? 1,
+    plantillaSeleccionada: block.selectedProfessionals ?? 1,
+    specificDates: parseJsonArray<string>(block.specificDates, []),
+    daysOfWeek: parseJsonArray<number>(block.daysOfWeek, [1, 2, 3, 4, 5]),
+    holidayTypesExcluded: parseJsonArray<string>(block.holidayTypesExcluded, []),
+    enabledSurcharges: parseJsonArray<string>(block.enabledSurcharges, []),
+  }
+}
+
+function deserializeBudget(budget: any): any {
+  return {
+    ...budget,
+    serviceBlocks: budget.serviceBlocks?.map(deserializeServiceBlock) ?? [],
+  }
+}
+
+async function getValidCostingQuote(userId: string, token: unknown) {
+  if (typeof token !== 'string' || !token) return null
+  const quote = await db.costingQuote.findUnique({ where: { id: token } })
+  if (!quote || quote.userId !== userId || quote.usedAt || quote.expiresAt <= new Date()) return null
+  return quote
+}
+
+function blocksFromCostingSnapshot(snapshot: string): Record<string, any>[] | null {
+  try {
+    const parsed = JSON.parse(snapshot)
+    if (!Array.isArray(parsed.serviceBlocks) || !Array.isArray(parsed.schedules)) return null
+    return parsed.serviceBlocks.map((block: Record<string, any>, index: number) => ({
+      ...block,
+      ...(parsed.schedules[index] ?? {}),
+      blockSubtotal: 0,
+    }))
+  } catch {
+    return null
+  }
+}
+
+function locationFromCostingSnapshot(snapshot: string): {
+  serviceLocationId: string;
+  serviceAutonomousCommunity: string;
+  serviceProvince: string;
+  serviceMunicipality: string | null;
+} | null {
+  try {
+    const parsed = JSON.parse(snapshot)
+    const location = parsed.location
+    if (!location?.cc || !location?.province) return null
+    return {
+      serviceLocationId: String(location.id || 'custom'),
+      serviceAutonomousCommunity: String(location.cc),
+      serviceProvince: String(location.province),
+      serviceMunicipality: location.municipality ? String(location.municipality) : null,
+    }
+  } catch { return null }
 }
 
 /**
@@ -71,7 +152,7 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
 function sanitizeBudgetForCommercial(budget: any): any {
   const { internalNotes, serviceBlocks, ...rest } = budget
   const cleanBlocks = serviceBlocks?.map((block: any) => {
-    const { internalCostPerHour, internalMargin, ...cleanBlock } = block
+    const { internalCostPerHour, internalMargin, pricePerHour, fixedPrice, ...cleanBlock } = block
     return cleanBlock
   })
   return { ...rest, serviceBlocks: cleanBlocks }
@@ -117,6 +198,7 @@ export async function GET(request: NextRequest) {
     const budgets = await db.budget.findMany({
       where,
       include: {
+        serviceBlocks: { orderBy: { sortOrder: 'asc' } },
         client: {
           select: { businessName: true, cif: true },
         },
@@ -130,7 +212,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     })
 
-    const result = { budgets }
+    const result = { budgets: budgets.map(deserializeBudget) }
     return NextResponse.json(sanitizeBudgetsForRole(result, auth.role))
   } catch (error) {
     console.error('[GET /api/budgets] Error:', error)
@@ -164,7 +246,21 @@ export async function POST(request: NextRequest) {
       clientNotes,
       internalNotes,
       serviceBlocks,
+      calculationToken,
     } = body
+
+    const costingQuote = await getValidCostingQuote(auth.id, calculationToken)
+    if (!costingQuote) {
+      return NextResponse.json({ error: 'La cotización económica falta, ha caducado o ya fue utilizada. Vuelve a calcular.' }, { status: 409 })
+    }
+    const quotedBlocks = blocksFromCostingSnapshot(costingQuote.snapshot)
+    if (!quotedBlocks?.length) {
+      return NextResponse.json({ error: 'La cotización económica no contiene bloques válidos. Vuelve a calcular.' }, { status: 409 })
+    }
+    const quotedLocation = locationFromCostingSnapshot(costingQuote.snapshot)
+    if (!quotedLocation) {
+      return NextResponse.json({ error: 'La cotización económica no contiene una zona de servicio válida. Vuelve a calcular.' }, { status: 409 })
+    }
 
     // Resolve client ID by CIF (supports old and new IDs)
     let resolvedClientId = clientId
@@ -180,11 +276,10 @@ export async function POST(request: NextRequest) {
     })
     const code = generateBudgetCode(todayCount)
 
-    // Security: strip internal fields for commercial users; admin/maestro keeps full data
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro';
-    const blocksToSave = canSeeInternal
-      ? (serviceBlocks ?? [])
-      : (serviceBlocks?.map(stripInternalFields) ?? [])
+    // Los bloques se recuperan del snapshot del servidor. El navegador no puede
+    // cambiar horas, categoría o costes entre calcular y guardar.
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
+    const blocksToSave = quotedBlocks
 
     // Create budget — use authenticated user's ID
     const budget = await db.budget.create({
@@ -195,34 +290,41 @@ export async function POST(request: NextRequest) {
         status,
         validUntil: validUntil ?? null,
         description: description ?? null,
-        subtotal,
-        totalSurcharges,
-        discountPercent,
-        discountAmount,
-        ivaPercent,
-        ivaAmount,
-        totalFinal,
+        subtotal: costingQuote.subtotal,
+        totalSurcharges: 0,
+        discountPercent: costingQuote.discountPercent,
+        discountAmount: costingQuote.discountAmount,
+        ivaPercent: costingQuote.ivaPercent,
+        ivaAmount: costingQuote.ivaAmount,
+        totalFinal: costingQuote.totalFinal,
         clientNotes: clientNotes ?? null,
         // internalNotes only settable by admin/maestro
         internalNotes: canSeeInternal ? (internalNotes ?? null) : null,
+        ...quotedLocation,
         serviceBlocks: blocksToSave.length
           ? {
-              create: blocksToSave.map((block: ServiceBlockInput, index: number) => ({
+              create: blocksToSave.map((block, index) => ({
                 ...serializeServiceBlockData(block),
                 sortOrder: index,
-              })),
+              })) as any,
             }
           : undefined,
         history: {
           create: {
             userId: auth.id,
             action: 'created',
+            snapshot: costingQuote.snapshot,
           },
         },
       },
       include: {
         serviceBlocks: true,
       },
+    })
+
+    await db.costingQuote.update({
+      where: { id: costingQuote.id },
+      data: { usedAt: new Date(), budgetId: budget.id },
     })
 
     // Auto-export: JSON + CSV + AuditLog (lightweight, no PDF)
@@ -258,13 +360,25 @@ export async function PUT(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
 
     const body = await request.json()
-    const { id, serviceBlocks, ...updateData } = body
+    const { id, serviceBlocks, calculationToken, ...updateData } = body
 
     if (!id) {
       return NextResponse.json(
         { error: 'Se requiere el ID del presupuesto' },
         { status: 400 },
       )
+    }
+
+    const updatesEconomicData = serviceBlocks !== undefined || [
+      'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
+      'ivaPercent', 'ivaAmount', 'totalFinal', 'serviceLocationId',
+      'serviceAutonomousCommunity', 'serviceProvince', 'serviceMunicipality',
+    ].some((key) => updateData[key] !== undefined)
+    const costingQuote = updatesEconomicData
+      ? await getValidCostingQuote(auth.id, calculationToken)
+      : null
+    if (updatesEconomicData && !costingQuote) {
+      return NextResponse.json({ error: 'La cotización económica falta, ha caducado o ya fue utilizada. Vuelve a calcular.' }, { status: 409 })
     }
 
     // Fetch existing budget to detect status change
@@ -285,6 +399,7 @@ export async function PUT(request: NextRequest) {
       action: string
       oldStatus?: string | null
       newStatus?: string | null
+      snapshot?: string | null
     }[] = []
 
     // Detect status change
@@ -301,6 +416,7 @@ export async function PUT(request: NextRequest) {
     historyEntries.push({
       userId,
       action: 'modified',
+      snapshot: costingQuote?.snapshot ?? null,
     })
 
     // Prepare update payload (remove fields that shouldn't be directly set)
@@ -321,13 +437,16 @@ export async function PUT(request: NextRequest) {
     } = updateData
 
     // For comercial users, strip internal fields from service block updates
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro';
-    let processedBlocks = serviceBlocks
-    if (processedBlocks && !canSeeInternal) {
-      processedBlocks = processedBlocks.map((block: any) => {
-        const { internalCostPerHour, internalMargin, ...rest } = block
-        return rest
-      })
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
+    let processedBlocks = costingQuote
+      ? blocksFromCostingSnapshot(costingQuote.snapshot)
+      : serviceBlocks
+    if (costingQuote && !processedBlocks?.length) {
+      return NextResponse.json({ error: 'La cotización económica no contiene bloques válidos. Vuelve a calcular.' }, { status: 409 })
+    }
+    const quotedLocation = costingQuote ? locationFromCostingSnapshot(costingQuote.snapshot) : null
+    if (costingQuote && !quotedLocation) {
+      return NextResponse.json({ error: 'La cotización económica no contiene una zona de servicio válida. Vuelve a calcular.' }, { status: 409 })
     }
 
     // Delete existing service blocks if new ones are provided
@@ -345,24 +464,37 @@ export async function PUT(request: NextRequest) {
         ...(status !== undefined && { status }),
         ...(validUntil !== undefined && { validUntil: validUntil ?? null }),
         ...(description !== undefined && { description: description ?? null }),
-        ...(subtotal !== undefined && { subtotal }),
-        ...(totalSurcharges !== undefined && { totalSurcharges }),
-        ...(discountPercent !== undefined && { discountPercent }),
-        ...(discountAmount !== undefined && { discountAmount }),
-        ...(ivaPercent !== undefined && { ivaPercent }),
-        ...(ivaAmount !== undefined && { ivaAmount }),
-        ...(totalFinal !== undefined && { totalFinal }),
+        ...(costingQuote
+          ? {
+              subtotal: costingQuote.subtotal,
+              totalSurcharges: 0,
+              discountPercent: costingQuote.discountPercent,
+              discountAmount: costingQuote.discountAmount,
+              ivaPercent: costingQuote.ivaPercent,
+              ivaAmount: costingQuote.ivaAmount,
+              totalFinal: costingQuote.totalFinal,
+            }
+          : {
+              ...(subtotal !== undefined && { subtotal }),
+              ...(totalSurcharges !== undefined && { totalSurcharges }),
+              ...(discountPercent !== undefined && { discountPercent }),
+              ...(discountAmount !== undefined && { discountAmount }),
+              ...(ivaPercent !== undefined && { ivaPercent }),
+              ...(ivaAmount !== undefined && { ivaAmount }),
+              ...(totalFinal !== undefined && { totalFinal }),
+            }),
         ...(clientNotes !== undefined && { clientNotes: clientNotes ?? null }),
         // internalNotes only settable by admin/maestro
         ...(canSeeInternal && internalNotes !== undefined && { internalNotes: internalNotes ?? null }),
+        ...(quotedLocation ?? {}),
         // Recreate service blocks if provided
         ...(processedBlocks?.length
           ? {
               serviceBlocks: {
-                create: processedBlocks.map((block: ServiceBlockInput, index: number) => ({
+                create: processedBlocks.map((block: Record<string, any>, index: number) => ({
                   ...serializeServiceBlockData(block),
                   sortOrder: index,
-                })),
+                })) as any,
               },
             }
           : {}),
@@ -381,6 +513,13 @@ export async function PUT(request: NextRequest) {
         },
       },
     })
+
+    if (costingQuote) {
+      await db.costingQuote.update({
+        where: { id: costingQuote.id },
+        data: { usedAt: new Date(), budgetId: id },
+      })
+    }
 
     // Auto-export: JSON + CSV + AuditLog (lightweight, no PDF)
     exportBudgetLightweight(updated.id, {

@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { verifySessionToken } from '@/lib/session';
+import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
 export const SESSION_COOKIE = 'gasi_session';
 
@@ -12,6 +14,27 @@ export type AuthUser = {
   active: boolean;
   mustChangePassword: boolean;
 };
+
+function passwordChangeRequired(): NextResponse {
+  return NextResponse.json(
+    { error: 'Debes cambiar la contraseña antes de continuar', code: 'PASSWORD_CHANGE_REQUIRED' },
+    { status: 403 },
+  );
+}
+
+async function protectMutation(request: Request): Promise<NextResponse | null> {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) return null;
+  if (new URL(request.url).pathname === '/api/backup') return null;
+  try {
+    await ensureDailyAutomaticBackup();
+    return null;
+  } catch (error) {
+    return NextResponse.json({
+      error: 'Operación detenida: no se pudo crear la copia de seguridad automática',
+      detail: error instanceof Error ? error.message : undefined,
+    }, { status: 503 });
+  }
+}
 
 /**
  * Reads session cookie and returns user from DB or null.
@@ -27,10 +50,11 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
 
   if (!match) return null;
 
-  const email = decodeURIComponent(match.split('=')[1]);
-  if (!email) return null;
+  const token = decodeURIComponent(match.slice(`${SESSION_COOKIE}=`.length));
+  const session = verifySessionToken(token);
+  if (!session) return null;
 
-  const user = await db.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { id: session.userId } });
   if (!user || !user.active) return null;
 
   return {
@@ -53,6 +77,9 @@ export async function requireAuth(
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
+  if (user.mustChangePassword) return passwordChangeRequired();
+  const backupError = await protectMutation(request);
+  if (backupError) return backupError;
   return user;
 }
 
@@ -68,11 +95,13 @@ export async function requireRole(
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
+  if (user.mustChangePassword) return passwordChangeRequired();
   // maestro has access to everything
-  if (user.role === 'maestro') return user;
-  if (!allowedRoles.includes(user.role)) {
+  if (user.role !== 'maestro' && !allowedRoles.includes(user.role)) {
     return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
   }
+  const backupError = await protectMutation(request);
+  if (backupError) return backupError;
   return user;
 }
 
@@ -86,9 +115,12 @@ export async function requireMaestro(
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
+  if (user.mustChangePassword) return passwordChangeRequired();
   if (user.role !== 'maestro') {
     return NextResponse.json({ error: 'Acceso denegado. Solo el titular puede acceder.' }, { status: 403 });
   }
+  const backupError = await protectMutation(request);
+  if (backupError) return backupError;
   return user;
 }
 
@@ -135,6 +167,20 @@ const INTERNAL_FIELDS = [
   'precioCatalogo',
   'precioTrabajo',
   'defaultInternalCost',
+  'internalCost',
+  'internalCostTotal',
+  'totalInternalCost',
+  'costSnapshot',
+  'snapshot',
+  'salary',
+  'employerContributions',
+  'occupationalRisk',
+  'netBeforeCommission',
+  'commissionAmount',
+  'commissionRatePercent',
+  'finalGasiBenefit',
+  'gasiReturnOnCostPercent',
+  'finalMarginOnSalePercent',
   'password',
   'mustChangePassword',
   'lastLoginAt',

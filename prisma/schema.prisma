@@ -12,7 +12,7 @@ datasource db {
 model User {
   id                 String    @id @default(cuid())
   email              String    @unique
-  password           String
+  password           String    @default("")
   name               String
   role               String    @default("comercial")
   active             Boolean   @default(true)
@@ -71,6 +71,10 @@ model Budget {
   totalFinal      Float    @default(0)
   clientNotes     String?
   internalNotes   String?
+  serviceLocationId String   @default("madrid-capital")
+  serviceAutonomousCommunity String @default("Madrid")
+  serviceProvince String      @default("Madrid")
+  serviceMunicipality String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   serviceBlocks   ServiceBlock[]
@@ -88,6 +92,11 @@ model ServiceBlock {
   pricePerHour           Float
   internalCostPerHour    Float?
   internalMargin         Float?
+  contractType           String?  // indefinido, temporal, fijo_discontinuo, mercantil_autonomo
+
+  // Block type and UI mode
+  blockType              String?  // profesional_hora, servicio_fijo, material, alojamiento, curso, etc.
+  dateUIMode             String?  // weekly, specific, month
 
   // Date configuration
   dateMode               String   @default("range") // specific, range
@@ -110,6 +119,16 @@ model ServiceBlock {
   unitType               String   @default("hora") // hora, dia, servicio, kilometro, unidad, turno
   quantity               Float    @default(1)
   fixedPrice             Float?   // for fixed-price services like ambulance
+
+  // Special block fields
+  courseName             String?
+  courseTeacher          String?
+  courseModality         String?
+  courseSessions         Int?
+  materialName           String?
+  accommodationNights    Float?
+  accommodationPersons   Float?
+  transportType          String?
 
   // Cached calculation results
   totalWorkingDays       Int      @default(0)
@@ -180,7 +199,8 @@ model Holiday {
   province             String?
   municipality          String?
   year                 Int?
-  recurring            Boolean  @default(true)
+  // Default must be false. Only fixed annual holidays should opt into MM-DD matching.
+  recurring            Boolean  @default(false)
   createdAt            DateTime @default(now())
 }
 
@@ -190,7 +210,7 @@ model LaborRule {
   name                   String  @unique
   maxWeeklyHours         Float   @default(40)
   maxDailyHours          Float   @default(12)
-  minRestBetweenShiftsH  Float   @default(11)
+  minRestBetweenShiftsH  Float   @default(12)
   maxConsecutiveDays     Int     @default(6)
   nightStartHour         Int     @default(22)
   nightEndHour           Int     @default(6)
@@ -204,6 +224,25 @@ model AppConfig {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ─── Server-side immutable costing quotes ──────────────────────
+model CostingQuote {
+  id              String   @id @default(cuid())
+  userId          String
+  budgetId        String?
+  snapshot        String   // JSON interno: coste, política y resultado económico
+  subtotal        Float
+  discountPercent Float
+  discountAmount  Float
+  ivaPercent      Float
+  ivaAmount       Float
+  totalFinal      Float
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([budgetId])
 }
 
 // ─── General Audit Log ─────────────────────────────────────────

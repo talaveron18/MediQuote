@@ -9,7 +9,7 @@ import {
   calculateSurcharges,
   calculateServiceBlock,
   calculateBudgetTotals,
-} from '../src/lib/calculation-engine';
+} from '../src/lib/schedule-engine';
 import type { HolidayInfo } from '../src/lib/types';
 
 let passed = 0;
@@ -50,7 +50,7 @@ const defaultSurcharges = [
 ];
 
 const laborRules = {
-  maxWeeklyHours: 40, maxDailyHours: 12, minRestBetweenShiftsH: 11,
+  maxWeeklyHours: 40, maxDailyHours: 12, minRestBetweenShiftsH: 12,
   maxConsecutiveDays: 6, nightStartHour: 22, nightEndHour: 6,
 };
 

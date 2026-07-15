@@ -38,6 +38,8 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Disposition': `inline; filename="presupuesto-${budget.code}.html"`,
+        'Cache-Control': 'no-store, private',
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   } catch (error: unknown) {
@@ -57,7 +59,7 @@ function fmtDate(d: string): string {
   return new Date(d).toLocaleDateString('es-ES');
 }
 
-function generateBudgetHTML(budget: any, company: Record<string, string>): string {
+export function generateBudgetHTML(budget: any, company: Record<string, string>): string {
   const statusLabels: Record<string, string> = {
     borrador: 'BORRADOR', enviado: 'ENVIADO', aceptado: 'ACEPTADO',
     rechazado: 'RECHAZADO', caducado: 'CADUCADO',
@@ -82,8 +84,7 @@ function generateBudgetHTML(budget: any, company: Record<string, string>): strin
         <tr><td style="padding:3px 12px;color:#666;">Total horas</td><td style="padding:3px 12px;">${fmt(block.totalHours)}h</td></tr>
         <tr><td style="padding:3px 12px;color:#666;">Profesionales</td><td style="padding:3px 12px;">${block.selectedProfessionals}</td></tr>
         ${block.overtimeHours > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Horas extra estimadas</td><td style="padding:3px 12px;color:#dc2626;">${fmt(block.overtimeHours)}h</td></tr>` : ''}
-        <tr><td style="padding:3px 12px;color:#666;">Precio/hora</td><td style="padding:3px 12px;">${fmtEur(block.pricePerHour)}</td></tr>
-        <tr style="font-weight:600;"><td style="padding:6px 12px;border-top:1px solid #e5e7eb;">Subtotal bloque</td><td style="padding:6px 12px;text-align:right;border-top:1px solid #e5e7eb;">${fmtEur(block.blockSubtotal)}</td></tr>
+        <tr><td style="padding:3px 12px;color:#666;">Valoración</td><td style="padding:3px 12px;">Incluida en la propuesta económica global</td></tr>
       </table>
       ${surchargeRows ? `
       <table style="width:100%;border-collapse:collapse;margin-top:4px;">
@@ -97,20 +98,29 @@ function generateBudgetHTML(budget: any, company: Record<string, string>): strin
 
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><title>Presupuesto ${budget.code}</title>
-<style>@media print { body { margin: 0; } .no-print { display: none; } }</style>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @media print { body { margin: 0 !important; } .no-print { display: none; } }
+</style>
 </head><body style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;margin:40px;font-size:13px;max-width:800px;margin:0 auto;">
 
 <div class="no-print" style="text-align:right;margin-bottom:16px;">
-  <button onclick="window.print()" style="padding:8px 24px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Imprimir / Guardar PDF</button>
+  <button onclick="window.print()" style="padding:8px 24px;background:#00549b;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Imprimir / Guardar PDF</button>
 </div>
 
 <!-- Header -->
-<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #059669;padding-bottom:16px;margin-bottom:24px;">
-  <div>
-    <h1 style="margin:0;font-size:22px;color:#059669;">${esc(company.company_name || 'GASI Servicios Sanitarios')}</h1>
-    <p style="margin:4px 0 0;color:#666;font-size:12px;">CIF: ${esc(company.company_cif || '')}</p>
-    <p style="margin:2px 0 0;color:#666;font-size:12px;">${esc(company.company_address || '')}</p>
-    <p style="margin:2px 0 0;color:#666;font-size:12px;">Tel: ${esc(company.company_phone || '')} | ${esc(company.company_email || '')}</p>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #00549b;padding-bottom:16px;margin-bottom:24px;gap:24px;">
+  <div style="display:flex;gap:14px;align-items:flex-start;">
+    <img src="/branding/gasi-logo.png" alt="GASI — Grupo de Asistencia Sanitaria Integral" style="width:145px;height:72px;object-fit:contain;object-position:left center;" />
+    <div>
+    <h1 style="margin:0;font-size:18px;color:#00549b;">${esc(company.company_name || 'GASI — Grupo de Asistencia Sanitaria Integral')}</h1>
+    ${company.company_cif ? `<p style="margin:4px 0 0;color:#666;font-size:12px;">CIF: ${esc(company.company_cif)}</p>` : ''}
+    ${company.company_address ? `<p style="margin:2px 0 0;color:#666;font-size:12px;">${esc(company.company_address)}</p>` : ''}
+    <p style="margin:2px 0 0;color:#666;font-size:12px;">${esc(company.company_phone || '622 822 101')} · ${esc(company.company_email || 'coordinacion@gasisalud.com')}</p>
+    <p style="margin:2px 0 0;color:#666;font-size:12px;">gasisalud.com · WhatsApp 634 029 865</p>
+    </div>
   </div>
   <div style="text-align:right;">
     <h2 style="margin:0;font-size:20px;">PRESUPUESTO</h2>
@@ -123,22 +133,24 @@ function generateBudgetHTML(budget: any, company: Record<string, string>): strin
 
 <!-- Client -->
 <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:24px;">
-  <h3 style="margin:0 0 8px;font-size:13px;color:#059669;">DATOS DEL CLIENTE</h3>
+  <h3 style="margin:0 0 8px;font-size:13px;color:#00549b;">DATOS DEL CLIENTE</h3>
   <p style="margin:0;font-weight:600;">${esc(budget.client.businessName)}</p>
   <p style="margin:2px 0 0;color:#666;">CIF: ${esc(budget.client.cif)}</p>
   <p style="margin:2px 0 0;color:#666;">${esc(budget.client.fiscalAddress)}</p>
   ${budget.client.contactPerson ? `<p style="margin:2px 0 0;color:#666;">Contacto: ${esc(budget.client.contactPerson)} ${budget.client.email ? '(' + esc(budget.client.email) + ')' : ''}</p>` : ''}
 </div>
 
+${budget.serviceProvince ? `<div style="margin:-10px 0 22px;color:#374151;font-size:12px;"><strong>Lugar de prestación:</strong> ${esc([budget.serviceMunicipality, budget.serviceProvince, budget.serviceAutonomousCommunity].filter(Boolean).join(', '))}</div>` : ''}
+
 <!-- Description -->
-${budget.description ? `<div style="margin-bottom:24px;"><h3 style="margin:0 0 8px;font-size:13px;color:#059669;">DESCRIPCIÓN DEL SERVICIO</h3><p style="margin:0;line-height:1.6;">${esc(budget.description)}</p></div>` : ''}
+${budget.description ? `<div style="margin-bottom:24px;"><h3 style="margin:0 0 8px;font-size:13px;color:#00549b;">DESCRIPCIÓN DEL SERVICIO</h3><p style="margin:0;line-height:1.6;">${esc(budget.description)}</p></div>` : ''}
 
 <!-- Service Blocks -->
-<h3 style="margin:0 0 16px;font-size:15px;color:#059669;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">DETALLE DE SERVICIOS</h3>
+<h3 style="margin:0 0 16px;font-size:15px;color:#00549b;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">DETALLE DE SERVICIOS</h3>
 ${blocksHTML}
 
 <!-- Client Notes -->
-${budget.clientNotes ? `<div style="background:#f0fdf4;border-left:3px solid #059669;padding:12px;margin:24px 0;font-size:12px;color:#374151;"><strong>Notas:</strong> ${esc(budget.clientNotes)}</div>` : ''}
+${budget.clientNotes ? `<div style="background:#eff6ff;border-left:3px solid #00549b;padding:12px;margin:24px 0;font-size:12px;color:#374151;"><strong>Notas:</strong> ${esc(budget.clientNotes)}</div>` : ''}
 
 <!-- Totals -->
 <div style="border-top:2px solid #1a1a1a;margin-top:32px;padding-top:16px;">
@@ -148,7 +160,7 @@ ${budget.clientNotes ? `<div style="background:#f0fdf4;border-left:3px solid #05
     ${budget.discountAmount > 0 ? `<tr><td style="padding:6px 0;color:#666;">Descuento (${fmt(budget.discountPercent)}%)</td><td style="padding:6px 0;text-align:right;color:#dc2626;">-${fmtEur(budget.discountAmount)}</td></tr>` : ''}
     <tr><td style="padding:6px 0;color:#666;">Base imponible</td><td style="padding:6px 0;text-align:right;font-weight:600;">${fmtEur(baseImponible)}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">IVA (${fmt(budget.ivaPercent)}%)</td><td style="padding:6px 0;text-align:right;">${fmtEur(budget.ivaAmount)}</td></tr>
-    <tr style="border-top:2px solid #059669;"><td style="padding:10px 0;font-size:18px;font-weight:700;color:#059669;">TOTAL FINAL</td><td style="padding:10px 0;text-align:right;font-size:18px;font-weight:700;color:#059669;">${fmtEur(budget.totalFinal)}</td></tr>
+    <tr style="border-top:2px solid #00549b;"><td style="padding:10px 0;font-size:18px;font-weight:700;color:#00549b;">TOTAL FINAL</td><td style="padding:10px 0;text-align:right;font-size:18px;font-weight:700;color:#00549b;">${fmtEur(budget.totalFinal)}</td></tr>
   </table>
 </div>
 

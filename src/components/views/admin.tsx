@@ -52,6 +52,7 @@ import BrandingPanel from '@/components/views/branding-panel'
 import UsersPanel from '@/components/views/users-panel'
 import LegalRecordsPanel from '@/components/views/legal-records-panel'
 import LegalParametersPanel from '@/components/views/legal-parameters-panel'
+import CostBreakdownPanel from '@/components/views/cost-breakdown-panel'
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -108,6 +109,9 @@ const COMPANY_FIELDS = [
   { key: 'company_email', label: 'Email' },
   { key: 'iva_default', label: 'IVA por defecto (%)' },
   { key: 'valid_days_default', label: 'Días de validez por defecto' },
+  { key: 'costing_province', label: 'Provincia / convenio para costes' },
+  { key: 'costing_overhead_percent', label: 'Overhead sobre coste completo (%)' },
+  { key: 'costing_management_fee_per_contract', label: 'Gestoría por alta/contrato (€)' },
 ]
 
 // ─── Local interfaces (DB response shapes) ────────────────────────
@@ -543,7 +547,14 @@ function AdminPanel() {
         const err = await res.json()
         throw new Error(err.error || 'Error al guardar')
       }
-      toast({ title: 'Usuario creado', description: userForm.name })
+      const created = await res.json()
+      toast({
+        title: 'Usuario creado',
+        description: created.temporaryPassword
+          ? `Contraseña temporal: ${created.temporaryPassword}`
+          : userForm.name,
+        duration: 15_000,
+      })
       setUserDialogOpen(false)
       refreshUsers()
     } catch (err: any) {
@@ -631,6 +642,7 @@ function AdminPanel() {
           <TabsTrigger value="empresa">Configuración Empresa</TabsTrigger>
           <TabsTrigger value="remota">Config. Remota</TabsTrigger>
           <TabsTrigger value="auditoria">Auditoría</TabsTrigger>
+          <TabsTrigger value="desglose">Desglose económico</TabsTrigger>
           <TabsTrigger value="registro_legal">Registro Legal</TabsTrigger>
           <TabsTrigger value="parametros_legales">Parámetros Legales</TabsTrigger>
           <TabsTrigger value="branding" className={isMaestro ? '' : 'hidden'}>Branding / Licencia</TabsTrigger>
@@ -971,6 +983,9 @@ function AdminPanel() {
         <TabsContent value="auditoria" className="space-y-4">
           <AdminAuditPanel />
         </TabsContent>
+        <TabsContent value="desglose" className="space-y-4">
+          <CostBreakdownPanel />
+        </TabsContent>
 
         <TabsContent value="registro_legal" className="space-y-4">
           <LegalRecordsPanel />
@@ -1014,7 +1029,7 @@ function AdminPanel() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Precio/hora Venta (€) *</Label>
+                <Label>Precio/hora antiguo (sin uso en el motor nuevo)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -1025,7 +1040,7 @@ function AdminPanel() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Coste/hora Interno (€)</Label>
+                <Label>Salario bruto/h productiva, pagas incluidas (€)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -1255,7 +1270,8 @@ function AdminPanel() {
                 <Label>Descanso entre turnos (h)</Label>
                 <Input
                   type="number"
-                  value={ruleForm.minRestBetweenShiftsH ?? 11}
+                  min={12}
+                  value={ruleForm.minRestBetweenShiftsH ?? 12}
                   onChange={(e) =>
                     setRuleForm((p) => ({ ...p, minRestBetweenShiftsH: parseFloat(e.target.value) || 0 }))
                   }

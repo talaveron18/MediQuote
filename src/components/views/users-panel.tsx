@@ -213,8 +213,11 @@ export default function UsersPanel() {
         const err = await res.json().catch(() => ({ error: 'Error desconocido' }));
         throw new Error(err.error || 'Error al resetear contraseña');
       }
-
-      toast.success('Contraseña reseteada correctamente');
+      const data = await res.json();
+      toast.success('Contraseña temporal generada', {
+        description: data.temporaryPassword,
+        duration: 15_000,
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al resetear contraseña');
     }

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { KeyRound } from 'lucide-react'
 import { toast } from 'sonner'
+import { MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy'
 
 export default function CambiarPasswordPage() {
   const [currentPassword, setCurrentPassword] = useState('')
@@ -17,8 +18,8 @@ export default function CambiarPasswordPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (newPassword.length < 6) {
-      toast.error('La nueva contraseña debe tener al menos 6 caracteres')
+    if (newPassword.length < MINIMUM_PASSWORD_LENGTH) {
+      toast.error(`La nueva contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres`)
       return
     }
 
@@ -86,11 +87,11 @@ export default function CambiarPasswordPage() {
               <Input
                 id="newPassword"
                 type="password"
-                placeholder="Mínimo 6 caracteres"
+                placeholder={`Mínimo ${MINIMUM_PASSWORD_LENGTH} caracteres`}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={MINIMUM_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>
@@ -103,7 +104,7 @@ export default function CambiarPasswordPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={MINIMUM_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>

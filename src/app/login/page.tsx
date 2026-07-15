@@ -28,7 +28,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        window.location.href = '/';
+        window.location.href = data.user?.mustChangePassword ? '/cambiar-password' : '/';
       } else {
         toast.error('Credenciales incorrectas');
       }

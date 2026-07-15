@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireRole, hashPassword, logAudit } from '@/lib/auth';
+import { generateTemporaryPassword } from '@/lib/password';
+import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 
 // ─── GET — List users ────────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -42,6 +44,12 @@ export async function POST(request: NextRequest) {
 
     if (!email || !password || !name || !role) {
       return NextResponse.json({ error: 'Faltan campos obligatorios: email, password, name, role' }, { status: 400 });
+    }
+    if (!isStrongEnoughPassword(password)) {
+      return NextResponse.json(
+        { error: `La contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres` },
+        { status: 400 },
+      );
     }
 
     if (role === 'maestro' && auth.role !== 'maestro') {
@@ -134,7 +142,16 @@ export async function PUT(request: NextRequest) {
     if (role !== undefined) updateData.role = role;
     if (active !== undefined) updateData.active = active;
     if (mustChangePassword !== undefined) updateData.mustChangePassword = mustChangePassword;
-    if (password) updateData.password = await hashPassword(password);
+    if (password) {
+      if (!isStrongEnoughPassword(password)) {
+        return NextResponse.json(
+          { error: `La contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres` },
+          { status: 400 },
+        );
+      }
+      updateData.password = await hashPassword(password);
+      updateData.mustChangePassword = true;
+    }
 
     const oldData = JSON.stringify({ name: target.name, email: target.email, role: target.role, active: target.active });
 
@@ -218,7 +235,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'No se puede resetear la contraseña del titular' }, { status: 403 });
     }
 
-    const tempPassword = 'Cambiar' + Math.random().toString(36).slice(2, 8) + '!';
+    const tempPassword = generateTemporaryPassword();
     const hashed = await hashPassword(tempPassword);
 
     await db.user.update({

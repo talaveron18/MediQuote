@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/table'
 import { Plus, Search, Eye, Copy, Trash2, Filter, FileText } from 'lucide-react'
 import { useAppStore } from '@/store/app-store'
-import type { BudgetStatus } from '@/lib/types'
+import type { BudgetStatus, ServiceBlockInput } from '@/lib/types'
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -50,6 +50,7 @@ interface BudgetRow {
   _count: {
     serviceBlocks: number
   }
+  serviceBlocks?: ServiceBlockInput[]
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -168,34 +169,20 @@ export default function Dashboard() {
         return
       }
 
-      // POST a copy
-      const copyRes = await fetch('/api/budgets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: source.clientId,
-          description: [
-            source.description ?? '',
-            '(Copia)',
-          ]
-            .filter(Boolean)
-            .join(' '),
-          status: 'borrador' as BudgetStatus,
-          validUntil: source.validUntil,
-          subtotal: source.subtotal,
-          totalSurcharges: source.totalSurcharges,
-          discountPercent: source.discountPercent,
-          discountAmount: source.discountAmount,
-          ivaPercent: source.ivaPercent,
-          ivaAmount: source.ivaAmount,
-          totalFinal: source.totalFinal,
-          clientNotes: source.clientNotes,
-          internalNotes: source.internalNotes,
-        }),
+      // Una copia debe recalcularse: no reutilizamos una cotización económica
+      // antigua ni su snapshot interno.
+      store.newBudget()
+      store.setBudgetForm({
+        clientId: source.clientId,
+        description: [source.description ?? '', '(Copia)'].filter(Boolean).join(' '),
+        status: 'borrador',
+        validUntil: source.validUntil ?? undefined,
+        discountPercent: source.discountPercent,
+        ivaPercent: source.ivaPercent,
+        clientNotes: source.clientNotes ?? undefined,
       })
-
-      if (!copyRes.ok) throw new Error('Error al duplicar presupuesto')
-      await fetchBudgets()
+      store.setServiceBlocks(source.serviceBlocks ?? [])
+      store.setView('budget-new')
     } catch (err) {
       console.error('[Dashboard] handleDuplicate error:', err)
     }

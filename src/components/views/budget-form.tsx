@@ -43,7 +43,8 @@ import {
   Download,
 } from 'lucide-react';
 import { useAppStore, emptyBlock, BLOCK_TYPE_PRESETS, SIMPLE_BLOCK_TYPES } from '@/store/app-store';
-import { calculateWorkingDates, findHolidayForDate } from '@/lib/calculation-engine';
+import { SERVICE_LOCATIONS, getServiceLocation } from '@/lib/service-locations';
+import { calculateWorkingDates, findHolidayForDate } from '@/lib/schedule-engine';
 import type {
   ServiceBlockInput,
   DateMode,
@@ -57,6 +58,7 @@ import type {
   SurchargeEntry,
   ShiftHourBreakdown,
   CourseModality,
+  ServiceContractType,
 } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -154,6 +156,13 @@ const UNIT_TYPE_LABELS: Record<UnitType, string> = {
 
 const TIME_BASED_UNITS: UnitType[] = ['hora', 'dia', 'turno'];
 
+const CONTRACT_TYPE_LABELS: Record<ServiceContractType, string> = {
+  indefinido: 'Indefinido',
+  temporal: 'Temporal (requiere causa)',
+  fijo_discontinuo: 'Fijo discontinuo',
+  mercantil_autonomo: 'Mercantil / autónomo',
+};
+
 // ─── Date mode labels ─────────────────────────────────────────
 type DateUIMode = 'weekly' | 'specific' | 'month';
 
@@ -209,6 +218,7 @@ export default function BudgetForm() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [addBlockMenuOpen, setAddBlockMenuOpen] = useState(false);
   const [ivaMode, setIvaMode] = useState<'standard' | 'exento' | 'custom'>('standard');
+  const [calculationPending, setCalculationPending] = useState<string[]>([]);
 
   // ─── Data fetching on mount ──────────────────────────────────
 
@@ -240,9 +250,12 @@ export default function BudgetForm() {
           const budgetRes = await fetch('/api/budgets');
           if (budgetRes.ok) {
             const allBudgets = await budgetRes.json();
-            const budget = Array.isArray(allBudgets)
-              ? allBudgets.find((b: { id?: string }) => b.id === store.editingBudgetId)
-              : allBudgets;
+            const budgetList = Array.isArray(allBudgets)
+              ? allBudgets
+              : Array.isArray(allBudgets?.budgets)
+                ? allBudgets.budgets
+                : [];
+            const budget = budgetList.find((b: { id?: string }) => b.id === store.editingBudgetId);
             if (budget) {
               store.setBudgetForm({
                 clientId: budget.clientId || '',
@@ -253,6 +266,10 @@ export default function BudgetForm() {
                 ivaPercent: budget.ivaPercent ?? 21,
                 clientNotes: budget.clientNotes || '',
                 internalNotes: budget.internalNotes || '',
+                serviceLocationId: budget.serviceLocationId || 'madrid-capital',
+                serviceAutonomousCommunity: budget.serviceAutonomousCommunity || 'Madrid',
+                serviceProvince: budget.serviceProvince || 'Madrid',
+                serviceMunicipality: budget.serviceMunicipality || '',
               });
               // Sync IVA mode with loaded value
               const loadedIva = budget.ivaPercent ?? 21;
@@ -356,11 +373,10 @@ export default function BudgetForm() {
 
   const handleCategoryChange = useCallback(
     (index: number, categoryId: string) => {
-      const category = store.categories.find((c) => c.id === categoryId);
       store.updateServiceBlock(index, {
         professionalCategory: categoryId,
-        pricePerHour: category?.defaultPricePerHour ?? 0,
-        internalCostPerHour: category?.defaultInternalCost ?? 0,
+        pricePerHour: 0,
+        internalCostPerHour: undefined,
       });
     },
     [store]
@@ -513,7 +529,7 @@ export default function BudgetForm() {
       const isSimple = SIMPLE_BLOCK_TYPES.includes(b.blockType as BlockType);
       if (!isSimple) {
         if (!b.professionalCategory) { toast.error(`${label}: selecciona categoría profesional`); return; }
-        if (safeNumber(b.pricePerHour) < 0) { toast.error(`${label}: el precio no puede ser negativo`); return; }
+        if (!b.contractType) { toast.error(`${label}: selecciona el tipo de contratación`); return; }
         if (safeNumber(b.puestosSimultaneos) < 1) { toast.error(`${label}: debe haber al menos 1 puesto`); return; }
         if (safeNumber(b.plantillaSeleccionada) < 1) { toast.error(`${label}: plantilla mínima 1`); return; }
         if ((b.unitType === 'hora' || b.unitType === 'dia' || b.unitType === 'turno') && b.dateMode === 'range') {
@@ -534,6 +550,12 @@ export default function BudgetForm() {
         blocks: store.serviceBlocks,
         discountPercent: store.budgetForm.discountPercent ?? 0,
         ivaPercent: store.budgetForm.ivaPercent ?? 21,
+        location: {
+          id: store.budgetForm.serviceLocationId,
+          cc: store.budgetForm.serviceAutonomousCommunity,
+          province: store.budgetForm.serviceProvince,
+          municipality: store.budgetForm.serviceMunicipality || undefined,
+        },
       };
       const res = await fetch('/api/calculations', {
         method: 'POST',
@@ -545,6 +567,16 @@ export default function BudgetForm() {
       }
       const data = await res.json();
       const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+      if (data.commercial?.status === 'pending_configuration') {
+        const pendingFields = Array.isArray(data.commercial.pendingFields)
+          ? data.commercial.pendingFields
+          : [];
+        store.setBlockResults(blocks);
+        store.setBudgetTotals(null);
+        setCalculationPending(pendingFields);
+        toast.error('Faltan datos económicos. El presupuesto permanece en borrador.');
+        return;
+      }
       const totals = {
         blocks,
         subtotal: safeNumber(data.totals?.subtotal),
@@ -552,9 +584,12 @@ export default function BudgetForm() {
         discountAmount: safeNumber(data.totals?.discountAmount),
         ivaAmount: safeNumber(data.totals?.ivaAmount),
         totalFinal: safeNumber(data.totals?.totalFinal),
+        calculationToken: data.totals?.calculationToken,
+        commercial: data.commercial,
       };
       store.setBlockResults(blocks);
       store.setBudgetTotals(totals);
+      setCalculationPending([]);
       toast.success('Cálculo realizado correctamente');
       const allExpanded = new Set(store.serviceBlocks.map((_, i) => i));
       setExpandedBlocks(allExpanded);
@@ -588,12 +623,17 @@ export default function BudgetForm() {
     try {
       const payload = {
         ...store.budgetForm,
-        serviceBlocks: store.serviceBlocks,
+        serviceBlocks: store.serviceBlocks.map((block, index) => ({
+          ...block,
+          ...(store.blockResults[index] ?? {}),
+          blockSubtotal: 0,
+        })),
         subtotal: safeNumber(store.budgetTotals.subtotal),
         totalSurcharges: safeNumber(store.budgetTotals.totalSurcharges),
         discountAmount: safeNumber(store.budgetTotals.discountAmount),
         ivaAmount: safeNumber(store.budgetTotals.ivaAmount),
         totalFinal: totalsFinal,
+        calculationToken: store.budgetTotals.calculationToken,
       };
 
       let res: Response;
@@ -643,7 +683,7 @@ export default function BudgetForm() {
     store.setView('dashboard');
   }, [store]);
 
-  const maxDiscount = isAdmin ? Number(store.appConfig['max_discount_percent'] ?? 30) : 0;
+  const maxDiscount = 5;
 
   // ─── Sub-components ──────────────────────────────────────────
 
@@ -835,17 +875,6 @@ export default function BudgetForm() {
 
         <Separator />
 
-        <div>
-          <span className="text-xs font-medium text-muted-foreground">Recargos</span>
-          {renderSurchargesTable(result.surcharges)}
-          <div className="flex justify-end mt-2 text-sm">
-            <span className="text-muted-foreground mr-2">Total recargos:</span>
-            <span className="font-semibold">{formatCurrency(result.totalSurcharges)}</span>
-          </div>
-        </div>
-
-        <Separator />
-
         <div className="flex justify-between items-center">
           <div>
             {result.plantillaMinimaRecomendada > 0 && (
@@ -867,12 +896,9 @@ export default function BudgetForm() {
               </TooltipProvider>
             )}
           </div>
-          <div className="text-right">
-            <span className="text-sm text-muted-foreground">Subtotal bloque: </span>
-            <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-              {formatCurrency(result.totalWithSurcharges)}
-            </span>
-          </div>
+          <Badge variant="outline" className="border-emerald-400 text-emerald-700">
+            Coste y precio calculados en servidor
+          </Badge>
         </div>
 
         {result.laborWarnings && result.laborWarnings.length > 0 && (
@@ -1266,77 +1292,37 @@ export default function BudgetForm() {
 
               {/* Time-based fields (precio/hora) vs non-time-based (precio/unidad, cantidad) */}
               {isTimeBased ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor={`svc-price-${index}`} className="text-xs">
-                      Precio/hora (€)
-                    </Label>
-                    <Input
-                      id={`svc-price-${index}`}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={block.pricePerHour || ''}
-                      onChange={(e) =>
-                        store.updateServiceBlock(index, {
-                          pricePerHour: parseFloat(e.target.value) || 0,
-                        })
+                    <Label htmlFor={`svc-contract-${index}`} className="text-xs">Tipo de contratación</Label>
+                    <Select
+                      value={block.contractType ?? ''}
+                      onValueChange={(value: ServiceContractType) =>
+                        store.updateServiceBlock(index, { contractType: value })
                       }
-                      disabled={!isAdmin}
-                      className="h-9"
-                      title={!isAdmin ? 'El precio viene de la configuración aprobada. Solo administration puede modificarlo.' : undefined}
-                    />
-                    {!isAdmin && (
-                      <p className="text-xs text-amber-600 mt-0.5">Precio fijado por administración</p>
-                    )}
+                    >
+                      <SelectTrigger id={`svc-contract-${index}`} className="h-9">
+                        <SelectValue placeholder="Seleccionar contratación" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.entries(CONTRACT_TYPE_LABELS) as [ServiceContractType, string][]).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-
-                  {isAdmin && (
-                    <>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`svc-cost-${index}`} className="text-xs">
-                          Coste interno/hora (€)
-                        </Label>
-                        <Input
-                          id={`svc-cost-${index}`}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={block.internalCostPerHour || ''}
-                          onChange={(e) =>
-                            store.updateServiceBlock(index, {
-                              internalCostPerHour: parseFloat(e.target.value) || 0,
-                            })
-                          }
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`svc-margin-${index}`} className="text-xs">
-                          Margen (%)
-                        </Label>
-                        <Input
-                          id={`svc-margin-${index}`}
-                          type="number"
-                          min="0"
-                          step="0.1"
-                          value={block.internalMargin ?? ''}
-                          onChange={(e) =>
-                            store.updateServiceBlock(index, {
-                              internalMargin: parseFloat(e.target.value) || 0,
-                            })
-                          }
-                          className="h-9"
-                        />
-                      </div>
-                    </>
-                  )}
+                  <Alert className="border-emerald-200 bg-emerald-50/60 dark:bg-emerald-950/20">
+                    <Calculator className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      El precio lo construye el motor GASI con salario, pagas extra, cotizaciones, pluses, contratación, overhead y política comercial.
+                    </AlertDescription>
+                  </Alert>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
                   <div className="space-y-1.5">
                     <Label htmlFor={`svc-fprice-${index}`} className="text-xs">
-                      Precio/Unidad (€)
+                      Coste real/Unidad (€)
                     </Label>
                     <Input
                       id={`svc-fprice-${index}`}
@@ -1958,6 +1944,38 @@ export default function BudgetForm() {
                   </Select>
                 </div>
 
+                <div className="space-y-1.5">
+                  <Label htmlFor="service-location" className="text-xs font-medium">
+                    Zona del servicio *
+                  </Label>
+                  <Select
+                    value={store.budgetForm.serviceLocationId || 'madrid-capital'}
+                    onValueChange={(value) => {
+                      const location = getServiceLocation(value);
+                      store.setBudgetForm({
+                        serviceLocationId: location.id,
+                        serviceAutonomousCommunity: location.autonomousCommunity,
+                        serviceProvince: location.province,
+                        serviceMunicipality: location.municipality || '',
+                      });
+                    }}
+                  >
+                    <SelectTrigger id="service-location" className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SERVICE_LOCATIONS.map((location) => (
+                        <SelectItem key={location.id} value={location.id}>
+                          {location.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Determina calendario festivo y reglas territoriales de coste.
+                  </p>
+                </div>
+
                 {/* Status (only admin or editing) */}
                 {(isAdmin || isEditing) && (
                   <div className="space-y-1.5">
@@ -2050,8 +2068,8 @@ export default function BudgetForm() {
                   )}
                 </div>
 
-                {/* Discount (admin only) */}
-                {isAdmin && (
+                {/* Banda comercial negociable: ocho puntos sobre coste = 5% del precio inicial. */}
+                {(
                   <div className="space-y-1.5">
                     <Label htmlFor="discount-percent" className="text-xs font-medium">
                       Descuento (%)
@@ -2063,11 +2081,10 @@ export default function BudgetForm() {
                       max={maxDiscount}
                       step="0.01"
                       value={store.budgetForm.discountPercent ?? 0}
-                      onChange={(e) =>
-                        store.setBudgetForm({
-                          discountPercent: parseFloat(e.target.value) || 0,
-                        })
-                      }
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        store.setBudgetForm({ discountPercent: Math.min(maxDiscount, Math.max(0, value)) });
+                      }}
                       className="h-9"
                     />
                     {maxDiscount > 0 && (
@@ -2172,6 +2189,14 @@ export default function BudgetForm() {
           </div>
 
           {/* ─── Section 3: Budget Totals ─────────────────────── */}
+          {calculationPending.length > 0 && (
+            <Alert className="border-amber-400 bg-amber-50 dark:bg-amber-950/20">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                El presupuesto sigue en borrador: Administración debe completar {calculationPending.length} dato(s) económico(s).
+              </AlertDescription>
+            </Alert>
+          )}
           {store.budgetTotals && (
             <Card className="border-emerald-200 dark:border-emerald-800">
               <CardHeader className="pb-3">
@@ -2183,15 +2208,9 @@ export default function BudgetForm() {
               <CardContent>
                 <div className="max-w-md ml-auto space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">Precio inicial sin IVA</span>
                     <span className="font-medium">
                       {formatCurrency(store.budgetTotals.subtotal)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Total recargos</span>
-                    <span className="font-medium">
-                      {formatCurrency(store.budgetTotals.totalSurcharges)}
                     </span>
                   </div>
                   {store.budgetTotals.discountAmount > 0 && (
