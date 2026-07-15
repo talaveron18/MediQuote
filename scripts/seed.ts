@@ -6,7 +6,7 @@ import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '../src/lib/pass
 import { getConnectionString } from '@netlify/database'
 
 const datasourceUrl = process.env.DATABASE_URL?.trim()
-  || ((process.env.NETLIFY || process.env.CONTEXT) ? getConnectionString() : undefined)
+  || getConnectionString()
 const db = new PrismaClient(datasourceUrl ? { datasourceUrl } : undefined)
 
 // Default permissions per role

@@ -74,6 +74,7 @@ gasi_session=*
 
 # Tool results / cache
 tool-results/
+.netlify/
 
 # Skills directory
 /skills/
