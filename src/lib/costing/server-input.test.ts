@@ -14,6 +14,8 @@ const legalParameters = {
   SS_FORMACION_EMPRESA: 0.6,
   SS_MEI_EMPRESA_2026: 0.75,
   SS_ATEP_ORIENTATIVO: 1.5,
+  PLUS_NOCTURNIDAD_MADRID: 25,
+  PLUS_NOCTURNIDAD_BURGOS: 25,
 };
 
 const block: ServiceBlockInput = {
@@ -71,6 +73,14 @@ function schedule(hours: number): BlockCalculationResult {
 
 const config = {
   legalParameters,
+  legalParameterSources: {
+    PLUS_NOCTURNIDAD_MADRID: {
+      id: 'conv_madrid', label: 'Convenio Madrid, art. 12.3', status: 'verified' as const,
+    },
+    PLUS_NOCTURNIDAD_BURGOS: {
+      id: 'conv_burgos_nocturnidad', label: 'Convenio Burgos, art. 25', status: 'verified' as const,
+    },
+  },
   appConfig: {
     costing_province: 'Madrid',
     costing_overhead_percent: '15',
@@ -126,9 +136,9 @@ describe('Adaptador servidor — pantalla comercial al motor económico', () => 
   });
 
   it.each([
-    ['Madrid', 'bocm-sanidad-privada-madrid-2023-2026-art-12-3'],
-    ['Burgos', 'bop-burgos-hospitalizacion-privada-art-25'],
-  ])('aplica nocturnidad oficial del 25%% en %s', (province, sourceId) => {
+    ['Madrid', 'PLUS_NOCTURNIDAD_MADRID', 'conv_madrid'],
+    ['Burgos', 'PLUS_NOCTURNIDAD_BURGOS', 'conv_burgos_nocturnidad'],
+  ])('aplica nocturnidad oficial del 25%% en %s', (province, parameterKey, sourceId) => {
     const built = buildCostingInputFromDatabase({
       block,
       schedule: schedule(8),
@@ -138,7 +148,7 @@ describe('Adaptador servidor — pantalla comercial al motor económico', () => 
         surcharges: config.surcharges.map((row) => row.type === 'nocturnidad' ? { ...row, value: 99 } : row),
       },
       serviceId: '0',
-      location: { province },
+      location: { province, nightSurchargeLegalParameterKey: parameterKey },
     });
     expect(built.status).toBe('ready');
     if (built.status !== 'ready') return;

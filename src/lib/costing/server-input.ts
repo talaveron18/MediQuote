@@ -2,6 +2,7 @@ import type { BlockCalculationResult, ServiceBlockInput, SurchargeKind, Surcharg
 import { adaptBlockResultToCostHours } from './cost-hours-adapter';
 import { DEFAULT_GASI_COMMERCIAL_POLICY } from './commercial-policy';
 import type {
+  CostSourceRef,
   CostingInput,
   DataIssue,
   LaborPlusRule,
@@ -24,6 +25,7 @@ interface SurchargeCostSource {
 
 export interface CostingDatabaseConfig {
   legalParameters: Record<string, number>;
+  legalParameterSources?: Record<string, CostSourceRef>;
   appConfig: Record<string, string>;
   surcharges: SurchargeCostSource[];
 }
@@ -53,27 +55,10 @@ const PLUS_BUCKETS: Partial<Record<SurchargeType, PlusHourBucket>> = {
   festivo_municipal: 'holidayMunicipal',
 };
 
-function nightRuleSource(province: string, row: SurchargeCostSource) {
-  if (province === 'Madrid') {
-    return {
-      id: 'bocm-sanidad-privada-madrid-2023-2026-art-12-3',
-      label: 'Convenio de establecimientos sanitarios privados de Madrid 2023-2026, art. 12.3',
-      url: 'https://www.bocm.es/boletin/CM_Orden_BOCM/2023/11/23/BOCM-20231123-25.PDF',
-      effectiveFrom: '2023-01-01', effectiveTo: '2026-12-31', status: 'verified' as const,
-    };
-  }
-  if (province === 'Burgos') {
-    return {
-      id: 'bop-burgos-hospitalizacion-privada-art-25',
-      label: 'Convenio de hospitalización y asistencia privada de Burgos, art. 25',
-      url: 'https://www.faeburgos.org/wp-content/uploads/2022/10/Hospitalizacion-y-asistencia-privada-de-la-provincia-de-Burgos-09000265011981.pdf',
-      effectiveFrom: '2021-01-01', status: 'verified' as const,
-    };
-  }
-  return source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`);
-}
-
-function buildPlusRules(rows: SurchargeCostSource[], province: string): LaborPlusRule[] {
+function buildPlusRules(
+  rows: SurchargeCostSource[],
+  nightRule?: { value: number; source: CostSourceRef },
+): LaborPlusRule[] {
   const selected = new Map<PlusHourBucket, SurchargeCostSource>();
 
   // Las reglas genéricas evitan acumular festivo + festivo nacional/autonómico.
@@ -95,10 +80,10 @@ function buildPlusRules(rows: SurchargeCostSource[], province: string): LaborPlu
       id: row.id,
       name: row.name,
       formula: kind === 'percentage' ? 'percentage_base_hour' : 'per_hour',
-      value: bucket === 'night' && (province === 'Madrid' || province === 'Burgos') ? 25 : row.value,
+      value: bucket === 'night' && nightRule ? nightRule.value : row.value,
       hourBucket: bucket,
-      source: bucket === 'night'
-        ? nightRuleSource(province, row)
+      source: bucket === 'night' && nightRule
+        ? nightRule.source
         : source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`),
     } satisfies LaborPlusRule];
   });
@@ -127,7 +112,11 @@ export function buildCostingInputFromDatabase(params: {
   category: CategoryCostSource | undefined;
   config: CostingDatabaseConfig;
   serviceId: string;
-  location?: { province?: string; municipality?: string };
+  location?: {
+    province?: string;
+    municipality?: string;
+    nightSurchargeLegalParameterKey?: string;
+  };
 }): CostingInputBuildResult {
   const { block, schedule, category, config, serviceId, location } = params;
   const issues: DataIssue[] = [];
@@ -185,7 +174,27 @@ export function buildCostingInputFromDatabase(params: {
     });
   }
 
-  const plusRules = buildPlusRules(config.surcharges, province ?? '');
+  const nightKey = location?.nightSurchargeLegalParameterKey;
+  const nightValue = nightKey ? finite(config.legalParameters[nightKey]) : undefined;
+  if (nightKey && nightValue === undefined) {
+    issues.push({
+      field: `legalParameters.${nightKey}`,
+      kind: 'missing',
+      message: `Falta el parámetro legal territorial ${nightKey}.`,
+    });
+  }
+  const nightSource = nightKey ? config.legalParameterSources?.[nightKey] : undefined;
+  if (nightKey && !nightSource) {
+    issues.push({
+      field: `legalParameters.${nightKey}.source`,
+      kind: 'missing',
+      message: `Falta la fuente legal trazable de ${nightKey}.`,
+    });
+  }
+  const plusRules = buildPlusRules(
+    config.surcharges,
+    nightValue !== undefined && nightSource ? { value: nightValue, source: nightSource } : undefined,
+  );
   const hours = adaptBlockResultToCostHours(schedule);
   const uncoveredBuckets: Array<[PlusHourBucket, number]> = [
     ['night', hours.breakdown.night],

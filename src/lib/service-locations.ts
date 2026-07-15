@@ -4,6 +4,8 @@ export interface ServiceLocation {
   autonomousCommunity: string;
   province: string;
   municipality?: string;
+  /** Clave estable del dato legal territorial; el porcentaje vive en LegalParameter. */
+  nightSurchargeLegalParameterKey?: string;
 }
 
 export const SERVICE_LOCATIONS: ServiceLocation[] = [
@@ -13,6 +15,7 @@ export const SERVICE_LOCATIONS: ServiceLocation[] = [
     autonomousCommunity: 'Madrid',
     province: 'Madrid',
     municipality: 'Madrid',
+    nightSurchargeLegalParameterKey: 'PLUS_NOCTURNIDAD_MADRID',
   },
   {
     id: 'burgos-capital',
@@ -20,6 +23,7 @@ export const SERVICE_LOCATIONS: ServiceLocation[] = [
     autonomousCommunity: 'Castilla y León',
     province: 'Burgos',
     municipality: 'Burgos',
+    nightSurchargeLegalParameterKey: 'PLUS_NOCTURNIDAD_BURGOS',
   },
   {
     id: 'castilla-leon',
@@ -41,4 +45,3 @@ export function getServiceLocation(id?: string | null): ServiceLocation {
   return SERVICE_LOCATIONS.find((location) => location.id === id)
     ?? SERVICE_LOCATIONS[0];
 }
-
