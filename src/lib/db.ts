@@ -7,8 +7,7 @@ const globalForPrisma = globalThis as unknown as {
 
 function connectionString(): string | undefined {
   if (process.env.DATABASE_URL?.trim()) return process.env.DATABASE_URL.trim()
-  if (process.env.NETLIFY || process.env.CONTEXT) return getConnectionString()
-  return undefined
+  return getConnectionString()
 }
 
 const datasourceUrl = connectionString()
