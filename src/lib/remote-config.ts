@@ -562,9 +562,10 @@ export async function applyRemoteConfig(config: RemoteConfig): Promise<ImportRes
 
 import { readFile, writeFile, stat } from 'fs/promises';
 import { join } from 'path';
+import { dataRoot } from './data-paths';
 
 export function getRemoteConfigPath(): string {
-  return join(process.cwd(), REMOTE_CONFIG_PATH);
+  return join(dataRoot(), REMOTE_CONFIG_PATH);
 }
 
 export async function readRemoteConfigFile(): Promise<{ data: RemoteConfig | null; mtime: Date | null; error: string | null }> {
