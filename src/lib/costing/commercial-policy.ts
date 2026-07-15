@@ -6,6 +6,7 @@ import type {
 } from './cost-types';
 
 const EPSILON = 0.005;
+const RATE_EPSILON = 1e-9;
 
 const roundMoney = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 const roundRate = (value: number): number => Math.round((value + Number.EPSILON) * 10_000) / 10_000;
@@ -37,6 +38,40 @@ export function calculatePriceRange(
     minimumOrdinaryPriceExVat: roundMoney(minimumOrdinaryPriceExVat),
     initialListPriceExVat: roundMoney(initialListPriceExVat),
   };
+}
+
+export function calculateMaximumClientDiscountPercent(
+  policy: CommercialPolicy,
+): number {
+  const initialListFactorPercent = 100
+    + policy.gasiMarkupOnCostPercent
+    + policy.commercialFloorOnCostPercent
+    + policy.commercialBufferOnCostPercent;
+
+  return initialListFactorPercent > 0
+    ? policy.commercialBufferOnCostPercent / initialListFactorPercent * 100
+    : 0;
+}
+
+export function calculateClosingPriceFromDiscount(params: {
+  totalInternalCost: number;
+  requestedDiscountPercent: number;
+  policy: CommercialPolicy;
+}): number {
+  const { totalInternalCost, policy } = params;
+  const range = calculatePriceRange(totalInternalCost, policy);
+  const maximumDiscountPercent = calculateMaximumClientDiscountPercent(policy);
+  const requestedDiscountPercent = Number.isFinite(params.requestedDiscountPercent)
+    ? Math.max(0, Math.min(maximumDiscountPercent, params.requestedDiscountPercent))
+    : 0;
+
+  if (requestedDiscountPercent <= RATE_EPSILON) {
+    return range.initialListPriceExVat;
+  }
+  if (maximumDiscountPercent - requestedDiscountPercent <= RATE_EPSILON) {
+    return range.minimumOrdinaryPriceExVat;
+  }
+  return range.initialListPriceExVat * (1 - requestedDiscountPercent / 100);
 }
 
 function selectCommissionTier(

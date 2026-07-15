@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { BlockCalculationResult } from '../types';
 import { adaptBlockResultToCostHours } from './cost-hours-adapter';
 import { calculateCosting, projectCostingForCommercial } from './cost-engine';
-import { DEFAULT_GASI_COMMERCIAL_POLICY } from './commercial-policy';
+import {
+  calculateClosingPriceFromDiscount,
+  calculateCommercialResult,
+  calculatePriceRange,
+  DEFAULT_GASI_COMMERCIAL_POLICY,
+} from './commercial-policy';
 import type { CostingInput } from './cost-types';
 
 function baseInput(overrides: Partial<CostingInput> = {}): CostingInput {
@@ -260,6 +265,47 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
     expect(result.commercial.commissionTier).toBe('intermediate');
     expect(result.commercial.commissionRatePercent).toBe(13.5);
   });
+
+  it('maps the full negotiable discount to the exact floor despite cent rounding', () => {
+    const totalInternalCost = 1_000.16;
+    const policy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
+    const range = calculatePriceRange(totalInternalCost, policy);
+    const closingPriceExVat = calculateClosingPriceFromDiscount({
+      totalInternalCost,
+      requestedDiscountPercent: 5,
+      policy,
+    });
+    const result = calculateCommercialResult({
+      totalInternalCost,
+      closingPriceExVat,
+      policy,
+    });
+
+    expect(closingPriceExVat).toBe(range.minimumOrdinaryPriceExVat);
+    expect(result.commissionTier).toBe('floor');
+    expect(result.commissionRatePercent).toBe(12);
+  });
+
+  it.each([1, 2.5, 4.99])(
+    'keeps a %s% client discount in the intermediate commission tier',
+    (requestedDiscountPercent) => {
+      const totalInternalCost = 1_000.16;
+      const policy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
+      const closingPriceExVat = calculateClosingPriceFromDiscount({
+        totalInternalCost,
+        requestedDiscountPercent,
+        policy,
+      });
+      const result = calculateCommercialResult({
+        totalInternalCost,
+        closingPriceExVat,
+        policy,
+      });
+
+      expect(result.commissionTier).toBe('intermediate');
+      expect(result.commissionRatePercent).toBe(13.5);
+    },
+  );
 
   it('blocks a service closing price below the 40% + 12% ordinary floor', () => {
     const result = calculateCosting(baseInput({ closingPriceExVat: 3_000 }));

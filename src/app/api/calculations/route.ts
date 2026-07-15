@@ -3,8 +3,13 @@ import { db } from '@/lib/db';
 import { requireAuth, sanitizeForRole } from '@/lib/auth';
 import { calculateServiceBlock } from '@/lib/schedule-engine';
 import { calculateCosting } from '@/lib/costing/cost-engine';
-import { calculateCommercialResult, calculatePriceRange } from '@/lib/costing/commercial-policy';
-import { DEFAULT_GASI_COMMERCIAL_POLICY } from '@/lib/costing/commercial-policy';
+import {
+  calculateClosingPriceFromDiscount,
+  calculateCommercialResult,
+  calculateMaximumClientDiscountPercent,
+  calculatePriceRange,
+  DEFAULT_GASI_COMMERCIAL_POLICY,
+} from '@/lib/costing/commercial-policy';
 import { buildCostingInputFromDatabase } from '@/lib/costing/server-input';
 import { generateHolidaysForYear } from '@/lib/spanish-holidays';
 import type {
@@ -173,20 +178,22 @@ export async function POST(request: NextRequest) {
       internalBreakdowns.reduce((sum, breakdown) => sum + breakdown.totalInternalCost, 0)
       + directCostWithOverhead,
     );
-    const range = calculatePriceRange(totalInternalCost, { ...DEFAULT_GASI_COMMERCIAL_POLICY });
+    const commercialPolicy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
+    const range = calculatePriceRange(totalInternalCost, commercialPolicy);
     const requestedDiscount = Math.max(0, Number(body.discountPercent ?? 0));
-    const requestedClosingPrice = range.initialListPriceExVat * (1 - requestedDiscount / 100);
-    const closingPrice = Math.max(range.minimumOrdinaryPriceExVat, requestedClosingPrice);
+    const closingPrice = calculateClosingPriceFromDiscount({
+      totalInternalCost,
+      requestedDiscountPercent: requestedDiscount,
+      policy: commercialPolicy,
+    });
     const commercial = calculateCommercialResult({
       totalInternalCost,
       closingPriceExVat: closingPrice,
-      policy: { ...DEFAULT_GASI_COMMERCIAL_POLICY },
+      policy: commercialPolicy,
     });
     const ivaPercent = Math.min(100, Math.max(0, Number(body.ivaPercent ?? 21)));
     const ivaAmount = commercial.closingPriceExVat * ivaPercent / 100;
-    const maxVisibleDiscountPercent = range.initialListPriceExVat > 0
-      ? (range.initialListPriceExVat - range.minimumOrdinaryPriceExVat) / range.initialListPriceExVat * 100
-      : 0;
+    const maxVisibleDiscountPercent = calculateMaximumClientDiscountPercent(commercialPolicy);
 
     const result = {
       blocks: scheduleResults.map((schedule) => ({
