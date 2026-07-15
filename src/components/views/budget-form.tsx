@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,7 @@ import {
 import { useAppStore, emptyBlock, BLOCK_TYPE_PRESETS, SIMPLE_BLOCK_TYPES } from '@/store/app-store';
 import { SERVICE_LOCATIONS, getServiceLocation } from '@/lib/service-locations';
 import { calculateWorkingDates, findHolidayForDate } from '@/lib/schedule-engine';
+import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import type {
   ServiceBlockInput,
   DateMode,
@@ -436,6 +437,11 @@ export default function BudgetForm() {
 
   // ─── Calendar UI state for "Días concretos" mode ──────────
   const [calendarMonth, setCalendarMonth] = useState<Record<number, { year: number; month: number }>>({});
+  const applicableHolidays = useMemo(() => filterHolidaysForLocation(store.holidays, {
+    cc: store.budgetForm.serviceAutonomousCommunity,
+    province: store.budgetForm.serviceProvince,
+    municipality: store.budgetForm.serviceMunicipality,
+  }), [store.holidays, store.budgetForm.serviceAutonomousCommunity, store.budgetForm.serviceProvince, store.budgetForm.serviceMunicipality]);
   const getCalendarMonth = useCallback((index: number) => {
     if (!calendarMonth[index]) {
       const now = new Date();
@@ -1462,7 +1468,7 @@ export default function BudgetForm() {
                             const isSelected = selected.has(dateStr);
                             const dow = new Date(cm.year, cm.month, day).getDay();
                             const isSunday = dow === 0;
-                            const holiday = findHolidayForDate(dateStr, store.holidays);
+                            const holiday = findHolidayForDate(dateStr, applicableHolidays);
                             return (
                               <button key={day} type="button" onClick={() => handleCalendarToggle(index, dateStr)}
                                 className={`h-8 w-full rounded-md text-xs font-medium transition-colors relative
@@ -1493,7 +1499,7 @@ export default function BudgetForm() {
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <Label className="text-xs">Mes</Label>
+                          <Label className="text-xs">Desde el mes</Label>
                           <Select value={block.dateRangeStart?.slice(0, 7) || ''} onValueChange={(val) => {
                             const [y, m] = val.split('-').map(Number);
                             const lastDay = new Date(y, m, 0).getDate();
@@ -1513,9 +1519,21 @@ export default function BudgetForm() {
                           </Select>
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs">O añadir mes final</Label>
-                          <Input type="date" value={block.dateRangeEnd || ''} className="h-9"
-                            onChange={(e) => store.updateServiceBlock(index, { dateRangeEnd: e.target.value })} />
+                          <Label className="text-xs">Hasta el mes</Label>
+                          <Select value={block.dateRangeEnd?.slice(0, 7) || ''} onValueChange={(val) => {
+                            const [y, m] = val.split('-').map(Number);
+                            const lastDay = new Date(y, m, 0).getDate();
+                            store.updateServiceBlock(index, { dateRangeEnd: `${val}-${String(lastDay).padStart(2, '0')}` });
+                          }}>
+                            <SelectTrigger className="h-9"><SelectValue placeholder="Mismo mes" /></SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 24 }, (_, i) => {
+                                const d = new Date(); d.setMonth(d.getMonth() + i);
+                                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                return <SelectItem key={key} value={key}>{MONTH_NAMES[d.getMonth()]} {d.getFullYear()}</SelectItem>;
+                              })}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                       <div className="space-y-1.5">
@@ -1591,7 +1609,7 @@ export default function BudgetForm() {
                         excludeSundays: block.excludeSundays,
                         excludeHolidays: block.excludeHolidays,
                         holidayTypesExcluded: block.holidayTypesExcluded,
-                      }, store.holidays);
+                      }, applicableHolidays);
                       if (dates.length === 0) return (
                         <div className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 rounded-md p-2">
                           Sin días para este rango/criterio. Ajusta las fechas o los días de la semana.
@@ -1619,7 +1637,7 @@ export default function BudgetForm() {
                         for (const d of allInRange) {
                           const dt = new Date(d + 'T12:00:00');
                           if (dt.getDay() === 0) excludedSundays++;
-                          const h = findHolidayForDate(d, store.holidays);
+                          const h = findHolidayForDate(d, applicableHolidays);
                           if (h && (!block.holidayTypesExcluded || block.holidayTypesExcluded.includes(h.type))) {
                             festivos[h.type] = (festivos[h.type] || 0) + 1;
                             excludedHolidays++;
