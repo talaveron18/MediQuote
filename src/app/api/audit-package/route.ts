@@ -9,8 +9,10 @@ import {
   writeFileSync,
 } from 'fs';
 import path from 'path';
+import { dataRoot } from '@/lib/data-paths';
+import { resolveSqlitePath } from '@/lib/sqlite-backup';
 
-const BASE = process.cwd();
+const BASE = dataRoot();
 
 // ─── POST ──────────────────────────────────────────────────────
 
@@ -62,12 +64,7 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   const copiedFiles: string[] = [];
 
   // ─── 1. Copy database ─────────────────────────────────────
-  const dbUrl = process.env.DATABASE_URL || 'file:../db/custom.db';
-  const dbRelativePath = dbUrl.replace(/^file:/, '');
-  const dbAbsPath = path.resolve(
-    /* turbopackIgnore: true */ BASE,
-    dbRelativePath,
-  );
+  const dbAbsPath = resolveSqlitePath();
   if (existsSync(dbAbsPath)) {
     copyFileSync(dbAbsPath, path.join(auditDir, 'database.sqlite'));
     copiedFiles.push('database.sqlite');
