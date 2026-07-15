@@ -23,6 +23,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npx prisma generate
       - run: npm test
       - run: npm run lint
       - run: npm run build:netlify
