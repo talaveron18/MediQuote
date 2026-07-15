@@ -3,8 +3,11 @@ import { hash } from 'bcryptjs'
 import { getHolidaysForDBSeed } from '../src/lib/spanish-holidays'
 import { generateTemporaryPassword } from '../src/lib/password'
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '../src/lib/password-policy'
+import { getConnectionString } from '@netlify/database'
 
-const db = new PrismaClient()
+const datasourceUrl = process.env.DATABASE_URL?.trim()
+  || ((process.env.NETLIFY || process.env.CONTEXT) ? getConnectionString() : undefined)
+const db = new PrismaClient(datasourceUrl ? { datasourceUrl } : undefined)
 
 // Default permissions per role
 const ROLE_PERMISSIONS: Record<string, Record<string, boolean>> = {
@@ -73,7 +76,7 @@ const ROLE_PERMISSIONS: Record<string, Record<string, boolean>> = {
   },
 }
 
-async function main() {
+export async function seedDatabase() {
   console.log('Seeding database...\n')
 
   // ─── Users ────────────────────────────────────────────────
@@ -631,9 +634,12 @@ async function main() {
   console.log('\nSeed completed!')
 }
 
-main()
-  .catch((e) => {
-    console.error('Seed error:', e)
-    process.exit(1)
-  })
-  .finally(() => db.$disconnect())
+const directRun = process.argv[1]?.replace(/\\/g, '/').endsWith('/scripts/seed.ts')
+if (directRun) {
+  seedDatabase()
+    .catch((e) => {
+      console.error('Seed error:', e)
+      process.exitCode = 1
+    })
+    .finally(() => db.$disconnect())
+}
