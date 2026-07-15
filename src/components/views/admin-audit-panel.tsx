@@ -19,6 +19,7 @@ export default function AdminAuditPanel() {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [central, setCentral] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -26,7 +27,7 @@ export default function AdminAuditPanel() {
     try {
       const [logsResponse, backupsResponse] = await Promise.all([fetch('/api/audit-logs'), fetch('/api/backup?type=list')]);
       if (logsResponse.ok) setLogs(await logsResponse.json());
-      if (backupsResponse.ok) setBackups((await backupsResponse.json()).backups || []);
+      if (backupsResponse.ok) { const value = await backupsResponse.json(); setBackups(value.backups || []); setCentral(Boolean(value.central)); }
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -37,7 +38,8 @@ export default function AdminAuditPanel() {
       const response = await fetch('/api/backup?type=now', { method: 'POST' });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'No se pudo crear la copia');
-      toast.success('Copia SQLite verificada', { description: body.filename });
+      if (body.central) window.location.assign('/api/backup?type=export');
+      toast.success(body.central ? 'Exportación central preparada' : 'Copia SQLite verificada', { description: body.filename });
       await load();
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Error de backup'); }
     finally { setBusy(false); }
@@ -52,7 +54,7 @@ export default function AdminAuditPanel() {
       const response = await fetch('/api/backup?type=import', { method: 'POST', body: form });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'No se pudo importar');
-      toast.success('Base de datos restaurada', { description: `Copia previa: ${body.safetyBackup.filename}` });
+      toast.success('Base de datos restaurada', { description: body.central ? `${body.restored} registros restaurados` : `Copia previa: ${body.safetyBackup.filename}` });
       await load();
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Error de importación'); }
     finally { setBusy(false); if (fileInput.current) fileInput.current.value = ''; }
@@ -72,8 +74,8 @@ export default function AdminAuditPanel() {
 
   return <div className="space-y-6">
     <div className="grid gap-4 md:grid-cols-3">
-      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><HardDrive className="h-4 w-4 text-blue-600" />Copias SQLite</CardTitle><CardDescription>La primera escritura de cada día crea una copia automática. Se conservan 30.</CardDescription></CardHeader><CardContent><Button className="w-full" onClick={createBackup} disabled={busy}><Database className="h-4 w-4 mr-2" />Crear ahora</Button></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><Upload className="h-4 w-4 text-amber-600" />Importar / restaurar</CardTitle><CardDescription>Valida formato y tablas, y crea una copia previa antes de sustituir la base.</CardDescription></CardHeader><CardContent><input ref={fileInput} className="hidden" type="file" accept=".sqlite,.db,application/vnd.sqlite3" onChange={(event) => importBackup(event.target.files?.[0])} /><Button className="w-full" variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}><Upload className="h-4 w-4 mr-2" />Seleccionar SQLite</Button></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><HardDrive className="h-4 w-4 text-blue-600" />{central ? 'Copia central' : 'Copias SQLite'}</CardTitle><CardDescription>{central ? 'Exporta todos los datos compartidos en un archivo verificable.' : 'La primera escritura de cada día crea una copia automática. Se conservan 30.'}</CardDescription></CardHeader><CardContent><Button className="w-full" onClick={createBackup} disabled={busy}><Database className="h-4 w-4 mr-2" />{central ? 'Exportar ahora' : 'Crear ahora'}</Button></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><Upload className="h-4 w-4 text-amber-600" />Importar / restaurar</CardTitle><CardDescription>Restaura una exportación compatible de GASI.</CardDescription></CardHeader><CardContent><input ref={fileInput} className="hidden" type="file" accept={central ? '.json,application/json' : '.sqlite,.db,application/vnd.sqlite3'} onChange={(event) => importBackup(event.target.files?.[0])} /><Button className="w-full" variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}><Upload className="h-4 w-4 mr-2" />{central ? 'Seleccionar copia JSON' : 'Seleccionar SQLite'}</Button></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-sm flex gap-2"><Shield className="h-4 w-4 text-purple-600" />Paquete de auditoría</CardTitle><CardDescription>Exporta base, documentos, datos y registros para custodia.</CardDescription></CardHeader><CardContent><Button className="w-full" variant="outline" onClick={generateAuditPackage} disabled={busy}><Download className="h-4 w-4 mr-2" />Generar paquete</Button></CardContent></Card>
     </div>
 
