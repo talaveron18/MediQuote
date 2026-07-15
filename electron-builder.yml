@@ -1,0 +1,38 @@
+appId: com.gasisalud.mediquote
+productName: GASI MediQuote
+copyright: Grupo de Asistencia Sanitaria Integral
+
+directories:
+  output: dist-desktop
+
+files:
+  - desktop/**
+  - package.json
+
+extraResources:
+  - from: public/branding/gasi-logo.png
+    to: branding/gasi-logo.png
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: public/branding/gasi-logo.png
+  artifactName: GASI-MediQuote-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: GASI MediQuote
+  uninstallDisplayName: GASI MediQuote
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: generic
+  url: https://gasi-mediquote-updates.netlify.app
