@@ -23,7 +23,7 @@ Esta es una instancia de MediQuote Pro configurada para uso interno de GASI. El 
 
 ### Requisitos
 
-- Node.js 18+
+- Node.js 20.9+
 - npm o bun
 
 ### Instalación
