@@ -25,6 +25,9 @@ function passwordChangeRequired(): NextResponse {
 async function protectMutation(request: Request): Promise<NextResponse | null> {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) return null;
   if (new URL(request.url).pathname === '/api/backup') return null;
+  // Netlify Database/PostgreSQL se protege en la plataforma. La copia SQLite
+  // previa a escritura solo corresponde al modo local heredado.
+  if (process.env.NETLIFY || !process.env.DATABASE_URL?.startsWith('file:')) return null;
   try {
     await ensureDailyAutomaticBackup();
     return null;
