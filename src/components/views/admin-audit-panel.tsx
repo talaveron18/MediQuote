@@ -1,213 +1,84 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import {
-  Database, Download, HardDrive, Shield, RefreshCw, CheckCircle, XCircle,
-} from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Database, Download, HardDrive, RefreshCw, Shield, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface AuditEntry {
-  id: string;
-  action: string;
-  entity: string | null;
-  entityId: string | null;
-  userId: string | null;
-  userName: string | null;
-  userRole: string | null;
-  summary: string | null;
-  result: string | null;
-  errorMessage: string | null;
-  appVersion: string | null;
-  engineVersion: string | null;
-  createdAt: string;
-}
+interface AuditEntry { id: string; action: string; entity: string | null; entityId: string | null; userId: string | null; userName: string | null; userRole: string | null; summary: string | null; result: string | null; errorMessage: string | null; createdAt: string }
+interface BackupInfo { filename: string; size: number; createdAt: string; kind: 'automatic' | 'manual' | 'pre-import' }
+
+const formatDate = (value: string) => new Date(value).toLocaleString('es-ES');
+const formatSize = (bytes: number) => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 export default function AdminAuditPanel() {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [backuping, setBacking] = useState(false);
-  const [packaging, setPackaging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
 
-  const loadLogs = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/audit-logs');
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data);
-      }
-    } catch (e) {
-      console.error('Error loading audit logs:', e);
-    } finally {
-      setLoading(false);
-    }
+      const [logsResponse, backupsResponse] = await Promise.all([fetch('/api/audit-logs'), fetch('/api/backup?type=list')]);
+      if (logsResponse.ok) setLogs(await logsResponse.json());
+      if (backupsResponse.ok) setBackups((await backupsResponse.json()).backups || []);
+    } finally { setLoading(false); }
   }, []);
+  useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => { loadLogs(); }, [loadLogs]);
-
-  const handleBackup = async () => {
-    setBacking(true);
+  const createBackup = async () => {
+    setBusy(true);
     try {
-      const res = await fetch('/api/backup?type=now', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success('Backup creado', { description: data.path });
-        loadLogs();
-      } else {
-        toast.error('Error al crear backup', { description: data.error });
-      }
-    } catch (e: any) {
-      toast.error('Error de conexión', { description: e.message });
-    } finally {
-      setBacking(false);
-    }
+      const response = await fetch('/api/backup?type=now', { method: 'POST' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'No se pudo crear la copia');
+      toast.success('Copia SQLite verificada', { description: body.filename });
+      await load();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Error de backup'); }
+    finally { setBusy(false); }
   };
 
-  const handleAuditPackage = async () => {
-    setPackaging(true);
+  const importBackup = async (file?: File) => {
+    if (!file) return;
+    if (!confirm(`Se restaurará “${file.name}”. Antes se creará otra copia de seguridad. ¿Continuar?`)) return;
+    setBusy(true);
     try {
-      const res = await fetch('/api/audit-package?type=generate', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success('Paquete de auditoría generado', { description: data.path });
-        loadLogs();
-      } else {
-        toast.error('Error al generar paquete', { description: data.error });
-      }
-    } catch (e: any) {
-      toast.error('Error de conexión', { description: e.message });
-    } finally {
-      setPackaging(false);
-    }
+      const form = new FormData(); form.append('database', file);
+      const response = await fetch('/api/backup?type=import', { method: 'POST', body: form });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'No se pudo importar');
+      toast.success('Base de datos restaurada', { description: `Copia previa: ${body.safetyBackup.filename}` });
+      await load();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Error de importación'); }
+    finally { setBusy(false); if (fileInput.current) fileInput.current.value = ''; }
   };
 
-  const formatDate = (d: string) => {
+  const generateAuditPackage = async () => {
+    setBusy(true);
     try {
-      return new Date(d).toLocaleString('es-ES', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      });
-    } catch { return d; }
+      const response = await fetch('/api/audit-package?type=generate', { method: 'POST' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'No se pudo generar');
+      toast.success('Paquete de auditoría generado', { description: body.path });
+      await load();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Error de auditoría'); }
+    finally { setBusy(false); }
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <HardDrive className="w-4 h-4 text-blue-600" />
-              Backup de base de datos
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Copia la base de datos SQLite a /backups/ con fecha y hora.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={handleBackup} disabled={backuping} className="w-full">
-              {backuping ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Database className="w-4 h-4 mr-2" />}
-              {backuping ? 'Creando backup...' : 'Crear backup ahora'}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Download className="w-4 h-4 text-purple-600" />
-              Paquete de auditoría
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Genera carpeta con DB, PDFs, JSONs, CSVs, logs y configuración.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={handleAuditPackage} disabled={packaging} className="w-full" variant="outline">
-              {packaging ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
-              {packaging ? 'Generando...' : 'Exportar paquete de auditoría'}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Audit Log Table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-sm font-medium">Registro de auditoría general</CardTitle>
-              <CardDescription className="text-xs mt-1">
-                Todas las acciones de usuarios quedan registradas. El comercial no puede borrar logs.
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={loadLogs} disabled={loading}>
-              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} />
-              Actualizar
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {logs.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">No hay registros de auditoría.</p>
-          ) : (
-            <div className="max-h-96 overflow-auto rounded border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Fecha</TableHead>
-                    <TableHead className="text-xs">Usuario</TableHead>
-                    <TableHead className="text-xs">Acción</TableHead>
-                    <TableHead className="text-xs">Entidad</TableHead>
-                    <TableHead className="text-xs">Resumen</TableHead>
-                    <TableHead className="text-xs">Resultado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logs.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell className="text-xs py-2 whitespace-nowrap">
-                        {formatDate(entry.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-xs py-2">
-                        <div>{entry.userName || entry.userId || '-'}</div>
-                        <div className="text-gray-400">{entry.userRole || ''}</div>
-                      </TableCell>
-                      <TableCell className="text-xs py-2 font-mono">
-                        {entry.action}
-                      </TableCell>
-                      <TableCell className="text-xs py-2">
-                        {entry.entity ? `${entry.entity}${entry.entityId ? `: ${entry.entityId.slice(0, 8)}` : ''}` : '-'}
-                      </TableCell>
-                      <TableCell className="text-xs py-2 max-w-[200px] truncate" title={entry.summary || ''}>
-                        {entry.summary || '-'}
-                      </TableCell>
-                      <TableCell className="text-xs py-2">
-                        {entry.result === 'success' ? (
-                          <Badge className="bg-green-100 text-green-800 text-xs">OK</Badge>
-                        ) : (
-                          <Badge variant="destructive" className="text-xs">Error</Badge>
-                        )}
-                        {entry.errorMessage && (
-                          <p className="text-red-500 text-xs mt-0.5 max-w-[200px] truncate" title={entry.errorMessage}>
-                            {entry.errorMessage}
-                          </p>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+  return <div className="space-y-6">
+    <div className="grid gap-4 md:grid-cols-3">
+      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><HardDrive className="h-4 w-4 text-blue-600" />Copias SQLite</CardTitle><CardDescription>La primera escritura de cada día crea una copia automática. Se conservan 30.</CardDescription></CardHeader><CardContent><Button className="w-full" onClick={createBackup} disabled={busy}><Database className="h-4 w-4 mr-2" />Crear ahora</Button></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><Upload className="h-4 w-4 text-amber-600" />Importar / restaurar</CardTitle><CardDescription>Valida formato y tablas, y crea una copia previa antes de sustituir la base.</CardDescription></CardHeader><CardContent><input ref={fileInput} className="hidden" type="file" accept=".sqlite,.db,application/vnd.sqlite3" onChange={(event) => importBackup(event.target.files?.[0])} /><Button className="w-full" variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}><Upload className="h-4 w-4 mr-2" />Seleccionar SQLite</Button></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-sm flex gap-2"><Shield className="h-4 w-4 text-purple-600" />Paquete de auditoría</CardTitle><CardDescription>Exporta base, documentos, datos y registros para custodia.</CardDescription></CardHeader><CardContent><Button className="w-full" variant="outline" onClick={generateAuditPackage} disabled={busy}><Download className="h-4 w-4 mr-2" />Generar paquete</Button></CardContent></Card>
     </div>
-  );
+
+    <Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle className="text-sm">Copias disponibles</CardTitle><CardDescription>Descarga directa para guardar fuera del servidor.</CardDescription></div><Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button></CardHeader><CardContent><div className="max-h-72 overflow-auto"><Table><TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Tipo</TableHead><TableHead>Tamaño</TableHead><TableHead className="text-right">Exportar</TableHead></TableRow></TableHeader><TableBody>{backups.map((backup) => <TableRow key={backup.filename}><TableCell>{formatDate(backup.createdAt)}</TableCell><TableCell><Badge variant="secondary">{backup.kind === 'automatic' ? 'Automática' : backup.kind === 'manual' ? 'Manual' : 'Pre-importación'}</Badge></TableCell><TableCell>{formatSize(backup.size)}</TableCell><TableCell className="text-right"><Button asChild variant="ghost" size="sm"><a href={`/api/backup?type=download&filename=${encodeURIComponent(backup.filename)}`}><Download className="h-4 w-4" /></a></Button></TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>
+
+    <Card><CardHeader><CardTitle className="text-sm">Registro de auditoría general</CardTitle><CardDescription>Acciones de usuarios y operaciones de sistema.</CardDescription></CardHeader><CardContent><div className="max-h-96 overflow-auto"><Table><TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Usuario</TableHead><TableHead>Acción</TableHead><TableHead>Resumen</TableHead><TableHead>Resultado</TableHead></TableRow></TableHeader><TableBody>{logs.map((entry) => <TableRow key={entry.id}><TableCell className="whitespace-nowrap text-xs">{formatDate(entry.createdAt)}</TableCell><TableCell className="text-xs">{entry.userName || entry.userId || 'Sistema'}<div className="text-muted-foreground">{entry.userRole}</div></TableCell><TableCell className="font-mono text-xs">{entry.action}</TableCell><TableCell className="text-xs max-w-xs truncate" title={entry.summary || ''}>{entry.summary || '—'}</TableCell><TableCell>{entry.result === 'success' ? <Badge>OK</Badge> : <Badge variant="destructive">Error</Badge>}</TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>
+  </div>;
 }

@@ -125,6 +125,25 @@ function blocksFromCostingSnapshot(snapshot: string): Record<string, any>[] | nu
   }
 }
 
+function locationFromCostingSnapshot(snapshot: string): {
+  serviceLocationId: string;
+  serviceAutonomousCommunity: string;
+  serviceProvince: string;
+  serviceMunicipality: string | null;
+} | null {
+  try {
+    const parsed = JSON.parse(snapshot)
+    const location = parsed.location
+    if (!location?.cc || !location?.province) return null
+    return {
+      serviceLocationId: String(location.id || 'custom'),
+      serviceAutonomousCommunity: String(location.cc),
+      serviceProvince: String(location.province),
+      serviceMunicipality: location.municipality ? String(location.municipality) : null,
+    }
+  } catch { return null }
+}
+
 /**
  * Sanitize budget response for comercial users:
  * - Remove internalNotes from budget
@@ -238,6 +257,10 @@ export async function POST(request: NextRequest) {
     if (!quotedBlocks?.length) {
       return NextResponse.json({ error: 'La cotización económica no contiene bloques válidos. Vuelve a calcular.' }, { status: 409 })
     }
+    const quotedLocation = locationFromCostingSnapshot(costingQuote.snapshot)
+    if (!quotedLocation) {
+      return NextResponse.json({ error: 'La cotización económica no contiene una zona de servicio válida. Vuelve a calcular.' }, { status: 409 })
+    }
 
     // Resolve client ID by CIF (supports old and new IDs)
     let resolvedClientId = clientId
@@ -277,6 +300,7 @@ export async function POST(request: NextRequest) {
         clientNotes: clientNotes ?? null,
         // internalNotes only settable by admin/maestro
         internalNotes: canSeeInternal ? (internalNotes ?? null) : null,
+        ...quotedLocation,
         serviceBlocks: blocksToSave.length
           ? {
               create: blocksToSave.map((block, index) => ({
@@ -300,7 +324,7 @@ export async function POST(request: NextRequest) {
 
     await db.costingQuote.update({
       where: { id: costingQuote.id },
-      data: { usedAt: new Date() },
+      data: { usedAt: new Date(), budgetId: budget.id },
     })
 
     // Auto-export: JSON + CSV + AuditLog (lightweight, no PDF)
@@ -347,7 +371,8 @@ export async function PUT(request: NextRequest) {
 
     const updatesEconomicData = serviceBlocks !== undefined || [
       'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
-      'ivaPercent', 'ivaAmount', 'totalFinal',
+      'ivaPercent', 'ivaAmount', 'totalFinal', 'serviceLocationId',
+      'serviceAutonomousCommunity', 'serviceProvince', 'serviceMunicipality',
     ].some((key) => updateData[key] !== undefined)
     const costingQuote = updatesEconomicData
       ? await getValidCostingQuote(auth.id, calculationToken)
@@ -419,6 +444,10 @@ export async function PUT(request: NextRequest) {
     if (costingQuote && !processedBlocks?.length) {
       return NextResponse.json({ error: 'La cotización económica no contiene bloques válidos. Vuelve a calcular.' }, { status: 409 })
     }
+    const quotedLocation = costingQuote ? locationFromCostingSnapshot(costingQuote.snapshot) : null
+    if (costingQuote && !quotedLocation) {
+      return NextResponse.json({ error: 'La cotización económica no contiene una zona de servicio válida. Vuelve a calcular.' }, { status: 409 })
+    }
 
     // Delete existing service blocks if new ones are provided
     if (processedBlocks !== undefined) {
@@ -457,6 +486,7 @@ export async function PUT(request: NextRequest) {
         ...(clientNotes !== undefined && { clientNotes: clientNotes ?? null }),
         // internalNotes only settable by admin/maestro
         ...(canSeeInternal && internalNotes !== undefined && { internalNotes: internalNotes ?? null }),
+        ...(quotedLocation ?? {}),
         // Recreate service blocks if provided
         ...(processedBlocks?.length
           ? {
@@ -487,7 +517,7 @@ export async function PUT(request: NextRequest) {
     if (costingQuote) {
       await db.costingQuote.update({
         where: { id: costingQuote.id },
-        data: { usedAt: new Date() },
+        data: { usedAt: new Date(), budgetId: id },
       })
     }
 

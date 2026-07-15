@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, SESSION_COOKIE, getCurrentUser, logAudit } from '@/lib/auth';
 import { createSessionToken, SESSION_MAX_AGE_SECONDS } from '@/lib/session';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
+import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
 export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
       }
 
       const hashed = await hashPassword(newPassword);
+      await ensureDailyAutomaticBackup();
       await db.user.update({
         where: { id: auth.id },
         data: { password: hashed, mustChangePassword: false },
@@ -134,7 +136,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Credenciales incorrectas' }, { status: 401 });
     }
 
-    // Update last login
+    // Login actualiza la base; la primera escritura del día queda precedida por backup.
+    await ensureDailyAutomaticBackup();
     await db.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },

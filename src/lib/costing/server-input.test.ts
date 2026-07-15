@@ -124,4 +124,53 @@ describe('Adaptador servidor — pantalla comercial al motor económico', () => 
     expect(built.issues.map((issue) => issue.field))
       .toContain('appConfig.costing_management_fee_per_contract');
   });
+
+  it.each([
+    ['Madrid', 'bocm-sanidad-privada-madrid-2023-2026-art-12-3'],
+    ['Burgos', 'bop-burgos-hospitalizacion-privada-art-25'],
+  ])('aplica nocturnidad oficial del 25%% en %s', (province, sourceId) => {
+    const built = buildCostingInputFromDatabase({
+      block,
+      schedule: schedule(8),
+      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config: {
+        ...config,
+        surcharges: config.surcharges.map((row) => row.type === 'nocturnidad' ? { ...row, value: 99 } : row),
+      },
+      serviceId: '0',
+      location: { province },
+    });
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') return;
+    const night = built.input.plusRules.find((rule) => rule.hourBucket === 'night');
+    expect(night?.value).toBe(25);
+    expect(night?.source?.id).toBe(sourceId);
+  });
+
+  it('conecta cada tipo de festivo con su tramo horario específico', () => {
+    const holidaySchedule = schedule(8);
+    holidaySchedule.shiftBreakdown = {
+      ...holidaySchedule.shiftBreakdown,
+      holiday: 8,
+      holidayAutonomico: 8,
+    };
+    const built = buildCostingInputFromDatabase({
+      block,
+      schedule: holidaySchedule,
+      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config: {
+        ...config,
+        surcharges: [
+          ...config.surcharges,
+          { id: 'regional', name: 'Festivo autonómico', type: 'festivo_autonomico', surchargeType: 'percentage', value: 50 },
+        ],
+      },
+      serviceId: '0',
+      location: { province: 'Madrid' },
+    });
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') return;
+    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'holidayAutonomico')?.value).toBe(50);
+    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'holiday')).toBeUndefined();
+  });
 });

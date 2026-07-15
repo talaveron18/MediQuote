@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { verifySessionToken } from '@/lib/session';
+import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
 export const SESSION_COOKIE = 'gasi_session';
 
@@ -19,6 +20,20 @@ function passwordChangeRequired(): NextResponse {
     { error: 'Debes cambiar la contraseña antes de continuar', code: 'PASSWORD_CHANGE_REQUIRED' },
     { status: 403 },
   );
+}
+
+async function protectMutation(request: Request): Promise<NextResponse | null> {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) return null;
+  if (new URL(request.url).pathname === '/api/backup') return null;
+  try {
+    await ensureDailyAutomaticBackup();
+    return null;
+  } catch (error) {
+    return NextResponse.json({
+      error: 'Operación detenida: no se pudo crear la copia de seguridad automática',
+      detail: error instanceof Error ? error.message : undefined,
+    }, { status: 503 });
+  }
 }
 
 /**
@@ -63,6 +78,8 @@ export async function requireAuth(
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
   if (user.mustChangePassword) return passwordChangeRequired();
+  const backupError = await protectMutation(request);
+  if (backupError) return backupError;
   return user;
 }
 
@@ -80,10 +97,11 @@ export async function requireRole(
   }
   if (user.mustChangePassword) return passwordChangeRequired();
   // maestro has access to everything
-  if (user.role === 'maestro') return user;
-  if (!allowedRoles.includes(user.role)) {
+  if (user.role !== 'maestro' && !allowedRoles.includes(user.role)) {
     return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
   }
+  const backupError = await protectMutation(request);
+  if (backupError) return backupError;
   return user;
 }
 
@@ -101,6 +119,8 @@ export async function requireMaestro(
   if (user.role !== 'maestro') {
     return NextResponse.json({ error: 'Acceso denegado. Solo el titular puede acceder.' }, { status: 403 });
   }
+  const backupError = await protectMutation(request);
+  if (backupError) return backupError;
   return user;
 }
 

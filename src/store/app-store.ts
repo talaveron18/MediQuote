@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_SERVICE_LOCATION_ID, getServiceLocation } from '@/lib/service-locations';
 import type { AppView, UserRole, BudgetInput, ServiceBlockInput, ClientDTO, BlockCalculationResult, BudgetCalculationResult, CategoryDTO, SurchargeConfigDTO, LaborRuleDTO, HolidayInfo, BlockType } from '@/lib/types';
 
 interface AppState {
@@ -51,6 +52,10 @@ const emptyBudgetForm: BudgetInput = {
   ivaPercent: 21,
   clientNotes: '',
   internalNotes: '',
+  serviceLocationId: DEFAULT_SERVICE_LOCATION_ID,
+  serviceAutonomousCommunity: getServiceLocation(DEFAULT_SERVICE_LOCATION_ID).autonomousCommunity,
+  serviceProvince: getServiceLocation(DEFAULT_SERVICE_LOCATION_ID).province,
+  serviceMunicipality: getServiceLocation(DEFAULT_SERVICE_LOCATION_ID).municipality,
   serviceBlocks: [],
 };
 
@@ -242,7 +247,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   budgetTotals: null,
   setBudgetForm: (f) => set((s) => ({
     budgetForm: { ...s.budgetForm, ...f },
-    budgetTotals: f.discountPercent !== undefined || f.ivaPercent !== undefined
+    budgetTotals: f.discountPercent !== undefined || f.ivaPercent !== undefined || f.serviceLocationId !== undefined
       ? null
       : s.budgetTotals,
   })),

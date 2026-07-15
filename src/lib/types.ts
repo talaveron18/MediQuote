@@ -84,6 +84,10 @@ export interface BudgetInput {
   ivaPercent?: number;
   clientNotes?: string;
   internalNotes?: string;
+  serviceLocationId?: string;
+  serviceAutonomousCommunity?: string;
+  serviceProvince?: string;
+  serviceMunicipality?: string;
   serviceBlocks?: ServiceBlockInput[];
 }
 

@@ -29,10 +29,10 @@ Esta es una instancia de MediQuote Pro configurada para uso interno de GASI. El 
 ### Instalación
 
 ```bash
-npm install
-npx prisma generate
-npx prisma db push
-npx tsx scripts/seed.ts
+npm ci
+cp .env.example .env
+# Rellenar SESSION_SECRET y las contraseñas iniciales en .env
+npm run setup
 ```
 
 Antes de arrancar en producción, crear un secreto de sesión y guardarlo en `.env`:
@@ -43,6 +43,9 @@ openssl rand -base64 48
 
 Asignar el resultado a `SESSION_SECRET`. La aplicación rechaza el inicio de sesión
 en producción si el secreto no está configurado con al menos 32 bytes.
+
+Para que las copias sobrevivan a una reinstalación o a la pérdida del contenedor,
+monte la carpeta `backups/` como volumen persistente distinto del fichero SQLite.
 
 ### Desarrollo
 
@@ -111,7 +114,11 @@ La herramienta genera automáticamente al guardar un presupuesto:
 
 ## Backups
 
-Desde Administración → Auditoría se puede generar un backup completo de la base de datos SQLite. Se guarda en `backups/`.
+La primera escritura autenticada de cada día genera una copia SQLite automática y
+verificada. Administración → Auditoría permite crear, listar, descargar e importar
+copias manuales. Antes de importar se crea una copia adicional `pre-import`. Por
+defecto se conservan 30 copias automáticas; se configura con
+`GASI_BACKUP_RETENTION`.
 
 ## Configuración remota
 
@@ -170,14 +177,18 @@ Initial private version of MediQuote Pro — GASI licensed internal instance
 
 ---
 
-## Seguridad pendiente (antes de despliegue web)
+## Seguridad de la entrega
 
-- Cookie HttpOnly + SameSite
-- Sesión server-side con expiración
-- Protección CSRF
-- Recuperación de contraseña por email (SMTP + token)
-- Rate limiting en login
-- Log de intentos fallidos con bloqueo temporal
+- Sesiones HMAC-SHA256 firmadas, expirables y con comparación en tiempo constante.
+- Cookie HttpOnly, SameSite=Lax y Secure en producción.
+- `SESSION_SECRET` obligatorio en producción (mínimo 32 bytes).
+- Contraseñas con bcrypt y credenciales temporales criptográficas, con cambio inicial obligatorio.
+- Costes internos y desglose económico restringidos a admin/maestro.
+- Copia SQLite automática antes de la primera escritura diaria.
+
+Como evolución operativa, no como requisito de esta v1, quedan la recuperación de
+contraseña por correo y un limitador distribuido si la aplicación se despliega en
+más de una instancia.
 
 ---
 

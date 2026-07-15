@@ -47,15 +47,45 @@ const PLUS_BUCKETS: Partial<Record<SurchargeType, PlusHourBucket>> = {
   domingo: 'sunday',
   fin_de_semana: 'weekend',
   festivo: 'holiday',
+  festivo_nacional: 'holidayNational',
+  festivo_autonomico: 'holidayAutonomico',
+  festivo_provincial: 'holidayProvincial',
+  festivo_municipal: 'holidayMunicipal',
 };
 
-function buildPlusRules(rows: SurchargeCostSource[]): LaborPlusRule[] {
+function nightRuleSource(province: string, row: SurchargeCostSource) {
+  if (province === 'Madrid') {
+    return {
+      id: 'bocm-sanidad-privada-madrid-2023-2026-art-12-3',
+      label: 'Convenio de establecimientos sanitarios privados de Madrid 2023-2026, art. 12.3',
+      url: 'https://www.bocm.es/boletin/CM_Orden_BOCM/2023/11/23/BOCM-20231123-25.PDF',
+      effectiveFrom: '2023-01-01', effectiveTo: '2026-12-31', status: 'verified' as const,
+    };
+  }
+  if (province === 'Burgos') {
+    return {
+      id: 'bop-burgos-hospitalizacion-privada-art-25',
+      label: 'Convenio de hospitalización y asistencia privada de Burgos, art. 25',
+      url: 'https://www.faeburgos.org/wp-content/uploads/2022/10/Hospitalizacion-y-asistencia-privada-de-la-provincia-de-Burgos-09000265011981.pdf',
+      effectiveFrom: '2021-01-01', status: 'verified' as const,
+    };
+  }
+  return source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`);
+}
+
+function buildPlusRules(rows: SurchargeCostSource[], province: string): LaborPlusRule[] {
   const selected = new Map<PlusHourBucket, SurchargeCostSource>();
 
   // Las reglas genéricas evitan acumular festivo + festivo nacional/autonómico.
   for (const row of rows) {
     const bucket = PLUS_BUCKETS[row.type as SurchargeType];
     if (bucket && !selected.has(bucket)) selected.set(bucket, row);
+  }
+  if (
+    selected.has('holidayNational') || selected.has('holidayAutonomico')
+    || selected.has('holidayProvincial') || selected.has('holidayMunicipal')
+  ) {
+    selected.delete('holiday');
   }
 
   return [...selected.entries()].flatMap(([bucket, row]) => {
@@ -65,9 +95,11 @@ function buildPlusRules(rows: SurchargeCostSource[]): LaborPlusRule[] {
       id: row.id,
       name: row.name,
       formula: kind === 'percentage' ? 'percentage_base_hour' : 'per_hour',
-      value: row.value,
+      value: bucket === 'night' && (province === 'Madrid' || province === 'Burgos') ? 25 : row.value,
       hourBucket: bucket,
-      source: source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`),
+      source: bucket === 'night'
+        ? nightRuleSource(province, row)
+        : source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`),
     } satisfies LaborPlusRule];
   });
 }
@@ -95,8 +127,9 @@ export function buildCostingInputFromDatabase(params: {
   category: CategoryCostSource | undefined;
   config: CostingDatabaseConfig;
   serviceId: string;
+  location?: { province?: string; municipality?: string };
 }): CostingInputBuildResult {
-  const { block, schedule, category, config, serviceId } = params;
+  const { block, schedule, category, config, serviceId, location } = params;
   const issues: DataIssue[] = [];
   const productiveHourlyGross = finite(category?.defaultInternalCost);
 
@@ -143,7 +176,7 @@ export function buildCostingInputFromDatabase(params: {
       message: 'Falta el coste real de gestoría por contrato.',
     });
   }
-  const province = config.appConfig.costing_province?.trim();
+  const province = location?.province?.trim() || config.appConfig.costing_province?.trim();
   if (!province) {
     issues.push({
       field: 'appConfig.costing_province',
@@ -152,13 +185,16 @@ export function buildCostingInputFromDatabase(params: {
     });
   }
 
-  const plusRules = buildPlusRules(config.surcharges);
+  const plusRules = buildPlusRules(config.surcharges, province ?? '');
   const hours = adaptBlockResultToCostHours(schedule);
   const uncoveredBuckets: Array<[PlusHourBucket, number]> = [
     ['night', hours.breakdown.night],
     ['sunday', hours.breakdown.sunday],
     ['weekend', hours.breakdown.weekend],
-    ['holiday', hours.breakdown.holiday],
+    ['holidayNational', hours.breakdown.holidayNational],
+    ['holidayAutonomico', hours.breakdown.holidayAutonomico],
+    ['holidayProvincial', hours.breakdown.holidayProvincial],
+    ['holidayMunicipal', hours.breakdown.holidayMunicipal],
   ];
   for (const [bucket, applicableHours] of uncoveredBuckets) {
     if (applicableHours > 0 && !plusRules.some((rule) => rule.hourBucket === bucket)) {
@@ -182,6 +218,7 @@ export function buildCostingInputFromDatabase(params: {
       serviceId,
       professionalProfile: category!.name,
       province: province!,
+      municipality: location?.municipality,
       hours,
       salary: {
         annualOrdinaryBaseSalary: monthlyEquivalent * 12,

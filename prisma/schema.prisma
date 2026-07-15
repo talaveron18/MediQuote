@@ -71,6 +71,10 @@ model Budget {
   totalFinal      Float    @default(0)
   clientNotes     String?
   internalNotes   String?
+  serviceLocationId String   @default("madrid-capital")
+  serviceAutonomousCommunity String @default("Madrid")
+  serviceProvince String      @default("Madrid")
+  serviceMunicipality String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   serviceBlocks   ServiceBlock[]
@@ -226,6 +230,7 @@ model AppConfig {
 model CostingQuote {
   id              String   @id @default(cuid())
   userId          String
+  budgetId        String?
   snapshot        String   // JSON interno: coste, política y resultado económico
   subtotal        Float
   discountPercent Float
@@ -236,6 +241,8 @@ model CostingQuote {
   expiresAt       DateTime
   usedAt          DateTime?
   createdAt       DateTime @default(now())
+
+  @@index([budgetId])
 }
 
 // ─── General Audit Log ─────────────────────────────────────────

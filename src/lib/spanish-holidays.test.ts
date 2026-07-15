@@ -51,11 +51,16 @@ describe('Spanish holidays seed recurrence and scope', () => {
     expect(holidays.every((h) => h.type === 'nacional')).toBe(true);
   });
 
-  it('regional holidays require explicit location', () => {
-    const madrid = generateHolidaysForYear(2026, { cc: 'Madrid' });
-    const catalonia = generateHolidaysForYear(2026, { cc: 'Cataluña' });
+  it('loads the complete official 2026 calendars for the GASI operating areas', () => {
+    const madrid = generateHolidaysForYear(2026, { cc: 'Madrid', municipality: 'Madrid' });
+    const burgos = generateHolidaysForYear(2026, { cc: 'Castilla y León', province: 'Burgos', municipality: 'Burgos' });
+    const clm = generateHolidaysForYear(2026, { cc: 'Castilla-La Mancha' });
 
-    expect(madrid.find((h) => h.name === 'Día de la Comunidad de Madrid')).toBeDefined();
-    expect(catalonia.find((h) => h.name === 'Diada Nacional de Catalunya')).toBeDefined();
+    expect(madrid.find((h) => h.name === 'Fiesta de la Comunidad de Madrid')).toBeDefined();
+    expect(madrid.find((h) => h.name === 'San Isidro Labrador')?.type).toBe('municipal');
+    expect(burgos.find((h) => h.name === 'Fiesta de Castilla y León')).toBeDefined();
+    expect(burgos.find((h) => h.name === 'El Curpillos')?.date).toBe('2026-06-12');
+    expect(clm.find((h) => h.name === 'Lunes de Pascua')?.date).toBe('2026-04-06');
+    expect(clm.find((h) => h.name === 'Corpus Christi')?.date).toBe('2026-06-04');
   });
 });

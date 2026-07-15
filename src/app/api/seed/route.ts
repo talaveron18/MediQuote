@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
       { name: "Festivo nacional", type: "festivo_nacional", surchargeType: "percentage", value: 75, description: "Festivo nacional", active: true },
       { name: "Festivo autonómico", type: "festivo_autonomico", surchargeType: "percentage", value: 50, description: "Festivo autonómico", active: true },
       { name: "Festivo provincial", type: "festivo_provincial", surchargeType: "percentage", value: 25, description: "Festivo provincial", active: true },
+      { name: "Festivo municipal", type: "festivo_municipal", surchargeType: "percentage", value: 20, description: "Festivo municipal", active: true },
       { name: "Urgencia", type: "urgencia", surchargeType: "percentage", value: 100, description: "Urgencia", active: true },
       { name: "Difícil cobertura", type: "dificil_cobertura", surchargeType: "percentage", value: 30, description: "Difícil cobertura", active: true },
       { name: "Fin de semana", type: "fin_de_semana", surchargeType: "percentage", value: 25, description: "Fin de semana", active: true },
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
     for (const h of holidays) {
       const existing = await db.holiday.findFirst({ where: { date: h.date, name: h.name } })
       if (!existing) {
-        await db.holiday.create({ data: { date: h.date, name: h.name, type: h.type, autonomousCommunity: h.autonomousCommunity ?? undefined, province: h.province ?? undefined, year: null, recurring: true } })
+        await db.holiday.create({ data: { date: h.date, name: h.name, type: h.type, autonomousCommunity: h.autonomousCommunity ?? undefined, province: h.province ?? undefined, municipality: h.municipality ?? undefined, year: Number(h.date.slice(0, 4)), recurring: h.recurring ?? false } })
         counts.holidays++
       }
     }
@@ -92,11 +93,11 @@ export async function POST(request: NextRequest) {
 
     // 6. App Config
     const configData: Record<string, string> = {
-      company_name: "GASI Servicios Sanitarios S.L.",
-      company_cif: "B12345678",
-      company_address: "Calle Mayor 15, 28013 Madrid",
-      company_phone: "911234567",
-      company_email: "info@gasi.es",
+      company_name: "GASI — Grupo de Asistencia Sanitaria Integral",
+      company_cif: "",
+      company_address: "",
+      company_phone: "622 822 101",
+      company_email: "coordinacion@gasisalud.com",
       iva_default: "21",
       valid_days_default: "30",
       costing_province: "Madrid",

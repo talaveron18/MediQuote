@@ -52,6 +52,7 @@ import BrandingPanel from '@/components/views/branding-panel'
 import UsersPanel from '@/components/views/users-panel'
 import LegalRecordsPanel from '@/components/views/legal-records-panel'
 import LegalParametersPanel from '@/components/views/legal-parameters-panel'
+import CostBreakdownPanel from '@/components/views/cost-breakdown-panel'
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -641,6 +642,7 @@ function AdminPanel() {
           <TabsTrigger value="empresa">Configuración Empresa</TabsTrigger>
           <TabsTrigger value="remota">Config. Remota</TabsTrigger>
           <TabsTrigger value="auditoria">Auditoría</TabsTrigger>
+          <TabsTrigger value="desglose">Desglose económico</TabsTrigger>
           <TabsTrigger value="registro_legal">Registro Legal</TabsTrigger>
           <TabsTrigger value="parametros_legales">Parámetros Legales</TabsTrigger>
           <TabsTrigger value="branding" className={isMaestro ? '' : 'hidden'}>Branding / Licencia</TabsTrigger>
@@ -980,6 +982,9 @@ function AdminPanel() {
         </TabsContent>
         <TabsContent value="auditoria" className="space-y-4">
           <AdminAuditPanel />
+        </TabsContent>
+        <TabsContent value="desglose" className="space-y-4">
+          <CostBreakdownPanel />
         </TabsContent>
 
         <TabsContent value="registro_legal" className="space-y-4">

@@ -43,6 +43,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useAppStore, emptyBlock, BLOCK_TYPE_PRESETS, SIMPLE_BLOCK_TYPES } from '@/store/app-store';
+import { SERVICE_LOCATIONS, getServiceLocation } from '@/lib/service-locations';
 import { calculateWorkingDates, findHolidayForDate } from '@/lib/schedule-engine';
 import type {
   ServiceBlockInput,
@@ -265,6 +266,10 @@ export default function BudgetForm() {
                 ivaPercent: budget.ivaPercent ?? 21,
                 clientNotes: budget.clientNotes || '',
                 internalNotes: budget.internalNotes || '',
+                serviceLocationId: budget.serviceLocationId || 'madrid-capital',
+                serviceAutonomousCommunity: budget.serviceAutonomousCommunity || 'Madrid',
+                serviceProvince: budget.serviceProvince || 'Madrid',
+                serviceMunicipality: budget.serviceMunicipality || '',
               });
               // Sync IVA mode with loaded value
               const loadedIva = budget.ivaPercent ?? 21;
@@ -545,6 +550,12 @@ export default function BudgetForm() {
         blocks: store.serviceBlocks,
         discountPercent: store.budgetForm.discountPercent ?? 0,
         ivaPercent: store.budgetForm.ivaPercent ?? 21,
+        location: {
+          id: store.budgetForm.serviceLocationId,
+          cc: store.budgetForm.serviceAutonomousCommunity,
+          province: store.budgetForm.serviceProvince,
+          municipality: store.budgetForm.serviceMunicipality || undefined,
+        },
       };
       const res = await fetch('/api/calculations', {
         method: 'POST',
@@ -1931,6 +1942,38 @@ export default function BudgetForm() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="service-location" className="text-xs font-medium">
+                    Zona del servicio *
+                  </Label>
+                  <Select
+                    value={store.budgetForm.serviceLocationId || 'madrid-capital'}
+                    onValueChange={(value) => {
+                      const location = getServiceLocation(value);
+                      store.setBudgetForm({
+                        serviceLocationId: location.id,
+                        serviceAutonomousCommunity: location.autonomousCommunity,
+                        serviceProvince: location.province,
+                        serviceMunicipality: location.municipality || '',
+                      });
+                    }}
+                  >
+                    <SelectTrigger id="service-location" className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SERVICE_LOCATIONS.map((location) => (
+                        <SelectItem key={location.id} value={location.id}>
+                          {location.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Determina calendario festivo y reglas territoriales de coste.
+                  </p>
                 </div>
 
                 {/* Status (only admin or editing) */}

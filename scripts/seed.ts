@@ -223,8 +223,11 @@ async function main() {
 
   // ─── App Config ──────────────────────────────────────────
   const appConfigs: { key: string; value: string }[] = [
-    { key: 'company_name', value: 'GASI' },
-    { key: 'company_cif', value: 'B12345678' },
+    { key: 'company_name', value: 'GASI — Grupo de Asistencia Sanitaria Integral' },
+    { key: 'company_cif', value: '' },
+    { key: 'company_address', value: '' },
+    { key: 'company_phone', value: '622 822 101' },
+    { key: 'company_email', value: 'coordinacion@gasisalud.com' },
     { key: 'ivaPercent', value: '21' },
     { key: 'maxDiscountPercent', value: '15' },
     { key: 'calculationEngineVersion', value: '2.0.0' },
@@ -243,11 +246,13 @@ async function main() {
   ]
 
   for (const cfg of appConfigs) {
-    await db.appConfig.upsert({
-      where: { key: cfg.key },
-      update: { value: cfg.value },
-      create: cfg,
-    })
+    const existing = await db.appConfig.findUnique({ where: { key: cfg.key } })
+    if (!existing) await db.appConfig.create({ data: cfg })
+    else if (cfg.key === 'company_cif' && existing.value === 'B12345678') {
+      await db.appConfig.update({ where: { key: cfg.key }, data: { value: '' } })
+    } else if (cfg.key === 'company_name' && existing.value === 'GASI') {
+      await db.appConfig.update({ where: { key: cfg.key }, data: { value: cfg.value } })
+    }
     console.log(`  AppConfig: ${cfg.key} = ${cfg.value}`)
   }
 

@@ -18,6 +18,7 @@ import type {
   ServiceBlockInput,
 } from '@/lib/types';
 import type { DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types';
+import { SERVICE_LOCATIONS } from '@/lib/service-locations';
 
 export const runtime = 'nodejs';
 
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
       blocks?: ServiceBlockInput[];
       discountPercent?: number;
       ivaPercent?: number;
-      location?: { cc?: string; province?: string };
+      location?: { id?: string; cc?: string; province?: string; municipality?: string };
     };
     const blocks = body.blocks;
     if (!Array.isArray(blocks) || blocks.length === 0) {
@@ -67,13 +68,27 @@ export async function POST(request: NextRequest) {
       nightEndHour: 6,
     };
 
-    const location = body.location ?? {
-      cc: 'Madrid',
-      province: appConfigRows.find((row) => row.key === 'costing_province')?.value || 'Madrid',
+    const requestedLocation = body.location?.id
+      ? SERVICE_LOCATIONS.find((candidate) => candidate.id === body.location?.id)
+      : SERVICE_LOCATIONS.find((candidate) => (
+          candidate.province === body.location?.province
+          && candidate.autonomousCommunity === body.location?.cc
+          && (candidate.municipality || '') === (body.location?.municipality || '')
+        ));
+    if (body.location && !requestedLocation) {
+      return NextResponse.json({ error: 'La zona de servicio no está soportada por el calendario legal de esta versión' }, { status: 400 });
+    }
+    const locationDefinition = requestedLocation ?? SERVICE_LOCATIONS[0];
+    const location = {
+      id: locationDefinition.id,
+      cc: locationDefinition.autonomousCommunity,
+      province: locationDefinition.province,
+      municipality: locationDefinition.municipality,
     };
     const holidayWhere: Record<string, unknown>[] = [{ type: 'nacional' }];
     if (location.cc) holidayWhere.push({ type: 'autonomico', autonomousCommunity: location.cc });
     if (location.province) holidayWhere.push({ type: 'provincial', province: location.province });
+    if (location.municipality) holidayWhere.push({ type: 'municipal', municipality: location.municipality });
     const dbHolidays = await db.holiday.findMany({ where: { OR: holidayWhere } });
     const holidays: HolidayInfo[] = dbHolidays.map((holiday) => ({
       date: holiday.date,
@@ -84,22 +99,25 @@ export async function POST(request: NextRequest) {
       municipality: holiday.municipality ?? undefined,
       recurring: holiday.recurring,
     }));
-    if (holidays.length === 0) {
-      const years = new Set<number>();
-      for (const block of blocks) {
-        for (const value of [block.dateRangeStart, block.dateRangeEnd, ...(block.specificDates ?? [])]) {
-          if (value) years.add(Number(value.slice(0, 4)));
-        }
+    const years = new Set<number>();
+    for (const block of blocks) {
+      for (const value of [block.dateRangeStart, block.dateRangeEnd, ...(block.specificDates ?? [])]) {
+        if (value) years.add(Number(value.slice(0, 4)));
       }
-      if (years.size === 0) years.add(new Date().getFullYear());
-      for (const year of years) holidays.push(...generateHolidaysForYear(year, location));
     }
+    if (years.size === 0) years.add(new Date().getFullYear());
+    for (const year of years) holidays.push(...generateHolidaysForYear(year, location));
+    // La versión territorial generada se añade después de la base global y
+    // prevalece por fecha (p. ej., Jueves Santo autonómico frente al seed nacional).
+    const deduplicatedHolidays = [...new Map(
+      holidays.map((holiday) => [holiday.date, holiday]),
+    ).values()];
 
     // El calendario se ejecuta una sola vez. Se fuerza precio cero para que el
     // módulo operativo no construya ningún precio de venta heredado.
     const scheduleResults: BlockCalculationResult[] = blocks.map((block) => calculateServiceBlock({
       block: { ...block, pricePerHour: 0, fixedPrice: 0 },
-      holidays,
+      holidays: deduplicatedHolidays,
       surcharges: [],
       laborRules,
     }));
@@ -142,6 +160,7 @@ export async function POST(request: NextRequest) {
         category,
         config: { legalParameters, appConfig, surcharges: dbSurcharges },
         serviceId: String(index),
+        location: { province: location.province, municipality: location.municipality },
       });
       if (built.status === 'pending_configuration') {
         issues.push(...built.issues);
@@ -236,6 +255,7 @@ export async function POST(request: NextRequest) {
           engineVersion: '1.0.0',
           calculatedAt: new Date().toISOString(),
           serviceBlocks: blocks,
+          location,
           schedules: scheduleResults,
           internalCost: result.internalCost,
           commercialPolicy: DEFAULT_GASI_COMMERCIAL_POLICY,
