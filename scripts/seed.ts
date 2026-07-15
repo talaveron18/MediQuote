@@ -204,7 +204,7 @@ async function main() {
     { key: 'calculationEngineVersion', value: '2.0.0' },
     { key: 'costing_province', value: 'Madrid' },
     { key: 'costing_overhead_percent', value: '15' },
-    { key: 'costing_management_fee_per_contract', value: '' },
+    { key: 'costing_management_fee_per_contract', value: '15' },
     { key: 'appMinVersion', value: '1.0.0' },
     { key: 'instanceName', value: 'GASI' },
     { key: 'productName', value: 'MediQuote Pro' },

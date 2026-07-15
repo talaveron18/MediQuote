@@ -91,6 +91,9 @@ export async function POST(request: NextRequest) {
       company_email: "info@gasi.es",
       iva_default: "21",
       valid_days_default: "30",
+      costing_province: "Madrid",
+      costing_overhead_percent: "15",
+      costing_management_fee_per_contract: "15",
     }
     for (const [key, value] of Object.entries(configData)) {
       const existing = await db.appConfig.findUnique({ where: { key } })

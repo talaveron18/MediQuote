@@ -74,7 +74,7 @@ const config = {
   appConfig: {
     costing_province: 'Madrid',
     costing_overhead_percent: '15',
-    costing_management_fee_per_contract: '60',
+    costing_management_fee_per_contract: '15',
   },
   surcharges: [
     { id: 'night', name: 'Nocturnidad', type: 'nocturnidad', surchargeType: 'percentage', value: 25 },
