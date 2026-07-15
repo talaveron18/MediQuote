@@ -117,9 +117,9 @@ describe('Cost engine — complete unavoidable cost', () => {
     expect(result.internalCost.managementCost).toBe(30);
     expect(result.internalCost.terminationProvision).toBe(73);
     expect(result.internalCost.otherContractCosts).toBe(20);
-    expect(result.internalCost.overhead).toBe(291.27);
+    expect(result.internalCost.overhead).toBe(324.72);
     expect(result.internalCost.totalDirectCosts).toBe(100);
-    expect(result.internalCost.totalInternalCost).toBe(2_456.07);
+    expect(result.internalCost.totalInternalCost).toBe(2_489.52);
   });
 
   it('does not erase or duplicate extra pay when it is prorated', () => {
@@ -207,9 +207,9 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
     expect(result.status).toBe('calculated');
     if (result.status !== 'calculated') return;
 
-    expect(result.commercial.minimumOrdinaryPriceExVat).toBe(3_733.23);
-    expect(result.commercial.initialListPriceExVat).toBe(3_929.71);
-    expect(result.commercial.closingPriceExVat).toBe(3_929.71);
+    expect(result.commercial.minimumOrdinaryPriceExVat).toBe(3_784.07);
+    expect(result.commercial.initialListPriceExVat).toBe(3_983.23);
+    expect(result.commercial.closingPriceExVat).toBe(3_983.23);
   });
 
   it('uses 12% commission at the floor and measures GASI return after commission', () => {
@@ -226,9 +226,9 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
 
     expect(result.commercial.commissionTier).toBe('floor');
     expect(result.commercial.commissionRatePercent).toBe(12);
-    expect(result.commercial.netBeforeCommission).toBe(1_277.16);
-    expect(result.commercial.commissionAmount).toBe(153.26);
-    expect(result.commercial.finalGasiBenefit).toBe(1_123.9);
+    expect(result.commercial.netBeforeCommission).toBe(1_294.55);
+    expect(result.commercial.commissionAmount).toBe(155.35);
+    expect(result.commercial.finalGasiBenefit).toBe(1_139.2);
     expect(result.commercial.gasiReturnOnCostPercent).toBeCloseTo(45.76, 2);
     expect(result.commercial.semaphore).toBe('green');
     expect(result.commercial.commercialBufferConsumedPercentOfCost).toBeCloseTo(8, 2);
@@ -266,7 +266,7 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
 
     expect(result.status).toBe('blocked_closing_price');
     if (result.status !== 'blocked_closing_price') return;
-    expect(result.allowedRange.minimumOrdinaryPriceExVat).toBe(3_733.23);
+    expect(result.allowedRange.minimumOrdinaryPriceExVat).toBe(3_784.07);
   });
 
   it('commercial projection contains no salary, cost, margin or commission amount', () => {

@@ -71,14 +71,16 @@ El tipo de contratación es obligatorio: indefinido, temporal, fijo discontinuo 
 
 ## Overhead y costes directos
 
-El overhead se aplica sobre el coste laboral ampliado:
+El overhead se aplica sobre el coste completo anterior a estructura: coste
+laboral ampliado, gestoría, provisión contractual y costes directos reales.
 
 ```text
 costeLaboralAmpliado = salarioServicio + pluses + SS empresa + AT/EP
-overhead = costeLaboralAmpliado × porcentaje + importeFijo
+baseOverhead = costeLaboralAmpliado + gestoría + provisiones + costesDirectos
+overhead = baseOverhead × porcentaje + importeFijo
 ```
 
-Los gastos directos no laborales se añaden por su coste real y no reciben automáticamente el overhead laboral. Incluyen desplazamiento, kilometraje, peajes, aparcamiento, dietas, alojamiento, materiales, EPIs, uniformidad, equipamiento, vehículos, seguros específicos, vigilancia de la salud, selección y otros costes directos.
+Los gastos directos no laborales se añaden por su coste real y forman parte de la base de overhead. Incluyen desplazamiento, kilometraje, peajes, aparcamiento, dietas, alojamiento, materiales, EPIs, uniformidad, equipamiento, vehículos, seguros específicos, vigilancia de la salud, selección y otros costes directos.
 
 ## Coste interno total
 

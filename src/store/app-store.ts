@@ -34,7 +34,7 @@ interface AppState {
   addServiceBlock: (b: ServiceBlockInput) => void;
   removeServiceBlock: (index: number) => void;
   setBlockResults: (r: BlockCalculationResult[]) => void;
-  setBudgetTotals: (t: BudgetCalculationResult) => void;
+  setBudgetTotals: (t: BudgetCalculationResult | null) => void;
   resetBudgetForm: () => void;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -61,6 +61,7 @@ export const emptyBlock: ServiceBlockInput = {
   puestosSimultaneos: 1,
   plantillaSeleccionada: 1,
   pricePerHour: 0,
+  contractType: 'temporal',
   dateMode: 'range',
   specificDates: [],
   dateRangeStart: '',
@@ -239,16 +240,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   serviceBlocks: [],
   blockResults: [],
   budgetTotals: null,
-  setBudgetForm: (f) => set((s) => ({ budgetForm: { ...s.budgetForm, ...f } })),
+  setBudgetForm: (f) => set((s) => ({
+    budgetForm: { ...s.budgetForm, ...f },
+    budgetTotals: f.discountPercent !== undefined || f.ivaPercent !== undefined
+      ? null
+      : s.budgetTotals,
+  })),
   setServiceBlocks: (b) => set({ serviceBlocks: b }),
   updateServiceBlock: (index, b) => set((s) => {
     const blocks = [...s.serviceBlocks];
     blocks[index] = { ...blocks[index], ...b };
-    return { serviceBlocks: blocks };
+    return { serviceBlocks: blocks, budgetTotals: null };
   }),
-  addServiceBlock: (b) => set((s) => ({ serviceBlocks: [...s.serviceBlocks, b] })),
+  addServiceBlock: (b) => set((s) => ({ serviceBlocks: [...s.serviceBlocks, b], budgetTotals: null })),
   removeServiceBlock: (index) => set((s) => ({
     serviceBlocks: s.serviceBlocks.filter((_, i) => i !== index),
+    budgetTotals: null,
   })),
   setBlockResults: (r) => set({ blockResults: r }),
   setBudgetTotals: (t) => set({ budgetTotals: t }),

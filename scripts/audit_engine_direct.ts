@@ -9,7 +9,7 @@ import {
   calculateSurcharges,
   calculateServiceBlock,
   calculateBudgetTotals,
-} from '../src/lib/calculation-engine';
+} from '../src/lib/schedule-engine';
 import type { HolidayInfo } from '../src/lib/types';
 
 let passed = 0;

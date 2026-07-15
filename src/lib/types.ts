@@ -7,6 +7,7 @@ export type ShiftType = 'morning' | 'afternoon' | 'night' | '24h' | 'custom';
 export type UnitType = 'hora' | 'dia' | 'servicio' | 'kilometro' | 'unidad' | 'turno' | 'curso';
 export type BlockType = 'profesional_hora' | 'servicio_fijo' | 'material' | 'desplazamiento' | 'dietas' | 'alojamiento' | 'ambulancia' | 'telemedicina' | 'curso' | 'otros';
 export type CourseModality = 'presencial' | 'online' | 'mixta';
+export type ServiceContractType = 'indefinido' | 'temporal' | 'fijo_discontinuo' | 'mercantil_autonomo';
 export type SurchargeKind = 'percentage' | 'fixed' | 'multiplier' | 'special_price';
 export type HolidayType = 'nacional' | 'autonomico' | 'provincial' | 'municipal';
 export type SurchargeType =
@@ -41,6 +42,8 @@ export interface ServiceBlockInput {
   pricePerHour: number;
   internalCostPerHour?: number;
   internalMargin?: number;
+  /** Modalidad prevista de contratación. Obligatoria para valorar el coste laboral. */
+  contractType?: ServiceContractType;
   dateMode: DateMode;
   dateUIMode?: 'weekly' | 'specific' | 'month'; // modo de UI persistido (calendario)
   specificDates?: string[];
@@ -180,6 +183,18 @@ export interface BudgetCalculationResult {
   discountAmount: number;
   ivaAmount: number;
   totalFinal: number;
+  calculationToken?: string;
+  commercial?: {
+    status: 'calculated' | 'pending_configuration' | 'blocked_closing_price';
+    initialPriceExVat?: number;
+    closingPriceExVat?: number;
+    discountAmount?: number;
+    discountPercent?: number;
+    maximumDiscountPercent?: number;
+    semaphore?: 'green' | 'yellow' | 'red';
+    requiresAuthorization: boolean;
+    pendingFields?: string[];
+  };
 }
 
 // ─── Config Types ────────────────────────────────────────────────

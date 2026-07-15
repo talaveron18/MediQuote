@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
  * salario, cotizaciones, costes y rentabilidad de GASI.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ['admin']);
+  const auth = await requireRole(request, ['admin', 'maestro']);
   if (auth instanceof NextResponse) return auth;
 
   let body: { input?: CostingInput };

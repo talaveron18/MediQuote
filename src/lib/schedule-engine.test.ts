@@ -11,7 +11,7 @@ import {
   calculateMinStaff,
   validateLaborRules,
   calculateBudgetTotals,
-} from '@/lib/calculation-engine';
+} from '@/lib/schedule-engine';
 import type {
   HolidayInfo, SurchargeType, SurchargeKind, ShiftHourBreakdown,
 } from '@/lib/types';
@@ -19,7 +19,7 @@ import type {
 // ════════════════════════════════════════════════════════════════
 // A1 (CRÍTICO) — Turnos de 24h facturan ~8h en vez de 24h
 // ════════════════════════════════════════════════════════════════
-describe('A1 — 24h shift must bill total hours (not just night)', () => {
+describe('A1 — 24h shift must cover total hours (not just night)', () => {
   const defaultHolidays: HolidayInfo[] = [];
   const nightStart = 22;
   const nightEnd = 6;

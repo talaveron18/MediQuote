@@ -415,20 +415,20 @@ export function calculateInternalCost(input: CostingInput): InternalCostBreakdow
     * input.contract.managementFeePerLaborContract;
   const terminationProvision = employerContributionBase
     * input.contract.terminationProvisionPercent / 100;
-  const overhead = expandedLaborCost * input.overhead.percentageOnExpandedLabor / 100
-    + input.overhead.fixedAmount;
   const directCosts = input.directCosts.map((line) => ({
     key: line.id,
     label: line.name,
     amount: roundMoney(line.amount),
   }));
   const totalDirectCosts = sumLines(directCosts);
-  const totalInternalCost = expandedLaborCost
+  const costBeforeOverhead = expandedLaborCost
     + managementCost
     + terminationProvision
     + input.contract.otherFixedContractCosts
-    + overhead
     + totalDirectCosts;
+  const overhead = costBeforeOverhead * input.overhead.percentageOnExpandedLabor / 100
+    + input.overhead.fixedAmount;
+  const totalInternalCost = costBeforeOverhead + overhead;
 
   return {
     labor,

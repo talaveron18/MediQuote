@@ -17,6 +17,14 @@ export function adaptBlockResultToCostHours(
     breakdown[key] = block.shiftBreakdown[key] * positions;
   }
 
+  // `weekend` incluye sábado y domingo en el motor de calendario. Para costes
+  // separamos el domingo porque su plus tiene una regla propia y no debe
+  // cobrarse dos veces junto al plus genérico de fin de semana.
+  breakdown.weekend = Math.max(
+    0,
+    (block.shiftBreakdown.weekend - block.shiftBreakdown.sunday) * positions,
+  );
+
   return {
     coverageHours: block.coverageHours,
     workingDays: block.totalWorkingDays * positions,

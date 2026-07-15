@@ -82,8 +82,7 @@ function generateBudgetHTML(budget: any, company: Record<string, string>): strin
         <tr><td style="padding:3px 12px;color:#666;">Total horas</td><td style="padding:3px 12px;">${fmt(block.totalHours)}h</td></tr>
         <tr><td style="padding:3px 12px;color:#666;">Profesionales</td><td style="padding:3px 12px;">${block.selectedProfessionals}</td></tr>
         ${block.overtimeHours > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Horas extra estimadas</td><td style="padding:3px 12px;color:#dc2626;">${fmt(block.overtimeHours)}h</td></tr>` : ''}
-        <tr><td style="padding:3px 12px;color:#666;">Precio/hora</td><td style="padding:3px 12px;">${fmtEur(block.pricePerHour)}</td></tr>
-        <tr style="font-weight:600;"><td style="padding:6px 12px;border-top:1px solid #e5e7eb;">Subtotal bloque</td><td style="padding:6px 12px;text-align:right;border-top:1px solid #e5e7eb;">${fmtEur(block.blockSubtotal)}</td></tr>
+        <tr><td style="padding:3px 12px;color:#666;">Valoración</td><td style="padding:3px 12px;">Incluida en la propuesta económica global</td></tr>
       </table>
       ${surchargeRows ? `
       <table style="width:100%;border-collapse:collapse;margin-top:4px;">

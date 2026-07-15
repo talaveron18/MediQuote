@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateServiceBlock, calculateShiftHours } from './calculation-engine';
+import { calculateServiceBlock, calculateShiftHours } from './schedule-engine';
 import type { HolidayInfo, SurchargeConfigDTO } from './types';
 
 const holidays: HolidayInfo[] = [
@@ -21,6 +21,23 @@ const laborRules = {
 };
 
 describe('overnight shifts that cross into a holiday', () => {
+  it('classifies an explicit 24h Sunday as exactly 24 Sunday hours', () => {
+    const breakdown = calculateShiftHours(
+      {
+        shiftType: '24h',
+        shiftStartTime: '00:00',
+        shiftEndTime: '23:59',
+        hoursPerDay: 24,
+        breakMinutes: 0,
+      },
+      '2026-07-19',
+      [],
+    );
+
+    expect(breakdown.total).toBe(24);
+    expect(breakdown.sunday).toBe(24);
+  });
+
   it('splits special-day hours by the real calendar date', () => {
     const breakdown = calculateShiftHours(
       {

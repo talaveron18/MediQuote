@@ -13,7 +13,7 @@ type TestLaborRules = {
   nightEndHour: number;
 };
 
-declare module '@/lib/calculation-engine' {
+declare module '@/lib/schedule-engine' {
   export function calculateServiceBlock(params: {
     block: Record<string, unknown>;
     holidays: HolidayInfo[];

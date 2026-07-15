@@ -108,6 +108,9 @@ const COMPANY_FIELDS = [
   { key: 'company_email', label: 'Email' },
   { key: 'iva_default', label: 'IVA por defecto (%)' },
   { key: 'valid_days_default', label: 'Días de validez por defecto' },
+  { key: 'costing_province', label: 'Provincia / convenio para costes' },
+  { key: 'costing_overhead_percent', label: 'Overhead sobre coste completo (%)' },
+  { key: 'costing_management_fee_per_contract', label: 'Gestoría por alta/contrato (€)' },
 ]
 
 // ─── Local interfaces (DB response shapes) ────────────────────────
@@ -1014,7 +1017,7 @@ function AdminPanel() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Precio/hora Venta (€) *</Label>
+                <Label>Precio/hora antiguo (sin uso en el motor nuevo)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -1025,7 +1028,7 @@ function AdminPanel() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Coste/hora Interno (€)</Label>
+                <Label>Salario bruto/h productiva, pagas incluidas (€)</Label>
                 <Input
                   type="number"
                   step="0.01"

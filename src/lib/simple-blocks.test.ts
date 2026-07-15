@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateServiceBlock } from '@/lib/calculation-engine';
+import { calculateServiceBlock } from '@/lib/schedule-engine';
 
 const laborRules = {
   maxWeeklyHours: 40,

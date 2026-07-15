@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findHolidayForDate } from '@/lib/calculation-engine';
+import { findHolidayForDate } from '@/lib/schedule-engine';
 import { generateHolidaysForYear, getHolidaysForDBSeed } from '@/lib/spanish-holidays';
 import type { HolidayInfo } from '@/lib/types';
 

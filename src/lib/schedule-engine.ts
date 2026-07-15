@@ -223,6 +223,11 @@ function addSpecialDayHoursForShift(
   const effectiveTotal = result.total;
   if (effectiveTotal <= 0) return;
 
+  if (shift.shiftType === '24h') {
+    addSpecialDayHours(result, dateStr, effectiveTotal, holidays);
+    return;
+  }
+
   const hasExplicitTimes = !!(shift.shiftStartTime && shift.shiftEndTime);
   const start = hasExplicitTimes ? parseHHMM(shift.shiftStartTime) : NaN;
   const end = hasExplicitTimes ? parseHHMM(shift.shiftEndTime) : NaN;
@@ -605,7 +610,7 @@ export function calculateSurcharges(
   return entries;
 }
 
-// ─── 6. Full Block Calculation ───────────────────────────────────
+// ─── 6. Operational schedule calculation ─────────────────────────
 
 export function calculateServiceBlock(params: {
   block: {

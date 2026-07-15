@@ -88,6 +88,7 @@ model ServiceBlock {
   pricePerHour           Float
   internalCostPerHour    Float?
   internalMargin         Float?
+  contractType           String?  // indefinido, temporal, fijo_discontinuo, mercantil_autonomo
 
   // Block type and UI mode
   blockType              String?  // profesional_hora, servicio_fijo, material, alojamiento, curso, etc.
@@ -219,6 +220,22 @@ model AppConfig {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ─── Server-side immutable costing quotes ──────────────────────
+model CostingQuote {
+  id              String   @id @default(cuid())
+  userId          String
+  snapshot        String   // JSON interno: coste, política y resultado económico
+  subtotal        Float
+  discountPercent Float
+  discountAmount  Float
+  ivaPercent      Float
+  ivaAmount       Float
+  totalFinal      Float
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime @default(now())
 }
 
 // ─── General Audit Log ─────────────────────────────────────────
