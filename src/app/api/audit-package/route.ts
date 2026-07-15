@@ -64,7 +64,10 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   // ─── 1. Copy database ─────────────────────────────────────
   const dbUrl = process.env.DATABASE_URL || 'file:../db/custom.db';
   const dbRelativePath = dbUrl.replace(/^file:/, '');
-  const dbAbsPath = path.resolve(BASE, dbRelativePath);
+  const dbAbsPath = path.resolve(
+    /* turbopackIgnore: true */ BASE,
+    dbRelativePath,
+  );
   if (existsSync(dbAbsPath)) {
     copyFileSync(dbAbsPath, path.join(auditDir, 'database.sqlite'));
     copiedFiles.push('database.sqlite');
