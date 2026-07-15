@@ -206,7 +206,7 @@ model LaborRule {
   name                   String  @unique
   maxWeeklyHours         Float   @default(40)
   maxDailyHours          Float   @default(12)
-  minRestBetweenShiftsH  Float   @default(11)
+  minRestBetweenShiftsH  Float   @default(12)
   maxConsecutiveDays     Int     @default(6)
   nightStartHour         Int     @default(22)
   nightEndHour           Int     @default(6)

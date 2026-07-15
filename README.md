@@ -35,6 +35,15 @@ npx prisma db push
 npx tsx scripts/seed.ts
 ```
 
+Antes de arrancar en producción, crear un secreto de sesión y guardarlo en `.env`:
+
+```bash
+openssl rand -base64 48
+```
+
+Asignar el resultado a `SESSION_SECRET`. La aplicación rechaza el inicio de sesión
+en producción si el secreto no está configurado con al menos 32 bytes.
+
 ### Desarrollo
 
 ```bash
@@ -54,13 +63,13 @@ npm start
 
 ## Usuarios iniciales
 
-| Email | Rol | Contraseña inicial |
-|-------|-----|--------------------|
-| fernando.suarez@gasisalud.com | maestro | Cambiar1234! |
-| alex@gasisalud.com | admin | Cambiar1234! |
-| comercial@gasisalud.com | comercial | Cambiar1234! |
+El seed crea los usuarios iniciales de los roles maestro, admin y comercial. Las
+contraseñas no están incluidas en el repositorio: pueden definirse mediante las
+variables indicadas en `.env.example` o, si se omiten, se generan aleatoriamente
+y se muestran una sola vez en la terminal durante la instalación.
 
-Todos los usuarios iniciales tienen `mustChangePassword: true`. Deben cambiar la contraseña en el primer acceso.
+Todos los usuarios iniciales tienen `mustChangePassword: true`. Hasta que cambien
+la contraseña temporal, el servidor bloquea el acceso al resto de la aplicación.
 
 ### Roles
 

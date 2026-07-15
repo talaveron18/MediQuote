@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client'
 import { hash } from 'bcryptjs'
 import { getHolidaysForDBSeed } from '../src/lib/spanish-holidays'
+import { generateTemporaryPassword } from '../src/lib/password'
+import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '../src/lib/password-policy'
 
 const db = new PrismaClient()
 
@@ -78,7 +80,7 @@ async function main() {
   const users = [
     {
       email: 'fernando.suarez@gasisalud.com',
-      password: await hash('Cambiar1234!', 12),
+      passwordEnvironmentKey: 'GASI_MAESTRO_INITIAL_PASSWORD',
       name: 'Fernando Suárez',
       role: 'maestro',
       mustChangePassword: true,
@@ -86,7 +88,7 @@ async function main() {
     },
     {
       email: 'alex@gasisalud.com',
-      password: await hash('Cambiar1234!', 12),
+      passwordEnvironmentKey: 'GASI_ADMIN_INITIAL_PASSWORD',
       name: 'Alex',
       role: 'admin',
       mustChangePassword: true,
@@ -94,7 +96,7 @@ async function main() {
     },
     {
       email: 'comercial@gasisalud.com',
-      password: await hash('Cambiar1234!', 12),
+      passwordEnvironmentKey: 'GASI_COMMERCIAL_INITIAL_PASSWORD',
       name: 'Comercial Demo',
       role: 'comercial',
       mustChangePassword: true,
@@ -106,7 +108,21 @@ async function main() {
   for (const u of users) {
     const existing = await db.user.findUnique({ where: { email: u.email } })
     if (!existing) {
-      const createData: any = { ...u }
+      const configuredPassword = process.env[u.passwordEnvironmentKey]?.trim()
+      const initialPassword = configuredPassword || generateTemporaryPassword()
+      if (!isStrongEnoughPassword(initialPassword)) {
+        throw new Error(
+          `${u.passwordEnvironmentKey} debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres`,
+        )
+      }
+      const createData: any = {
+        email: u.email,
+        name: u.name,
+        role: u.role,
+        mustChangePassword: u.mustChangePassword,
+        permissions: u.permissions,
+        password: await hash(initialPassword, 12),
+      }
       if (u.role !== 'maestro') {
         // Set createdById to maestro
         const maestro = await db.user.findFirst({ where: { role: 'maestro' } })
@@ -114,6 +130,9 @@ async function main() {
       }
       await db.user.create({ data: createData })
       console.log(`  User created: ${u.email} (${u.role})`)
+      if (!configuredPassword) {
+        console.log(`  Temporary password for ${u.email}: ${initialPassword}`)
+      }
     } else {
       console.log(`  User exists:  ${u.email}`)
     }
@@ -172,7 +191,7 @@ async function main() {
         name: 'Regla General 40h',
         maxWeeklyHours: 40,
         maxDailyHours: 12,
-        minRestBetweenShiftsH: 11,
+        minRestBetweenShiftsH: 12,
         maxConsecutiveDays: 6,
         nightStartHour: 22,
         nightEndHour: 6,
@@ -180,6 +199,13 @@ async function main() {
     })
     console.log('  Labor rule created: Regla General 40h')
   } else {
+    if (existingRule.minRestBetweenShiftsH < 12) {
+      await db.laborRule.update({
+        where: { id: existingRule.id },
+        data: { minRestBetweenShiftsH: 12 },
+      })
+      console.log('  Labor rule updated: minimum rest set to 12h')
+    }
     console.log('  Labor rule exists:  Regla General 40h')
   }
 

@@ -50,7 +50,7 @@ const defaultSurcharges = [
 ];
 
 const laborRules = {
-  maxWeeklyHours: 40, maxDailyHours: 12, minRestBetweenShiftsH: 11,
+  maxWeeklyHours: 40, maxDailyHours: 12, minRestBetweenShiftsH: 12,
   maxConsecutiveDays: 6, nightStartHour: 22, nightEndHour: 6,
 };
 

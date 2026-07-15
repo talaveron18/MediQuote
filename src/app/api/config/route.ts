@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireRole, sanitizeForRole } from '@/lib/auth'
+import { hashPassword, requireRole, sanitizeForRole } from '@/lib/auth'
+import { generateTemporaryPassword } from '@/lib/password'
+import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy'
 
 // Types that 'comercial' can also access (read-only)
 const COMMERCIAL_READABLE_TYPES = ['categories', 'surcharges', 'laborRules', 'holidays']
@@ -215,12 +217,18 @@ export async function POST(request: NextRequest) {
             { status: 400 },
           )
         }
+        if (minRestBetweenShiftsH !== undefined && Number(minRestBetweenShiftsH) < 12) {
+          return NextResponse.json(
+            { error: 'El descanso mínimo entre jornadas no puede ser inferior a 12 horas' },
+            { status: 400 },
+          )
+        }
         const rule = await db.laborRule.create({
           data: {
             name,
             maxWeeklyHours: maxWeeklyHours ?? 40,
             maxDailyHours: maxDailyHours ?? 12,
-            minRestBetweenShiftsH: minRestBetweenShiftsH ?? 11,
+            minRestBetweenShiftsH: minRestBetweenShiftsH ?? 12,
             maxConsecutiveDays: maxConsecutiveDays ?? 6,
             nightStartHour: nightStartHour ?? 22,
             nightEndHour: nightEndHour ?? 6,
@@ -262,12 +270,27 @@ export async function POST(request: NextRequest) {
             { status: 400 },
           )
         }
+        if ((role === 'maestro' || role === 'admin') && auth.role !== 'maestro') {
+          return NextResponse.json(
+            { error: 'Solo el titular puede crear administradores o maestros' },
+            { status: 403 },
+          )
+        }
+        const temporaryPassword = password || generateTemporaryPassword()
+        if (!isStrongEnoughPassword(temporaryPassword)) {
+          return NextResponse.json(
+            { error: `La contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres` },
+            { status: 400 },
+          )
+        }
         const user = await db.user.create({
           data: {
-            email,
+            email: email.toLowerCase().trim(),
             name,
             role,
-            password: password ?? 'local123',
+            password: await hashPassword(temporaryPassword),
+            mustChangePassword: true,
+            createdById: auth.id,
           },
           select: {
             id: true,
@@ -277,7 +300,10 @@ export async function POST(request: NextRequest) {
             active: true,
           },
         })
-        return NextResponse.json(user, { status: 201 })
+        return NextResponse.json({
+          ...user,
+          ...(!password && { temporaryPassword }),
+        }, { status: 201 })
       }
 
       // ── Upsert AppConfig ────────────────────────────────────────
@@ -367,6 +393,15 @@ export async function PUT(request: NextRequest) {
       // ── Update Labor Rule ───────────────────────────────────────
       case 'laborRule': {
         const { createdAt, updatedAt, ...data } = fields as any
+        if (
+          data.minRestBetweenShiftsH !== undefined
+          && Number(data.minRestBetweenShiftsH) < 12
+        ) {
+          return NextResponse.json(
+            { error: 'El descanso mínimo entre jornadas no puede ser inferior a 12 horas' },
+            { status: 400 },
+          )
+        }
         const rule = await db.laborRule.update({
           where: { id },
           data,
@@ -377,8 +412,30 @@ export async function PUT(request: NextRequest) {
       // ── Update User ─────────────────────────────────────────────
       case 'user': {
         const { createdAt, updatedAt, budgetsCreated, historyEntries, password, ...data } = fields as any
-        // Only update password if explicitly provided and non-empty
-        const updateData = password ? { ...data, password } : data
+        const target = await db.user.findUnique({ where: { id } })
+        if (!target) {
+          return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+        }
+        if (target.role === 'maestro' && auth.role !== 'maestro') {
+          return NextResponse.json({ error: 'No se puede modificar al titular' }, { status: 403 })
+        }
+        if ((data.role === 'maestro' || data.role === 'admin') && auth.role !== 'maestro') {
+          return NextResponse.json(
+            { error: 'Solo el titular puede asignar ese rol' },
+            { status: 403 },
+          )
+        }
+        const updateData = { ...data }
+        if (password) {
+          if (!isStrongEnoughPassword(password)) {
+            return NextResponse.json(
+              { error: `La contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres` },
+              { status: 400 },
+            )
+          }
+          updateData.password = await hashPassword(password)
+          updateData.mustChangePassword = true
+        }
         const user = await db.user.update({
           where: { id },
           data: updateData,
@@ -446,6 +503,13 @@ export async function DELETE(request: NextRequest) {
 
       // ── Soft-delete User ────────────────────────────────────────
       case 'user': {
+        const target = await db.user.findUnique({ where: { id } })
+        if (!target) {
+          return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+        }
+        if (target.role === 'maestro') {
+          return NextResponse.json({ error: 'No se puede desactivar al titular' }, { status: 403 })
+        }
         const user = await db.user.update({
           where: { id },
           data: { active: false },

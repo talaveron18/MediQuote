@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { verifySessionToken } from '@/lib/session';
 
 export const SESSION_COOKIE = 'gasi_session';
 
@@ -12,6 +13,13 @@ export type AuthUser = {
   active: boolean;
   mustChangePassword: boolean;
 };
+
+function passwordChangeRequired(): NextResponse {
+  return NextResponse.json(
+    { error: 'Debes cambiar la contraseña antes de continuar', code: 'PASSWORD_CHANGE_REQUIRED' },
+    { status: 403 },
+  );
+}
 
 /**
  * Reads session cookie and returns user from DB or null.
@@ -27,10 +35,11 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
 
   if (!match) return null;
 
-  const email = decodeURIComponent(match.split('=')[1]);
-  if (!email) return null;
+  const token = decodeURIComponent(match.slice(`${SESSION_COOKIE}=`.length));
+  const session = verifySessionToken(token);
+  if (!session) return null;
 
-  const user = await db.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { id: session.userId } });
   if (!user || !user.active) return null;
 
   return {
@@ -53,6 +62,7 @@ export async function requireAuth(
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
+  if (user.mustChangePassword) return passwordChangeRequired();
   return user;
 }
 
@@ -68,6 +78,7 @@ export async function requireRole(
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
+  if (user.mustChangePassword) return passwordChangeRequired();
   // maestro has access to everything
   if (user.role === 'maestro') return user;
   if (!allowedRoles.includes(user.role)) {
@@ -86,6 +97,7 @@ export async function requireMaestro(
   if (!user) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
+  if (user.mustChangePassword) return passwordChangeRequired();
   if (user.role !== 'maestro') {
     return NextResponse.json({ error: 'Acceso denegado. Solo el titular puede acceder.' }, { status: 403 });
   }

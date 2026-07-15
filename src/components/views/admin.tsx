@@ -546,7 +546,14 @@ function AdminPanel() {
         const err = await res.json()
         throw new Error(err.error || 'Error al guardar')
       }
-      toast({ title: 'Usuario creado', description: userForm.name })
+      const created = await res.json()
+      toast({
+        title: 'Usuario creado',
+        description: created.temporaryPassword
+          ? `Contraseña temporal: ${created.temporaryPassword}`
+          : userForm.name,
+        duration: 15_000,
+      })
       setUserDialogOpen(false)
       refreshUsers()
     } catch (err: any) {
@@ -1258,7 +1265,8 @@ function AdminPanel() {
                 <Label>Descanso entre turnos (h)</Label>
                 <Input
                   type="number"
-                  value={ruleForm.minRestBetweenShiftsH ?? 11}
+                  min={12}
+                  value={ruleForm.minRestBetweenShiftsH ?? 12}
                   onChange={(e) =>
                     setRuleForm((p) => ({ ...p, minRestBetweenShiftsH: parseFloat(e.target.value) || 0 }))
                   }

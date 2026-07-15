@@ -199,6 +199,12 @@ export function validateRemoteConfig(data: unknown): ValidationResult {
         if (typeof r.maxWeeklyHours !== 'number' || r.maxWeeklyHours <= 0) {
           errors.push(`laborRules[${i}]: maxWeeklyHours debe ser > 0.`);
         }
+        if (
+          typeof r.minRestBetweenShiftsH !== 'number'
+          || r.minRestBetweenShiftsH < 12
+        ) {
+          errors.push(`laborRules[${i}]: minRestBetweenShiftsH debe ser >= 12.`);
+        }
       }
     }
   }
