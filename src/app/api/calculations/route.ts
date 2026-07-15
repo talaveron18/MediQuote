@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
       db.surchargeConfig.findMany({ where: { active: true } }),
       db.laborRule.findFirst(),
       db.professionalCategory.findMany({ where: { active: true } }),
-      db.legalParameter.findMany({ where: { isActive: true } }),
+      db.legalParameter.findMany({
+        where: { isActive: true },
+        include: { legalRecord: true },
+      }),
       db.appConfig.findMany(),
     ]);
 
@@ -123,9 +126,27 @@ export async function POST(request: NextRequest) {
     }));
 
     const legalParameters: Record<string, number> = {};
+    const legalParameterSources: Record<string, {
+      id: string;
+      label: string;
+      url?: string;
+      effectiveFrom?: string;
+      effectiveTo?: string;
+      status: 'verified';
+    }> = {};
     for (const row of legalParameterRows) {
       const value = Number(row.value);
       if (Number.isFinite(value)) legalParameters[row.key] = value;
+      if (row.legalRecord && row.legalRecord.status === 'vigente') {
+        legalParameterSources[row.key] = {
+          id: row.legalRecord.key,
+          label: `${row.legalRecord.title}${row.legalRecord.location ? `, ${row.legalRecord.location}` : ''}`,
+          url: row.legalRecord.officialUrl ?? undefined,
+          effectiveFrom: row.effectiveFrom ?? undefined,
+          effectiveTo: row.effectiveTo ?? undefined,
+          status: 'verified',
+        };
+      }
     }
     const appConfig: Record<string, string> = {};
     for (const row of appConfigRows) appConfig[row.key] = row.value;
@@ -158,9 +179,13 @@ export async function POST(request: NextRequest) {
         block,
         schedule: scheduleResults[index],
         category,
-        config: { legalParameters, appConfig, surcharges: dbSurcharges },
+        config: { legalParameters, legalParameterSources, appConfig, surcharges: dbSurcharges },
         serviceId: String(index),
-        location: { province: location.province, municipality: location.municipality },
+        location: {
+          province: location.province,
+          municipality: location.municipality,
+          nightSurchargeLegalParameterKey: locationDefinition.nightSurchargeLegalParameterKey,
+        },
       });
       if (built.status === 'pending_configuration') {
         issues.push(...built.issues);

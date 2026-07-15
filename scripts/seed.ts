@@ -478,9 +478,25 @@ async function main() {
       officialUrl: "https://www.bocm.es/boletin/CM_Orden_BOCM/2023/11/23/BOCM-20231123-25.PDF",
       literalQuote: "",
       quoteSource: "",
-      operativeSummary: "Tablas 2023-2026, jornada 1.680 h/año. Pendiente cotejar plus transporte, nocturnidad, festivos, complemento especial y fidelización.",
+      operativeSummary: "Tablas 2023-2026, jornada 1.680 h/año. El art. 12.3 fija el plus de nocturnidad en el 25%.",
       reviewedAt: "2026-06-24",
-      status: "pendiente_revision",
+      status: "vigente",
+      hasLiteralQuote: false
+    },
+    {
+      key: "conv_burgos_nocturnidad",
+      title: "Convenio hospitalización y asistencia privada de Burgos",
+      category: "Convenios salariales",
+      normName: "Convenio colectivo provincial de hospitalización y asistencia privada de Burgos",
+      legalLocation: "Art. 25",
+      officialReference: "Código de convenio 09000265011981",
+      eliUrl: "",
+      officialUrl: "https://www.faeburgos.org/wp-content/uploads/2022/10/Hospitalizacion-y-asistencia-privada-de-la-provincia-de-Burgos-09000265011981.pdf",
+      literalQuote: "",
+      quoteSource: "",
+      operativeSummary: "El art. 25 fija el plus de nocturnidad en el 25%.",
+      reviewedAt: "2026-07-15",
+      status: "vigente",
       hasLiteralQuote: false
     },
     {
@@ -582,6 +598,8 @@ async function main() {
     { key: "IVA_EXENTO_SANITARIO", label: "IVA exento asistencia sanitaria", value: 0, unit: "%", category: "IVA", legalKey: "iva_exento" },
     { key: "JORNADA_MADRID_ANUAL", label: "Jornada anual Madrid", value: 1680, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" },
     { key: "HORAS_FACTURABLES_MADRID", label: "Horas facturables Madrid estimadas", value: 1293, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" }
+    ,{ key: "PLUS_NOCTURNIDAD_MADRID", label: "Plus nocturnidad Madrid", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_madrid" }
+    ,{ key: "PLUS_NOCTURNIDAD_BURGOS", label: "Plus nocturnidad Burgos", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_burgos_nocturnidad" }
   ]
 
   // Create legal parameters AFTER legal records
