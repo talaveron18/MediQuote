@@ -146,6 +146,11 @@ model ServiceBlock {
   selectedProfessionals  Int      @default(1)
   overtimeHours          Float    @default(0)
   blockSubtotal          Float    @default(0)
+  blockDiscountAmount    Float    @default(0)
+  blockClosingPrice      Float    @default(0)
+  ivaPercent             Float    @default(21)
+  ivaAmount              Float    @default(0)
+  blockTotalFinal        Float    @default(0)
   enabledSurcharges      String?  // JSON: ["urgencia","desplazamiento"]
 
   surchargeBreakdown     String?  // JSON
