@@ -52,6 +52,7 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     unitType: block.unitType ?? 'hora',
     quantity: block.quantity ?? 1,
     fixedPrice: block.fixedPrice ?? null,
+    ivaPercent: block.ivaPercent ?? 21,
     courseName: block.courseName ?? null,
     courseTeacher: block.courseTeacher ?? null,
     courseModality: block.courseModality ?? null,
@@ -69,6 +70,10 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     minProfessionals: block.plantillaMinimaRecomendada ?? block.minProfessionals ?? 1,
     overtimeHours: block.overtimeHours ?? 0,
     blockSubtotal: block.blockSubtotal ?? 0,
+    blockDiscountAmount: block.discountAmount ?? block.blockDiscountAmount ?? 0,
+    blockClosingPrice: block.closingPriceExVat ?? block.blockClosingPrice ?? block.totalWithSurcharges ?? 0,
+    ivaAmount: block.ivaAmount ?? 0,
+    blockTotalFinal: block.totalWithVat ?? block.blockTotalFinal ?? 0,
     surchargeBreakdown: block.surcharges ? JSON.stringify(block.surcharges) : null,
     laborWarnings: block.laborWarnings ? JSON.stringify(block.laborWarnings) : null,
   }
@@ -118,7 +123,7 @@ function blocksFromCostingSnapshot(snapshot: string): Record<string, any>[] | nu
     return parsed.serviceBlocks.map((block: Record<string, any>, index: number) => ({
       ...block,
       ...(parsed.schedules[index] ?? {}),
-      blockSubtotal: 0,
+      blockSubtotal: parsed.schedules[index]?.initialPriceExVat ?? parsed.schedules[index]?.subtotal ?? 0,
     }))
   } catch {
     return null
