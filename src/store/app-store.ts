@@ -82,6 +82,7 @@ export const emptyBlock: ServiceBlockInput = {
   breakMinutes: 0,
   unitType: 'hora',
   quantity: 1,
+  ivaPercent: 21,
   enabledSurcharges: [],
 };
 
@@ -276,4 +277,3 @@ export const useAppStore = create<AppState>((set, get) => ({
   loading: false,
   setLoading: (l) => set({ loading: l }),
 }));
-
