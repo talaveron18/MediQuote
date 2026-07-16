@@ -15,7 +15,9 @@ function sameSecret(provided: string, expected: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
-    const expectedSecret = process.env.GASI_MAESTRO_RECOVERY_SECRET?.trim()\n      || process.env.GASI_BOOTSTRAP_TOKEN?.trim()\n      || '';
+    const expectedSecret = process.env.GASI_MAESTRO_RECOVERY_SECRET?.trim()
+      || process.env.GASI_BOOTSTRAP_TOKEN?.trim()
+      || '';
     const providedSecret = request.headers.get('x-gasi-recovery-key')?.trim() ?? '';
     if (expectedSecret.length < 32 || !sameSecret(providedSecret, expectedSecret)) {
       return NextResponse.json({ error: 'Recuperación no disponible' }, { status: 404 });
