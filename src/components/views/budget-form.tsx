@@ -54,6 +54,7 @@ import {
 } from '@/lib/service-locations';
 import { calculateWorkingDates, findHolidayForDate } from '@/lib/schedule-engine';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
+import { cloneServiceBlockForReinforcement } from '@/lib/service-block-clone';
 import type {
   ServiceBlockInput,
   DateMode,
@@ -165,11 +166,10 @@ const UNIT_TYPE_LABELS: Record<UnitType, string> = {
 
 const TIME_BASED_UNITS: UnitType[] = ['hora', 'dia', 'turno'];
 
-const CONTRACT_TYPE_LABELS: Record<ServiceContractType, string> = {
+const CONTRACT_TYPE_LABELS: Partial<Record<ServiceContractType, string>> = {
   indefinido: 'Indefinido',
   temporal: 'Temporal (requiere causa)',
   fijo_discontinuo: 'Fijo discontinuo',
-  mercantil_autonomo: 'Mercantil / autónomo',
 };
 
 // ─── Date mode labels ─────────────────────────────────────────
@@ -226,7 +226,6 @@ export default function BudgetForm() {
   const [saving, setSaving] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [addBlockMenuOpen, setAddBlockMenuOpen] = useState(false);
-  const [ivaMode, setIvaMode] = useState<'standard' | 'exento' | 'custom'>('standard');
   const [calculationPending, setCalculationPending] = useState<string[]>([]);
   const selectedCommunity = store.budgetForm.serviceAutonomousCommunity || 'Madrid';
   const selectedProvince = store.budgetForm.serviceProvince || 'Madrid';
@@ -294,10 +293,11 @@ export default function BudgetForm() {
                 serviceMunicipality: storedLocation.municipality,
               });
               // Sync IVA mode with loaded value
-              const loadedIva = budget.ivaPercent ?? 21;
-              setIvaMode(loadedIva === 0 ? 'exento' : loadedIva === 21 ? 'standard' : 'custom');
               if (budget.serviceBlocks && Array.isArray(budget.serviceBlocks)) {
-                store.setServiceBlocks(budget.serviceBlocks);
+                store.setServiceBlocks(budget.serviceBlocks.map((block: ServiceBlockInput) => ({
+                  ...block,
+                  ivaPercent: block.ivaPercent ?? budget.ivaPercent ?? 21,
+                })));
                 // Initialize specific dates text for blocks with specific mode
                 const newTexts: Record<number, string> = {};
                 budget.serviceBlocks.forEach((b: ServiceBlockInput, i: number) => {
@@ -344,7 +344,7 @@ export default function BudgetForm() {
 
   const handleAddBlock = useCallback((blockType: BlockType = 'profesional_hora') => {
     const preset = BLOCK_TYPE_PRESETS[blockType];
-    const newBlock = { ...preset.block };
+    const newBlock = { ...preset.block, ivaPercent: store.budgetForm.ivaPercent ?? 21 };
     store.addServiceBlock(newBlock);
     const nextIndex = store.serviceBlocks.length;
     setExpandedBlocks((prev) => {
@@ -353,6 +353,16 @@ export default function BudgetForm() {
       return next;
     });
     setAddBlockMenuOpen(false);
+  }, [store]);
+
+  const handleCloneReinforcementBlock = useCallback((index: number) => {
+    const source = store.serviceBlocks[index];
+    if (!source) return;
+    const clone = cloneServiceBlockForReinforcement(source);
+    store.addServiceBlock(clone);
+    const newIndex = store.serviceBlocks.length;
+    setExpandedBlocks((previous) => new Set([...previous, newIndex]));
+    toast.success('Bloque de refuerzo creado. Modifica sus días u horario y vuelve a calcular.');
   }, [store]);
 
   const handleRemoveBlock = useCallback(
@@ -557,6 +567,10 @@ export default function BudgetForm() {
       if (!isSimple) {
         if (!b.professionalCategory) { toast.error(`${label}: selecciona categoría profesional`); return; }
         if (!b.contractType) { toast.error(`${label}: selecciona el tipo de contratación`); return; }
+        if (b.contractType === 'mercantil_autonomo') {
+          toast.error(`${label}: mercantil/autónomo requiere una valoración separada y no puede calcularse como relación laboral.`);
+          return;
+        }
         if (safeNumber(b.puestosSimultaneos) < 1) { toast.error(`${label}: debe haber al menos 1 puesto`); return; }
         if (safeNumber(b.plantillaSeleccionada) < 1) { toast.error(`${label}: plantilla mínima 1`); return; }
         if ((b.unitType === 'hora' || b.unitType === 'dia' || b.unitType === 'turno') && b.dateMode === 'range') {
@@ -653,7 +667,7 @@ export default function BudgetForm() {
         serviceBlocks: store.serviceBlocks.map((block, index) => ({
           ...block,
           ...(store.blockResults[index] ?? {}),
-          blockSubtotal: 0,
+          blockSubtotal: safeNumber(store.blockResults[index]?.initialPriceExVat ?? store.blockResults[index]?.subtotal),
         })),
         subtotal: safeNumber(store.budgetTotals.subtotal),
         totalSurcharges: safeNumber(store.budgetTotals.totalSurcharges),
@@ -860,24 +874,35 @@ export default function BudgetForm() {
                   size="sm"
                   variant="outline"
                   className="border-amber-500 bg-white hover:bg-amber-100 dark:bg-transparent"
-                  onClick={() => {
-                    store.updateServiceBlock(blockIndex, {
-                      plantillaSeleccionada: result.plantillaMinimaRecomendada,
-                    });
-                    toast.success('Cobertura sugerida aplicada. Pulsa Calcular para revisarla.');
-                  }}
+                  onClick={() => handleCloneReinforcementBlock(blockIndex)}
                 >
                   <Users className="h-3.5 w-3.5 mr-1" />
-                  Aceptar {result.plantillaMinimaRecomendada} profesionales
+                  Crear bloque de refuerzo
                 </Button>
                 <span className="self-center text-xs text-amber-800 dark:text-amber-200">
-                  Puedes modificar la plantilla manualmente en el bloque.
+                  Se clonará este bloque completo para que ajustes sus días y horario.
                 </span>
               </div>
             </AlertDescription>
           </Alert>
         )}
 
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+          <div className="bg-white dark:bg-gray-900 rounded p-2 border">
+            <span className="text-muted-foreground text-xs">Precio del bloque sin IVA</span>
+            <p className="font-semibold">{formatCurrency(result.closingPriceExVat ?? result.totalWithSurcharges)}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 rounded p-2 border">
+            <span className="text-muted-foreground text-xs">IVA ({result.ivaPercent ?? 21}%)</span>
+            <p className="font-semibold">{formatCurrency(result.ivaAmount)}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 rounded p-2 border border-emerald-300">
+            <span className="text-muted-foreground text-xs">Total del bloque</span>
+            <p className="font-semibold text-emerald-700">{formatCurrency(result.totalWithVat)}</p>
+          </div>
+        </div>
+
+        {isAdmin && (<>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-sm">
           <div className="bg-white dark:bg-gray-900 rounded p-2 border">
             <span className="text-muted-foreground text-xs">Días laborables</span>
@@ -986,6 +1011,48 @@ export default function BudgetForm() {
               {renderLaborWarnings(result.laborWarnings)}
             </div>
           </>
+        )}
+        </>)}
+      </div>
+    );
+  }
+
+  function renderBlockIvaSelector(block: ServiceBlockInput, index: number) {
+    const value = safeNumber(block.ivaPercent, 21);
+    const mode = value === 0 ? 'exento' : value === 21 ? 'standard' : 'custom';
+    return (
+      <div className="space-y-1.5 max-w-xs">
+        <Label htmlFor={`block-iva-${index}`} className="text-xs">IVA de esta partida</Label>
+        <Select
+          value={mode}
+          onValueChange={(selected) => {
+            if (selected === 'exento') store.updateServiceBlock(index, { ivaPercent: 0 });
+            if (selected === 'standard') store.updateServiceBlock(index, { ivaPercent: 21 });
+            if (selected === 'custom' && (value === 0 || value === 21)) {
+              store.updateServiceBlock(index, { ivaPercent: 10 });
+            }
+          }}
+        >
+          <SelectTrigger id={`block-iva-${index}`} className="h-9"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="standard">21%</SelectItem>
+            <SelectItem value="exento">Exento (0%)</SelectItem>
+            <SelectItem value="custom">Personalizado</SelectItem>
+          </SelectContent>
+        </Select>
+        {mode === 'custom' && (
+          <Input
+            aria-label={`IVA personalizado del bloque ${index + 1}`}
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={value}
+            onChange={(event) => store.updateServiceBlock(index, {
+              ivaPercent: Math.min(100, Math.max(0, safeNumber(event.target.value))),
+            })}
+            className="h-9"
+          />
         )}
       </div>
     );
@@ -1202,6 +1269,8 @@ export default function BudgetForm() {
             )}
           </div>
 
+          <div className="mt-4">{renderBlockIvaSelector(block, index)}</div>
+
           {/* Simple block result summary */}
           {store.blockResults[index] && (
             <div className="mt-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
@@ -1211,11 +1280,10 @@ export default function BudgetForm() {
                   Resultado del cálculo
                 </span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Subtotal bloque:</span>
-                <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-                  {formatCurrency(store.blockResults[index].subtotal)}
-                </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                <div><span className="text-muted-foreground">Sin IVA</span><p className="font-semibold">{formatCurrency(store.blockResults[index].closingPriceExVat)}</p></div>
+                <div><span className="text-muted-foreground">IVA ({store.blockResults[index].ivaPercent ?? block.ivaPercent ?? 21}%)</span><p className="font-semibold">{formatCurrency(store.blockResults[index].ivaAmount)}</p></div>
+                <div><span className="text-muted-foreground">Total bloque</span><p className="font-bold text-emerald-700">{formatCurrency(store.blockResults[index].totalWithVat)}</p></div>
               </div>
             </div>
           )}
@@ -1943,6 +2011,7 @@ export default function BudgetForm() {
             </div>
 
             {/* ─── Calculation Result ───────────────────────────── */}
+            {renderBlockIvaSelector(block, index)}
             {result && renderBlockResult(result, index)}
             </>
             )}
@@ -2127,57 +2196,6 @@ export default function BudgetForm() {
                   />
                 </div>
 
-                {/* IVA — Selector manual */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">
-                    IVA
-                  </Label>
-                  <Select
-                    value={ivaMode}
-                    onValueChange={(val) => {
-                      const mode = val as 'standard' | 'exento' | 'custom';
-                      setIvaMode(mode);
-                      if (mode === 'exento') {
-                        store.setBudgetForm({ ivaPercent: 0 });
-                      } else if (mode === 'standard') {
-                        store.setBudgetForm({ ivaPercent: 21 });
-                      }
-                      // 'custom': keeps current ivaPercent, user types below
-                    }}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Seleccionar IVA" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="standard">21%</SelectItem>
-                      <SelectItem value="exento">Exento (0%)</SelectItem>
-                      <SelectItem value="custom">Personalizado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {ivaMode === 'custom' && (
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      placeholder="Ej: 10"
-                      value={store.budgetForm.ivaPercent ?? ''}
-                      onChange={(e) => {
-                        const parsed = parseFloat(e.target.value);
-                        store.setBudgetForm({
-                          ivaPercent: Number.isFinite(parsed) ? parsed : undefined,
-                        });
-                      }}
-                      className="h-9"
-                    />
-                  )}
-                  {ivaMode === 'exento' && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 leading-snug">
-                      Exención según Art. 20.Uno.3º LIVA; en cesión/puesta a disposición de personal puede aplicar 21% — verificar con gestoría.
-                    </p>
-                  )}
-                </div>
-
                 {/* Banda comercial negociable: ocho puntos sobre coste = 5% del precio inicial. */}
                 {(
                   <div className="space-y-1.5">
@@ -2356,7 +2374,7 @@ export default function BudgetForm() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      IVA ({store.budgetForm.ivaPercent ?? 21}%)
+                      IVA por partidas
                     </span>
                     <span className="font-medium">
                       {formatCurrency(store.budgetTotals.ivaAmount)}
