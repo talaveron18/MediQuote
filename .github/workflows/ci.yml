@@ -47,6 +47,9 @@ jobs:
       - name: Push test database schema
         run: npx prisma db push --skip-generate
 
+      - name: Seed and verify territorial/legal defaults
+        run: npm run seed
+
       - name: TypeScript check
         id: tsc
         continue-on-error: true
