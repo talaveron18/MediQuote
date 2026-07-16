@@ -30,3 +30,4 @@ export function isHolidayApplicableToLocation(holiday: HolidayInfo, location: Ho
 export function filterHolidaysForLocation(holidays: HolidayInfo[], location: HolidayLocation): HolidayInfo[] {
   return holidays.filter((holiday) => isHolidayApplicableToLocation(holiday, location));
 }
+
