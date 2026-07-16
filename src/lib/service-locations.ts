@@ -8,38 +8,28 @@ export interface ServiceLocation {
   nightSurchargeLegalParameterKey?: string;
 }
 
+const provinces = (autonomousCommunity: string, values: string[]): ServiceLocation[] =>
+  values.map((province) => ({
+    id: `${autonomousCommunity}-${province}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-'),
+    label: `${autonomousCommunity} · ${province}`,
+    autonomousCommunity,
+    province,
+    ...(province === 'Madrid' ? { municipality: 'Madrid', nightSurchargeLegalParameterKey: 'PLUS_NOCTURNIDAD_MADRID' } : {}),
+    ...(province === 'Burgos' ? { nightSurchargeLegalParameterKey: 'PLUS_NOCTURNIDAD_BURGOS' } : {}),
+  }));
+
+/** Territorio de prestación: comunidad y provincia, nunca calendarios genéricos mezclados. */
 export const SERVICE_LOCATIONS: ServiceLocation[] = [
-  {
-    id: 'madrid-capital',
-    label: 'Madrid (capital)',
-    autonomousCommunity: 'Madrid',
-    province: 'Madrid',
-    municipality: 'Madrid',
-    nightSurchargeLegalParameterKey: 'PLUS_NOCTURNIDAD_MADRID',
-  },
-  {
-    id: 'burgos-capital',
-    label: 'Burgos (capital)',
-    autonomousCommunity: 'Castilla y León',
-    province: 'Burgos',
-    municipality: 'Burgos',
-    nightSurchargeLegalParameterKey: 'PLUS_NOCTURNIDAD_BURGOS',
-  },
-  {
-    id: 'castilla-leon',
-    label: 'Castilla y León (calendario autonómico)',
-    autonomousCommunity: 'Castilla y León',
-    province: 'Castilla y León',
-  },
-  {
-    id: 'castilla-la-mancha',
-    label: 'Castilla-La Mancha (calendario autonómico)',
-    autonomousCommunity: 'Castilla-La Mancha',
-    province: 'Castilla-La Mancha',
-  },
+  ...provinces('Madrid', ['Madrid']),
+  ...provinces('Castilla y León', [
+    'Ávila', 'Burgos', 'León', 'Palencia', 'Salamanca', 'Segovia', 'Soria', 'Valladolid', 'Zamora',
+  ]),
+  ...provinces('Castilla-La Mancha', [
+    'Albacete', 'Ciudad Real', 'Cuenca', 'Guadalajara', 'Toledo',
+  ]),
 ];
 
-export const DEFAULT_SERVICE_LOCATION_ID = 'madrid-capital';
+export const DEFAULT_SERVICE_LOCATION_ID = 'madrid-madrid';
 
 export function getServiceLocation(id?: string | null): ServiceLocation {
   return SERVICE_LOCATIONS.find((location) => location.id === id)

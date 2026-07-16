@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
     if (auth instanceof NextResponse) return auth;
 
     const id = request.nextUrl.searchParams.get('id');
+    const mode = request.nextUrl.searchParams.get('mode') || 'client';
     if (!id) {
       return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
     }
@@ -25,14 +26,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 });
     }
 
+    if (mode !== 'client' && mode !== 'commercial') {
+      return NextResponse.json({ error: 'Modo de documento no válido' }, { status: 400 });
+    }
+    if (mode === 'commercial' && !['comercial', 'admin', 'maestro'].includes(auth.role)) {
+      return NextResponse.json({ error: 'No autorizado para el documento comercial' }, { status: 403 });
+    }
+
     const configRecords = await db.appConfig.findMany();
     const companyConfig: Record<string, string> = {};
     for (const r of configRecords) {
       companyConfig[r.key] = r.value;
     }
 
-    // Generate HTML for PDF rendering — no internal data is included in the HTML template
-    const html = generateBudgetHTML(budget, companyConfig);
+    // Los bloques históricos guardaban el id de categoría. Se resuelve aquí para
+    // que ningún PDF entregue al cliente un identificador técnico de Prisma.
+    const categories = await db.professionalCategory.findMany({
+      select: { id: true, name: true },
+    });
+    const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
+    const printableBudget = {
+      ...budget,
+      serviceBlocks: budget.serviceBlocks.map((block) => ({
+        ...block,
+        professionalCategory: categoryNames.get(block.professionalCategory) ?? block.professionalCategory,
+      })),
+    };
+
+    // El PDF cliente no contiene coste, margen, comisión ni avisos internos.
+    let html = generateBudgetHTML(printableBudget, companyConfig);
+    if (mode === 'commercial') {
+      const quote = await db.costingQuote.findFirst({
+        where: { budgetId: id },
+        orderBy: { createdAt: 'desc' },
+        select: { snapshot: true },
+      });
+      if (!quote) {
+        return NextResponse.json({ error: 'No hay cálculo comercial guardado para este presupuesto' }, { status: 409 });
+      }
+      const snapshot = JSON.parse(quote.snapshot) as { commercial?: Record<string, unknown> };
+      html = generateCommercialBudgetHTML(html, snapshot.commercial ?? {});
+    }
 
     return new NextResponse(html, {
       headers: {
@@ -83,7 +117,6 @@ export function generateBudgetHTML(budget: any, company: Record<string, string>)
         <tr><td style="padding:3px 12px;color:#666;">Días trabajados</td><td style="padding:3px 12px;">${block.totalWorkingDays}</td></tr>
         <tr><td style="padding:3px 12px;color:#666;">Total horas</td><td style="padding:3px 12px;">${fmt(block.totalHours)}h</td></tr>
         <tr><td style="padding:3px 12px;color:#666;">Profesionales</td><td style="padding:3px 12px;">${block.selectedProfessionals}</td></tr>
-        ${block.overtimeHours > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Horas extra estimadas</td><td style="padding:3px 12px;color:#dc2626;">${fmt(block.overtimeHours)}h</td></tr>` : ''}
         <tr><td style="padding:3px 12px;color:#666;">Valoración</td><td style="padding:3px 12px;">Incluida en la propuesta económica global</td></tr>
       </table>
       ${surchargeRows ? `
@@ -191,6 +224,30 @@ ${budget.clientNotes ? `<div style="background:#eff6ff;border-left:3px solid #00
 </div>
 
 </body></html>`;
+}
+
+/** Documento interno: añade únicamente la comisión del comercial, nunca el coste interno. */
+export function generateCommercialBudgetHTML(clientHtml: string, commercial: Record<string, unknown>): string {
+  const rate = Number(commercial.commissionRatePercent ?? 0);
+  const amount = Number(commercial.commissionAmount ?? 0);
+  const tierLabels: Record<string, string> = {
+    floor: 'Precio mínimo', intermediate: 'Precio intermedio', list: 'Precio inicial',
+  };
+  const tier = String(commercial.commissionTier ?? '');
+  const section = `
+<!-- Commercial-only -->
+<div style="margin-top:24px;padding:16px;border:2px solid #1d4ed8;background:#eff6ff;border-radius:8px;page-break-inside:avoid;">
+  <h3 style="margin:0 0 10px;color:#1d4ed8;font-size:14px;">DOCUMENTO COMERCIAL — USO INTERNO</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <tr><td style="padding:4px 0;color:#374151;">Tramo de cierre</td><td style="padding:4px 0;text-align:right;font-weight:600;">${esc(tierLabels[tier] || '—')}</td></tr>
+    <tr><td style="padding:4px 0;color:#374151;">Comisión aplicable</td><td style="padding:4px 0;text-align:right;font-weight:600;">${fmt(rate)}%</td></tr>
+    <tr style="border-top:1px solid #93c5fd;"><td style="padding:8px 0;font-weight:700;color:#1d4ed8;">Comisión estimada del comercial</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#1d4ed8;">${fmtEur(amount)}</td></tr>
+  </table>
+  <p style="margin:10px 0 0;font-size:11px;color:#475569;">Documento interno. No entregar al cliente.</p>
+</div>`;
+  return clientHtml
+    .replace('<title>Presupuesto ', '<title>Documento comercial — Presupuesto ')
+    .replace('<!-- Conditions -->', `${section}\n<!-- Conditions -->`);
 }
 
 function esc(s: string): string {

@@ -684,12 +684,24 @@ export default function BudgetForm() {
     window.open(`/api/pdf?id=${store.editingBudgetId}`, '_blank');
   }, [store.editingBudgetId]);
 
+  const handleExportCommercialPdf = useCallback(() => {
+    if (!store.editingBudgetId) {
+      toast.error('Guarda el presupuesto antes de generar PDF');
+      return;
+    }
+    window.open(`/api/pdf?id=${store.editingBudgetId}&mode=commercial`, '_blank');
+  }, [store.editingBudgetId]);
+
   const handleBack = useCallback(() => {
     store.resetBudgetForm();
     store.setView('dashboard');
   }, [store]);
 
-  const maxDiscount = 5;
+  const maxDiscount = Math.max(
+    0,
+    Math.floor(safeNumber(store.budgetTotals?.commercial?.maximumDiscountPercent, 5)),
+  );
+  const canExportCommercialPdf = ['comercial', 'admin', 'maestro'].includes(store.currentRole);
 
   // ─── Sub-components ──────────────────────────────────────────
 
@@ -808,6 +820,42 @@ export default function BudgetForm() {
             Resultados del cálculo
           </span>
         </div>
+
+        {(result.overtimeHours > 0 || result.deficitPlantilla > 0) && (
+          <Alert className="border-amber-400 bg-amber-50 dark:bg-amber-950/30">
+            <AlertTriangle className="h-4 w-4 text-amber-700" />
+            <AlertDescription className="space-y-2 text-amber-950 dark:text-amber-100">
+              <p className="font-medium">Sugerencia del sistema: revisar la cobertura con un profesional de refuerzo.</p>
+              <p className="text-sm">
+                {result.overtimeHours > 0
+                  ? `Se estiman ${formatNumber(result.overtimeHours, 1)} h extra. `
+                  : ''}
+                La plantilla mínima recomendada es de {result.plantillaMinimaRecomendada} profesional(es).
+                Esta sugerencia no añade una partida facturable ni duplica las horas del cliente.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-500 bg-white hover:bg-amber-100 dark:bg-transparent"
+                  onClick={() => {
+                    store.updateServiceBlock(blockIndex, {
+                      plantillaSeleccionada: result.plantillaMinimaRecomendada,
+                    });
+                    toast.success('Cobertura sugerida aplicada. Pulsa Calcular para revisarla.');
+                  }}
+                >
+                  <Users className="h-3.5 w-3.5 mr-1" />
+                  Aceptar {result.plantillaMinimaRecomendada} profesionales
+                </Button>
+                <span className="self-center text-xs text-amber-800 dark:text-amber-200">
+                  Puedes modificar la plantilla manualmente en el bloque.
+                </span>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-sm">
           <div className="bg-white dark:bg-gray-900 rounded p-2 border">
@@ -1177,7 +1225,7 @@ export default function BudgetForm() {
     const blockTypeLabel = block.blockType ? BLOCK_TYPE_LABELS[block.blockType] : '';
 
     return (
-      <Card key={index} className="mb-4">
+      <Card key={index} className={`mb-4 ${result && (result.overtimeHours > 0 || result.deficitPlantilla > 0) ? 'border-amber-400 ring-1 ring-amber-200 dark:ring-amber-900' : ''}`}>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -2092,22 +2140,29 @@ export default function BudgetForm() {
                     <Label htmlFor="discount-percent" className="text-xs font-medium">
                       Descuento (%)
                     </Label>
-                    <Input
-                      id="discount-percent"
-                      type="number"
-                      min="0"
-                      max={maxDiscount}
-                      step="0.01"
-                      value={store.budgetForm.discountPercent ?? 0}
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value) || 0;
-                        store.setBudgetForm({ discountPercent: Math.min(maxDiscount, Math.max(0, value)) });
-                      }}
-                      className="h-9"
-                    />
+                    <Select
+                      value={String(Math.min(maxDiscount, Math.max(0, Math.round(store.budgetForm.discountPercent ?? 0))))}
+                      onValueChange={(value) => store.setBudgetForm({ discountPercent: Number(value) })}
+                    >
+                      <SelectTrigger id="discount-percent" className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: maxDiscount + 1 }, (_, value) => (
+                          <SelectItem key={value} value={String(value)}>
+                            {value === 0 ? 'Sin descuento (0%)' : `${value}% de descuento`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     {maxDiscount > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        Máximo permitido: {maxDiscount}%
+                        Máximo permitido: {maxDiscount}% (en puntos porcentuales).
+                      </p>
+                    )}
+                    {store.budgetTotals && safeNumber(store.budgetForm.discountPercent) > 0 && (
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        Descuento aplicado: −{formatCurrency(store.budgetTotals.discountAmount)}. Recalcula tras cambiarlo.
                       </p>
                     )}
                   </div>
@@ -2300,6 +2355,17 @@ export default function BudgetForm() {
               >
                 <Download className="h-4 w-4 mr-1.5" />
                 Exportar PDF
+              </Button>
+            )}
+            {isEditing && canExportCommercialPdf && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportCommercialPdf}
+                className="h-9 border-blue-300 text-blue-800 hover:bg-blue-50"
+              >
+                <FileText className="h-4 w-4 mr-1.5" />
+                PDF comercial
               </Button>
             )}
 
