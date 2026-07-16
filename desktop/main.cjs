@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, dialog, shell } = require('electron');
+const { app, BrowserWindow, dialog, shell, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
 
@@ -9,6 +9,7 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 
 let mainWindow;
+let isQuitting = false;
 
 function iconPath() {
   return app.isPackaged
@@ -87,3 +88,15 @@ app.whenReady().then(async () => {
   configureUpdates();
 });
 app.on('window-all-closed', () => app.quit());
+
+// La sesión es deliberadamente de la aplicación, no persistente: al cerrar
+// GASI MediQuote se elimina el token aunque el motor de Electron conserve datos.
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  event.preventDefault();
+  isQuitting = true;
+  const origin = new URL(APP_URL).origin;
+  session.defaultSession.cookies.remove(origin, 'gasi_session')
+    .catch(() => undefined)
+    .finally(() => app.quit());
+});
