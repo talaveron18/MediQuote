@@ -71,4 +71,4 @@ jobs:
         run: npm test
 
       - name: Build Next.js app
-        run: npm run build
+        run: npm run build:netlify
