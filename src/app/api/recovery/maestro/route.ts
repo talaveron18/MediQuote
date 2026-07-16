@@ -5,6 +5,7 @@ import { hashPassword, logAudit } from '@/lib/auth';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 
 export const runtime = 'nodejs';
+// El secreto solo existe en el entorno de producción y se rota tras cada recuperación.
 
 function sameSecret(provided: string, expected: string): boolean {
   const left = Buffer.from(provided, 'utf8');
