@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, SESSION_COOKIE, getCurrentUser, logAudit } from '@/lib/auth';
-import { createSessionToken, SESSION_MAX_AGE_SECONDS } from '@/lib/session';
+import { createSessionToken } from '@/lib/session';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
@@ -167,7 +167,6 @@ export async function POST(request: NextRequest) {
 
     response.cookies.set(SESSION_COOKIE, createSessionToken(user.id), {
       path: '/',
-      maxAge: SESSION_MAX_AGE_SECONDS,
       sameSite: 'lax',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
