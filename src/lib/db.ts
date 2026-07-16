@@ -14,3 +14,4 @@ const datasourceUrl = connectionString()
 export const db = globalForPrisma.prisma ?? new PrismaClient(
   datasourceUrl ? { datasourceUrl } : undefined,
 )
+
