@@ -650,4 +650,90 @@ export async function seedDatabase() {
     { key: "JORNADA_MADRID_ANUAL", label: "Jornada anual Madrid", value: 1680, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" },
     { key: "HORAS_FACTURABLES_MADRID", label: "Horas productivas Madrid estimadas", value: 1293, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" },
     { key: "PLUS_NOCTURNIDAD_MADRID", label: "Plus nocturnidad Madrid", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_madrid" },
-    { key: "PLUS_FESTIVO_MADRID", label: "Plus festivo ordinario Madrid", value: 12, unit: "€/turno", category: "Convenio
+    { key: "PLUS_FESTIVO_MADRID", label: "Plus festivo ordinario Madrid", value: 12, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_madrid" },
+    { key: "PLUS_FESTIVO_ESPECIAL_MADRID", label: "Plus 25 diciembre / 1 enero Madrid", value: 38, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_madrid" },
+    { key: "SIN_PLUS_DOMINGO_MADRID", label: "Sin plus específico de domingo Madrid", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_madrid" },
+    { key: "SIN_PLUS_SABADO_MADRID", label: "Sin plus específico de sábado Madrid", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_madrid" },
+
+    { key: "JORNADA_BURGOS_ANUAL", label: "Jornada anual Burgos/extensión (hipótesis hospitalaria conservadora)", value: 1705, unit: "h/año", category: "Convenios", legalKey: "conv_burgos_extension" },
+    { key: "HORAS_FACTURABLES_BURGOS", label: "Horas productivas Burgos/extensión estimadas", value: 1312, unit: "h/año", category: "Convenios", legalKey: "conv_burgos_extension" },
+    { key: "PLUS_NOCTURNIDAD_BURGOS", label: "Plus nocturnidad Burgos/extensión", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_burgos_extension" },
+    { key: "PLUS_DOMINGO_BURGOS", label: "Plus domingo Burgos/extensión 2025", value: 21.74, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_burgos_extension" },
+    { key: "PLUS_FESTIVO_BURGOS", label: "Plus festivo Burgos/extensión 2025", value: 38.70, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_burgos_extension" },
+    { key: "SIN_PLUS_SABADO_BURGOS", label: "Sin plus específico de sábado Burgos/extensión", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_burgos_extension" },
+
+    { key: "JORNADA_LEON_ANUAL", label: "Jornada anual León", value: 1800, unit: "h/año", category: "Convenios", legalKey: "conv_leon" },
+    { key: "HORAS_FACTURABLES_LEON", label: "Horas productivas León estimadas", value: 1385, unit: "h/año", category: "Convenios", legalKey: "conv_leon" },
+    { key: "PLUS_NOCTURNIDAD_LEON", label: "Plus nocturnidad León", value: 50, unit: "%", category: "Convenios salariales", legalKey: "conv_leon" },
+    { key: "SIN_PLUS_DOMINGO_LEON", label: "Sin plus específico de domingo León", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_leon" },
+    { key: "SIN_PLUS_SABADO_LEON", label: "Sin plus específico de sábado León", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_leon" },
+    { key: "SIN_PLUS_FESTIVO_LEON", label: "Sin plus específico de festivo León", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_leon" },
+
+    { key: "JORNADA_PALENCIA_ANUAL", label: "Jornada anual Palencia", value: 1729, unit: "h/año", category: "Convenios", legalKey: "conv_palencia" },
+    { key: "HORAS_FACTURABLES_PALENCIA", label: "Horas productivas Palencia estimadas", value: 1331, unit: "h/año", category: "Convenios", legalKey: "conv_palencia" },
+    { key: "PLUS_NOCTURNIDAD_HORA_PALENCIA", label: "Prorrata por hora del plus mensual nocturnidad Palencia 2025", value: 0.2718, unit: "€/h", category: "Convenios salariales", legalKey: "conv_palencia" },
+    { key: "PLUS_DOMINGO_PALENCIA", label: "Plus domingo Palencia 2025", value: 7, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_palencia" },
+    { key: "PLUS_FESTIVO_PALENCIA", label: "Plus festivo Palencia 2025", value: 15.96, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_palencia" },
+    { key: "SIN_PLUS_SABADO_PALENCIA", label: "Sin plus específico de sábado Palencia", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_palencia" },
+
+    { key: "JORNADA_SALAMANCA_CLM_ANUAL", label: "Jornada anual Salamanca / Castilla-La Mancha", value: 1779, unit: "h/año", category: "Convenios", legalKey: "conv_salamanca_clm" },
+    { key: "HORAS_FACTURABLES_SALAMANCA_CLM", label: "Horas productivas Salamanca / CLM estimadas", value: 1369, unit: "h/año", category: "Convenios", legalKey: "conv_salamanca_clm" },
+    { key: "PLUS_NOCTURNIDAD_SALAMANCA_CLM", label: "Plus nocturnidad Salamanca / CLM", value: 11.15, unit: "€/noche", category: "Convenios salariales", legalKey: "conv_salamanca_clm" },
+    { key: "PLUS_DOMINGO_SALAMANCA_CLM", label: "Plus domingo Salamanca / CLM", value: 13.90, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_salamanca_clm" },
+    { key: "PLUS_FESTIVO_SALAMANCA_CLM", label: "Plus festivo Salamanca / CLM", value: 13.90, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_salamanca_clm" },
+    { key: "PLUS_FESTIVO_ESPECIAL_SALAMANCA_CLM", label: "Plus festivo especial Salamanca / CLM", value: 30, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_salamanca_clm" },
+    { key: "SIN_PLUS_SABADO_SALAMANCA_CLM", label: "Sin plus específico de sábado Salamanca / CLM", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_salamanca_clm" },
+
+    { key: "JORNADA_VALLADOLID_ANUAL", label: "Jornada anual Valladolid 2025", value: 1744, unit: "h/año", category: "Convenios", legalKey: "conv_valladolid" },
+    { key: "HORAS_FACTURABLES_VALLADOLID", label: "Horas productivas Valladolid estimadas", value: 1342, unit: "h/año", category: "Convenios", legalKey: "conv_valladolid" },
+    { key: "PLUS_NOCTURNIDAD_HORA_VALLADOLID", label: "Plus nocturnidad proporcional Valladolid 2025", value: 1.051, unit: "€/h", category: "Convenios salariales", legalKey: "conv_valladolid" },
+    { key: "PLUS_FESTIVO_VALLADOLID", label: "Plus domingo/festivo Valladolid 2025", value: 14.72, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_valladolid" },
+    { key: "PLUS_FESTIVO_ESPECIAL_VALLADOLID", label: "Plus festivo especial Valladolid 2025", value: 29.43, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_valladolid" },
+    { key: "SIN_PLUS_SABADO_VALLADOLID", label: "Sin plus específico de sábado Valladolid", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_valladolid" },
+
+    { key: "JORNADA_ZAMORA_ANUAL", label: "Jornada anual Zamora 2026", value: 1770, unit: "h/año", category: "Convenios", legalKey: "conv_zamora" },
+    { key: "HORAS_FACTURABLES_ZAMORA", label: "Horas productivas Zamora estimadas", value: 1362, unit: "h/año", category: "Convenios", legalKey: "conv_zamora" },
+    { key: "PLUS_NOCTURNIDAD_HORA_ZAMORA", label: "Plus nocturnidad proporcional Zamora 2026", value: 0.931, unit: "€/h", category: "Convenios salariales", legalKey: "conv_zamora" },
+    { key: "PLUS_FESTIVO_ZAMORA", label: "Plus domingo/festivo Zamora 2026", value: 13.79, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_zamora" },
+    { key: "PLUS_FESTIVO_ESPECIAL_ZAMORA", label: "Plus festivo especial Zamora 2026", value: 27.59, unit: "€/turno", category: "Convenios salariales", legalKey: "conv_zamora" },
+    { key: "SIN_PLUS_SABADO_ZAMORA", label: "Sin plus específico de sábado Zamora", value: 0, unit: "€/h", category: "Convenios salariales", legalKey: "conv_zamora" },
+  ]
+
+  // Create legal parameters AFTER legal records
+  for (const lp of LEGAL_PARAMETERS_SEED) {
+    const legalRecordId = await getRecordByKey(lp.legalKey)
+    await db.legalParameter.upsert({
+      where: { key: lp.key },
+      update: {
+        label: lp.label,
+        value: String(lp.value),
+        unit: lp.unit,
+        category: lp.category,
+        legalRecordId,
+      },
+      create: {
+        key: lp.key,
+        label: lp.label,
+        value: String(lp.value),
+        unit: lp.unit,
+        category: lp.category,
+        effectiveFrom: '2026-01-01',
+        isActive: true,
+        legalRecordId,
+      },
+    })
+    console.log(`  Legal Param upserted: ${lp.key}`)
+  }
+
+  console.log('\nSeed completed!')
+}
+
+const directRun = process.argv[1]?.replace(/\\/g, '/').endsWith('/scripts/seed.ts')
+if (directRun) {
+  seedDatabase()
+    .catch((e) => {
+      console.error('Seed error:', e)
+      process.exitCode = 1
+    })
+    .finally(() => db.$disconnect())
+}
