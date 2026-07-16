@@ -487,51 +487,99 @@ export async function seedDatabase() {
       hasLiteralQuote: false
     },
     {
-      key: "conv_burgos_nocturnidad",
-      title: "Convenio hospitalización y asistencia privada de Burgos",
+      key: "conv_burgos_extension",
+      title: "Hospitalización y asistencia privada de Burgos y extensión a Ávila, Segovia y Soria",
       category: "Convenios salariales",
       normName: "Convenio colectivo provincial de hospitalización y asistencia privada de Burgos",
-      legalLocation: "Art. 25",
+      legalLocation: "Arts. 12, 24 y 25",
       officialReference: "Código de convenio 09000265011981",
       eliUrl: "",
       officialUrl: "https://www.faeburgos.org/wp-content/uploads/2022/10/Hospitalizacion-y-asistencia-privada-de-la-provincia-de-Burgos-09000265011981.pdf",
       literalQuote: "",
       quoteSource: "",
-      operativeSummary: "El art. 25 fija el plus de nocturnidad en el 25%.",
-      reviewedAt: "2026-07-15",
+      operativeSummary: "Extensión vigente para CNAE 8690 en Ávila, Segovia y Soria. Jornada general 1.728 h; se usa 1.705 h como hipótesis conservadora hospitalaria. Nocturnidad 25%; 38,70 €/festivo y 21,74 €/domingo (tablas 2025, ultraactividad).",
+      reviewedAt: "2026-07-16",
       status: "vigente",
       hasLiteralQuote: false
     },
     {
-      key: "conv_cyl",
-      title: "Convenio sanidad privada Valladolid / Castilla y León",
+      key: "conv_leon",
+      title: "Establecimientos y centros sanitarios de León",
       category: "Convenios salariales",
-      normName: "VI Convenio colectivo de sanidad privada de Valladolid",
-      legalLocation: "Tablas salariales",
-      officialReference: "BOP Valladolid 185/2021",
+      normName: "Convenio colectivo de establecimientos y centros sanitarios de hospitalización, asistencia, consulta y laboratorios de León",
+      legalLocation: "Arts. 17 y 22",
+      officialReference: "Código 24000805011987",
       eliUrl: "",
-      officialUrl: "https://sanidad.ccoo.es/",
+      officialUrl: "https://ccoo.app/convenio/convenio-colectivo-est-y-centros-sanitarios-de-hospitaliz-asistencia-consulta-y-laboratorios-de-leon/",
       literalQuote: "",
       quoteSource: "",
-      operativeSummary: "Tablas 2021-2025. Vigencia y horas facturables pendientes de actualizar más allá de 2025.",
-      reviewedAt: "2026-06-24",
-      status: "pendiente_revision",
+      operativeSummary: "Jornada 1.800 h/año. Nocturnidad del 50% del salario base. Convenio 2022-2025 mantenido por ultraactividad mientras se publica el siguiente.",
+      reviewedAt: "2026-07-16",
+      status: "vigente",
       hasLiteralQuote: false
     },
     {
-      key: "conv_clm",
-      title: "Castilla-La Mancha — orientativo",
+      key: "conv_palencia",
+      title: "Servicios sanitarios y sociosanitarios privados de Palencia",
       category: "Convenios salariales",
-      normName: "Sin convenio oficial verificado por provincia/actividad",
-      legalLocation: "—",
-      officialReference: "—",
+      normName: "Convenio colectivo del sector de servicios sanitarios y sociosanitarios privados de Palencia",
+      legalLocation: "Jornada y pluses 2025",
+      officialReference: "Código 34000965012006",
       eliUrl: "",
-      officialUrl: "https://www.boe.es/",
+      officialUrl: "https://noticias.juridicas.com/base_datos/Laboral/824298-convenio-colectivo-de-trabajo-del-sector-servicios-sanitarios-y-sociosanitarios.html",
       literalQuote: "",
       quoteSource: "",
-      operativeSummary: "Datos de CLM solo para simulación interna. No hay convenio oficial verificado. Prohibido usar para contratos, ofertas laborales o nóminas sin asesoría laboral.",
-      reviewedAt: "2026-06-24",
-      status: "orientativo",
+      operativeSummary: "Jornada 1.729 h/año. Plus mensual de nocturnidad prorrateado por hora y pluses de domingo/festivo conforme a tablas 2025; ultraactividad tras 31/12/2025.",
+      reviewedAt: "2026-07-16",
+      status: "vigente",
+      hasLiteralQuote: false
+    },
+    {
+      key: "conv_salamanca_clm",
+      title: "II Convenio de sanidad privada de Salamanca, extendido a Castilla-La Mancha",
+      category: "Convenios salariales",
+      normName: "II Convenio colectivo de la sanidad privada de Salamanca y extensión a Albacete, Ciudad Real, Cuenca, Guadalajara y Toledo",
+      legalLocation: "Arts. 9, 25 y 26; Resolución de extensión de 19/05/2025",
+      officialReference: "Código 37101315012020",
+      eliUrl: "",
+      officialUrl: "https://ccoo.app/convenio/convenio-colectivo-hospitalizacion-y-asistencia-privada-de-cuenca-de-cuenca/",
+      literalQuote: "",
+      quoteSource: "",
+      operativeSummary: "Aplicable a CNAE 8690 en las cinco provincias de Castilla-La Mancha. Jornada 1.779 h; nocturnidad 11,15 €/noche, domingo/festivo 13,90 € y especial 30 €.",
+      reviewedAt: "2026-07-16",
+      status: "vigente",
+      hasLiteralQuote: false
+    },
+    {
+      key: "conv_valladolid",
+      title: "Sanidad privada de Valladolid",
+      category: "Convenios salariales",
+      normName: "Convenio colectivo de sanidad privada de Valladolid",
+      legalLocation: "Arts. 10 y 25",
+      officialReference: "Código 47001095012003 · BOP Valladolid 185/2021",
+      eliUrl: "",
+      officialUrl: "https://ccoo.app/convenio/convenio-colectivo-sanidad-privada-de-valladolid/",
+      literalQuote: "",
+      quoteSource: "",
+      operativeSummary: "Jornada 1.744 h en 2025. Nocturnidad proporcional (10,51 €/10 h), festivo/domingo 14,72 € y especial 29,43 €; ultraactividad.",
+      reviewedAt: "2026-07-16",
+      status: "vigente",
+      hasLiteralQuote: false
+    },
+    {
+      key: "conv_zamora",
+      title: "Hospitalización y asistencia privada de Zamora 2022-2026",
+      category: "Convenios salariales",
+      normName: "Convenio colectivo de hospitalización y asistencia privada / sanidad privada de Zamora",
+      legalLocation: "Arts. 10, 20 y 21",
+      officialReference: "Código 49100025012013 · BOP Zamora 107/2022",
+      eliUrl: "",
+      officialUrl: "https://ccoo.app/convenio/convenio-colectivo-hospitalizacion-y-asistencia-privada-sanidad-privada-de-zamora/",
+      literalQuote: "",
+      quoteSource: "",
+      operativeSummary: "Jornada 1.770 h en 2026. Nocturnidad 9,31 €/10 h, festivo/domingo 13,79 € y festivo especial 27,59 €.",
+      reviewedAt: "2026-07-16",
+      status: "vigente",
       hasLiteralQuote: false
     }
   ]
@@ -600,46 +648,6 @@ export async function seedDatabase() {
     { key: "IVA_GENERAL", label: "IVA general", value: 21, unit: "%", category: "IVA", legalKey: "iva_general" },
     { key: "IVA_EXENTO_SANITARIO", label: "IVA exento asistencia sanitaria", value: 0, unit: "%", category: "IVA", legalKey: "iva_exento" },
     { key: "JORNADA_MADRID_ANUAL", label: "Jornada anual Madrid", value: 1680, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" },
-    { key: "HORAS_FACTURABLES_MADRID", label: "Horas facturables Madrid estimadas", value: 1293, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" }
-    ,{ key: "PLUS_NOCTURNIDAD_MADRID", label: "Plus nocturnidad Madrid", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_madrid" }
-    ,{ key: "PLUS_NOCTURNIDAD_BURGOS", label: "Plus nocturnidad Burgos", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_burgos_nocturnidad" }
-  ]
-
-  // Create legal parameters AFTER legal records
-  for (const lp of LEGAL_PARAMETERS_SEED) {
-    const legalRecordId = await getRecordByKey(lp.legalKey)
-    await db.legalParameter.upsert({
-      where: { key: lp.key },
-      update: {
-        label: lp.label,
-        value: String(lp.value),
-        unit: lp.unit,
-        category: lp.category,
-        legalRecordId,
-      },
-      create: {
-        key: lp.key,
-        label: lp.label,
-        value: String(lp.value),
-        unit: lp.unit,
-        category: lp.category,
-        effectiveFrom: '2026-01-01',
-        isActive: true,
-        legalRecordId,
-      },
-    })
-    console.log(`  Legal Param upserted: ${lp.key}`)
-  }
-
-  console.log('\nSeed completed!')
-}
-
-const directRun = process.argv[1]?.replace(/\\/g, '/').endsWith('/scripts/seed.ts')
-if (directRun) {
-  seedDatabase()
-    .catch((e) => {
-      console.error('Seed error:', e)
-      process.exitCode = 1
-    })
-    .finally(() => db.$disconnect())
-}
+    { key: "HORAS_FACTURABLES_MADRID", label: "Horas productivas Madrid estimadas", value: 1293, unit: "h/año", category: "Convenios", legalKey: "conv_madrid" },
+    { key: "PLUS_NOCTURNIDAD_MADRID", label: "Plus nocturnidad Madrid", value: 25, unit: "%", category: "Convenios salariales", legalKey: "conv_madrid" },
+    { key: "PLUS_FESTIVO_MADRID", label: "Plus festivo ordinario Madrid", value: 12, unit: "€/turno", category: "Convenio
