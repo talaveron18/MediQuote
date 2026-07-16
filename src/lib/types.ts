@@ -61,6 +61,8 @@ export interface ServiceBlockInput {
   unitType: UnitType;
   quantity: number;
   fixedPrice?: number;
+  /** IVA aplicable a esta partida. Los presupuestos antiguos heredan el IVA global. */
+  ivaPercent?: number;
   observations?: string;
   enabledSurcharges?: SurchargeType[];
   // Extra fields for special block types
@@ -178,6 +180,12 @@ export interface BlockCalculationResult {
   laborWarnings: LaborWarning[];
   subtotal: number;
   totalWithSurcharges: number;
+  initialPriceExVat?: number;
+  discountAmount?: number;
+  closingPriceExVat?: number;
+  ivaPercent?: number;
+  ivaAmount?: number;
+  totalWithVat?: number;
 }
 
 export interface BudgetCalculationResult {
