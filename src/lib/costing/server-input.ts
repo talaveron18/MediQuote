@@ -1,4 +1,4 @@
-import type { BlockCalculationResult, ServiceBlockInput, SurchargeKind, SurchargeType } from '../types';
+import type { BlockCalculationResult, HolidayInfo, ServiceBlockInput, SurchargeKind, SurchargeType } from '../types';
 import { adaptBlockResultToCostHours } from './cost-hours-adapter';
 import { DEFAULT_GASI_COMMERCIAL_POLICY } from './commercial-policy';
 import type {
@@ -8,6 +8,7 @@ import type {
   LaborPlusRule,
   PlusHourBucket,
 } from './cost-types';
+import type { ConventionProfile } from '../service-locations';
 
 interface CategoryCostSource {
   id: string;
@@ -57,7 +58,15 @@ const PLUS_BUCKETS: Partial<Record<SurchargeType, PlusHourBucket>> = {
 
 function buildPlusRules(
   rows: SurchargeCostSource[],
-  nightRule?: { value: number; source: CostSourceRef },
+  territorialRules: Array<{
+    bucket: PlusHourBucket;
+    formula: LaborPlusRule['formula'];
+    value: number;
+    units?: number;
+    source: CostSourceRef;
+    key: string;
+    label?: string;
+  }> = [],
 ): LaborPlusRule[] {
   const selected = new Map<PlusHourBucket, SurchargeCostSource>();
 
@@ -73,20 +82,29 @@ function buildPlusRules(
     selected.delete('holiday');
   }
 
-  return [...selected.entries()].flatMap(([bucket, row]) => {
+  for (const rule of territorialRules) selected.delete(rule.bucket);
+
+  const genericRules = [...selected.entries()].flatMap(([bucket, row]) => {
     const kind = row.surchargeType as SurchargeKind;
     if (kind !== 'percentage' && kind !== 'fixed') return [];
     return [{
       id: row.id,
       name: row.name,
       formula: kind === 'percentage' ? 'percentage_base_hour' : 'per_hour',
-      value: bucket === 'night' && nightRule ? nightRule.value : row.value,
+      value: row.value,
       hourBucket: bucket,
-      source: bucket === 'night' && nightRule
-        ? nightRule.source
-        : source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`),
+      source: source(`surcharge:${row.id}`, `Configuración GASI: ${row.name}`),
     } satisfies LaborPlusRule];
   });
+  return [...genericRules, ...territorialRules.map((rule) => ({
+    id: `territorial:${rule.key}:${rule.bucket}`,
+    name: rule.label || `Convenio territorial · ${rule.bucket}`,
+    formula: rule.formula,
+    value: rule.value,
+    hourBucket: rule.bucket,
+    units: rule.units,
+    source: rule.source,
+  } satisfies LaborPlusRule))];
 }
 
 function requiredNumber(
@@ -112,13 +130,14 @@ export function buildCostingInputFromDatabase(params: {
   category: CategoryCostSource | undefined;
   config: CostingDatabaseConfig;
   serviceId: string;
+  holidays?: HolidayInfo[];
   location?: {
     province?: string;
     municipality?: string;
-    nightSurchargeLegalParameterKey?: string;
+    conventionProfile?: ConventionProfile;
   };
 }): CostingInputBuildResult {
-  const { block, schedule, category, config, serviceId, location } = params;
+  const { block, schedule, category, config, serviceId, holidays = [], location } = params;
   const issues: DataIssue[] = [];
   const productiveHourlyGross = finite(category?.defaultInternalCost);
 
@@ -144,8 +163,24 @@ export function buildCostingInputFromDatabase(params: {
     });
   }
 
-  const annualConventionHours = requiredNumber(issues, config.legalParameters, 'JORNADA_MADRID_ANUAL');
-  const annualProductiveHours = requiredNumber(issues, config.legalParameters, 'HORAS_FACTURABLES_MADRID');
+  const conventionProfile = location?.conventionProfile;
+  if (!conventionProfile) {
+    issues.push({
+      field: `location.${location?.province ?? 'province'}.conventionProfile`,
+      kind: 'missing',
+      message: `No existe un perfil de convenio configurado para ${location?.province ?? 'la provincia'}.`,
+    });
+  }
+  const annualConventionHours = requiredNumber(
+    issues,
+    config.legalParameters,
+    conventionProfile?.annualConventionHoursKey ?? 'CONVENIO_TERRITORIAL_NO_CONFIGURADO',
+  );
+  const annualProductiveHours = requiredNumber(
+    issues,
+    config.legalParameters,
+    conventionProfile?.annualProductiveHoursKey ?? 'HORAS_PRODUCTIVAS_TERRITORIALES_NO_CONFIGURADAS',
+  );
   const smiAnnual = requiredNumber(issues, config.legalParameters, 'SMI_ANNUAL_2026');
   const commonContingencies = requiredNumber(issues, config.legalParameters, 'SS_CC_EMPRESA');
   const unemploymentKey = block.contractType === 'temporal'
@@ -174,28 +209,112 @@ export function buildCostingInputFromDatabase(params: {
     });
   }
 
-  const nightKey = location?.nightSurchargeLegalParameterKey;
-  const nightValue = nightKey ? finite(config.legalParameters[nightKey]) : undefined;
-  if (nightKey && nightValue === undefined) {
-    issues.push({
-      field: `legalParameters.${nightKey}`,
-      kind: 'missing',
-      message: `Falta el parámetro legal territorial ${nightKey}.`,
-    });
-  }
-  const nightSource = nightKey ? config.legalParameterSources?.[nightKey] : undefined;
-  if (nightKey && !nightSource) {
-    issues.push({
-      field: `legalParameters.${nightKey}.source`,
-      kind: 'missing',
-      message: `Falta la fuente legal trazable de ${nightKey}.`,
-    });
-  }
-  const plusRules = buildPlusRules(
-    config.surcharges,
-    nightValue !== undefined && nightSource ? { value: nightValue, source: nightSource } : undefined,
-  );
   const hours = adaptBlockResultToCostHours(schedule);
+  const averageShiftHours = hours.shifts > 0 ? hours.coverageHours / hours.shifts : 8;
+  const positions = Math.max(1, Number(block.puestosSimultaneos ?? 1));
+  const holidayTypesByBucket: Partial<Record<PlusHourBucket, HolidayInfo['type']>> = {
+    holidayNational: 'nacional',
+    holidayAutonomico: 'autonomico',
+    holidayProvincial: 'provincial',
+    holidayMunicipal: 'municipal',
+  };
+  const holidayDates = new Set(holidays.map((holiday) => holiday.date));
+  const territorialRules: Parameters<typeof buildPlusRules>[1] = [];
+  for (const rule of conventionProfile?.plusRules ?? []) {
+    const applicableHours = hours.breakdown[rule.bucket];
+    if (applicableHours <= 0) continue;
+    const value = finite(config.legalParameters[rule.legalParameterKey]);
+    const ruleSource = config.legalParameterSources?.[rule.legalParameterKey];
+    if (value === undefined) {
+      issues.push({
+        field: `legalParameters.${rule.legalParameterKey}`,
+        kind: 'missing',
+        message: `Falta el parámetro del convenio ${rule.legalParameterKey} para ${location?.province}.`,
+      });
+      continue;
+    }
+    if (!ruleSource) {
+      issues.push({
+        field: `legalParameters.${rule.legalParameterKey}.source`,
+        kind: 'missing',
+        message: `Falta la fuente oficial trazable de ${rule.legalParameterKey}.`,
+      });
+      continue;
+    }
+    let units: number | undefined;
+    if (rule.formula === 'per_shift') {
+      const holidayType = holidayTypesByBucket[rule.bucket];
+      if (holidayType) {
+        const matchingDates = new Set(
+          holidays.filter((holiday) => holiday.type === holidayType).map((holiday) => holiday.date),
+        );
+        units = schedule.workingDates.filter((date) => matchingDates.has(date)).length * positions;
+      } else if (rule.bucket === 'sunday') {
+        // Un domingo que además sea festivo se paga una sola vez: prevalece el
+        // plus de festivo específico del territorio.
+        units = schedule.workingDates.filter((date) => (
+          new Date(`${date}T00:00:00Z`).getUTCDay() === 0 && !holidayDates.has(date)
+        )).length * positions;
+      } else {
+        units = applicableHours / (rule.unitHours ?? averageShiftHours);
+      }
+    }
+    territorialRules.push({
+      bucket: rule.bucket,
+      formula: rule.formula,
+      value,
+      units,
+      source: ruleSource,
+      key: rule.legalParameterKey,
+      label: rule.label,
+    });
+  }
+
+  for (const rule of conventionProfile?.specialPlusRules ?? []) {
+    if (rule.shiftTypes && !rule.shiftTypes.includes(block.shiftType)) continue;
+    const matchingDates = schedule.workingDates.filter((date) => rule.monthDays.includes(date.slice(5)));
+    if (matchingDates.length === 0) continue;
+    const specialValue = finite(config.legalParameters[rule.legalParameterKey]);
+    const baseValue = rule.baseLegalParameterKey
+      ? finite(config.legalParameters[rule.baseLegalParameterKey])
+      : 0;
+    const ruleSource = config.legalParameterSources?.[rule.legalParameterKey];
+    if (specialValue === undefined || baseValue === undefined) {
+      issues.push({
+        field: `legalParameters.${rule.legalParameterKey}`,
+        kind: 'missing',
+        message: `Falta el importe de festivo especial ${rule.legalParameterKey} para ${location?.province}.`,
+      });
+      continue;
+    }
+    if (!ruleSource) {
+      issues.push({
+        field: `legalParameters.${rule.legalParameterKey}.source`,
+        kind: 'missing',
+        message: `Falta la fuente oficial trazable de ${rule.legalParameterKey}.`,
+      });
+      continue;
+    }
+    const incrementalValue = specialValue - baseValue;
+    if (incrementalValue < 0) {
+      issues.push({
+        field: `legalParameters.${rule.legalParameterKey}`,
+        kind: 'invalid',
+        message: `${rule.legalParameterKey} no puede ser inferior al plus ordinario que sustituye.`,
+      });
+      continue;
+    }
+    territorialRules.push({
+      bucket: 'total',
+      formula: 'per_shift',
+      value: incrementalValue,
+      units: matchingDates.length * Math.max(1, block.puestosSimultaneos),
+      source: ruleSource,
+      key: `${rule.legalParameterKey}:especial`,
+      label: rule.label,
+    });
+  }
+  const plusRules = buildPlusRules(config.surcharges, territorialRules);
   const uncoveredBuckets: Array<[PlusHourBucket, number]> = [
     ['night', hours.breakdown.night],
     ['sunday', hours.breakdown.sunday],

@@ -18,8 +18,9 @@ import type {
   ServiceBlockInput,
 } from '@/lib/types';
 import type { DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types';
-import { SERVICE_LOCATIONS } from '@/lib/service-locations';
+import { getConventionProfileForProvince, resolveServiceLocation } from '@/lib/service-locations';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
+import { getLocalHolidayCalendar, getMunicipalHolidays } from '@/lib/local-holidays';
 
 export const runtime = 'nodejs';
 
@@ -72,22 +73,22 @@ export async function POST(request: NextRequest) {
       nightEndHour: 6,
     };
 
-    const requestedLocation = body.location?.id
-      ? SERVICE_LOCATIONS.find((candidate) => candidate.id === body.location?.id)
-      : SERVICE_LOCATIONS.find((candidate) => (
-          candidate.province === body.location?.province
-          && candidate.autonomousCommunity === body.location?.cc
-          && (candidate.municipality || '') === (body.location?.municipality || '')
-        ));
+    const requestedLocation = resolveServiceLocation(body.location);
     if (body.location && !requestedLocation) {
-      return NextResponse.json({ error: 'La zona de servicio no está soportada por el calendario legal de esta versión' }, { status: 400 });
+      return NextResponse.json({ error: 'La comunidad, provincia y localidad no forman una zona territorial válida' }, { status: 400 });
     }
-    const locationDefinition = requestedLocation ?? SERVICE_LOCATIONS[0];
+    const locationDefinition = requestedLocation ?? resolveServiceLocation(null)!;
+    const conventionProfile = getConventionProfileForProvince(locationDefinition.province);
+    if (!conventionProfile) {
+      return NextResponse.json({ error: `No existe convenio profesional configurado para ${locationDefinition.province}` }, { status: 422 });
+    }
     const location = {
       id: locationDefinition.id,
       cc: locationDefinition.autonomousCommunity,
       province: locationDefinition.province,
       municipality: locationDefinition.municipality,
+      municipalityIneCode: locationDefinition.municipalityIneCode,
+      conventionProfileId: conventionProfile.id,
     };
     const holidayWhere: Record<string, unknown>[] = [{ type: 'nacional' }];
     if (location.cc) holidayWhere.push({ type: 'autonomico', autonomousCommunity: location.cc });
@@ -110,7 +111,10 @@ export async function POST(request: NextRequest) {
       }
     }
     if (years.size === 0) years.add(new Date().getFullYear());
-    for (const year of years) holidays.push(...generateHolidaysForYear(year, location));
+    for (const year of years) {
+      holidays.push(...generateHolidaysForYear(year, location));
+      holidays.push(...getMunicipalHolidays(location.municipalityIneCode, year));
+    }
     // La versión territorial generada se añade después de la base global y
     // prevalece por fecha (p. ej., Jueves Santo autonómico frente al seed nacional).
     const applicableHolidays = filterHolidaysForLocation(holidays, location);
@@ -154,6 +158,18 @@ export async function POST(request: NextRequest) {
     for (const row of appConfigRows) appConfig[row.key] = row.value;
 
     const issues: DataIssue[] = [];
+    const localCalendar = getLocalHolidayCalendar(location.municipalityIneCode);
+    for (const year of years) {
+      if (year !== 2026 || !localCalendar || localCalendar.status !== 'verified') {
+        issues.push({
+          field: `holidays.municipal.${location.municipalityIneCode}.${year}`,
+          kind: 'missing',
+          message: year !== 2026
+            ? `El calendario oficial de festivos locales de ${location.municipality} para ${year} todavía no está publicado en esta versión.`
+            : `El boletín oficial no contiene todavía dos festivos locales verificables para ${location.municipality}.`,
+        });
+      }
+    }
     const internalBreakdowns: InternalCostBreakdown[] = [];
     let directCostTotal = 0;
     const simpleTypes = new Set([
@@ -183,10 +199,11 @@ export async function POST(request: NextRequest) {
         category,
         config: { legalParameters, legalParameterSources, appConfig, surcharges: dbSurcharges },
         serviceId: String(index),
+        holidays: deduplicatedHolidays,
         location: {
           province: location.province,
           municipality: location.municipality,
-          nightSurchargeLegalParameterKey: locationDefinition.nightSurchargeLegalParameterKey,
+          conventionProfile,
         },
       });
       if (built.status === 'pending_configuration') {

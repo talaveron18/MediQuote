@@ -43,7 +43,15 @@ import {
   Download,
 } from 'lucide-react';
 import { useAppStore, emptyBlock, BLOCK_TYPE_PRESETS, SIMPLE_BLOCK_TYPES } from '@/store/app-store';
-import { SERVICE_LOCATIONS, getServiceLocation } from '@/lib/service-locations';
+import {
+  AUTONOMOUS_COMMUNITIES,
+  buildServiceLocation,
+  DEFAULT_SERVICE_LOCATION_ID,
+  getMunicipalitiesForProvince,
+  getProvincesForCommunity,
+  getServiceLocation,
+  resolveServiceLocation,
+} from '@/lib/service-locations';
 import { calculateWorkingDates, findHolidayForDate } from '@/lib/schedule-engine';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import type {
@@ -208,7 +216,7 @@ const MODALITY_LABELS: Record<CourseModality, string> = {
 
 export default function BudgetForm() {
   const store = useAppStore();
-  const isAdmin = store.currentRole === 'admin';
+  const isAdmin = store.currentRole === 'admin' || store.currentRole === 'maestro';
   const isEditing = !!store.editingBudgetId;
 
   // Local UI state
@@ -220,6 +228,13 @@ export default function BudgetForm() {
   const [addBlockMenuOpen, setAddBlockMenuOpen] = useState(false);
   const [ivaMode, setIvaMode] = useState<'standard' | 'exento' | 'custom'>('standard');
   const [calculationPending, setCalculationPending] = useState<string[]>([]);
+  const selectedCommunity = store.budgetForm.serviceAutonomousCommunity || 'Madrid';
+  const selectedProvince = store.budgetForm.serviceProvince || 'Madrid';
+  const availableProvinces = useMemo(() => getProvincesForCommunity(selectedCommunity), [selectedCommunity]);
+  const availableMunicipalities = useMemo(
+    () => getMunicipalitiesForProvince(selectedCommunity, selectedProvince),
+    [selectedCommunity, selectedProvince],
+  );
 
   // ─── Data fetching on mount ──────────────────────────────────
 
@@ -258,6 +273,12 @@ export default function BudgetForm() {
                 : [];
             const budget = budgetList.find((b: { id?: string }) => b.id === store.editingBudgetId);
             if (budget) {
+              const storedLocation = resolveServiceLocation({
+                id: budget.serviceLocationId,
+                cc: budget.serviceAutonomousCommunity,
+                province: budget.serviceProvince,
+                municipality: budget.serviceMunicipality,
+              }) ?? getServiceLocation(DEFAULT_SERVICE_LOCATION_ID);
               store.setBudgetForm({
                 clientId: budget.clientId || '',
                 description: budget.description || '',
@@ -267,10 +288,10 @@ export default function BudgetForm() {
                 ivaPercent: budget.ivaPercent ?? 21,
                 clientNotes: budget.clientNotes || '',
                 internalNotes: budget.internalNotes || '',
-                serviceLocationId: budget.serviceLocationId || 'madrid-capital',
-                serviceAutonomousCommunity: budget.serviceAutonomousCommunity || 'Madrid',
-                serviceProvince: budget.serviceProvince || 'Madrid',
-                serviceMunicipality: budget.serviceMunicipality || '',
+                serviceLocationId: storedLocation.id,
+                serviceAutonomousCommunity: storedLocation.autonomousCommunity,
+                serviceProvince: storedLocation.province,
+                serviceMunicipality: storedLocation.municipality,
               });
               // Sync IVA mode with loaded value
               const loadedIva = budget.ivaPercent ?? 21;
@@ -2011,13 +2032,14 @@ export default function BudgetForm() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="service-location" className="text-xs font-medium">
-                    Zona del servicio *
-                  </Label>
+                  <Label htmlFor="service-community" className="text-xs font-medium">Comunidad autónoma *</Label>
                   <Select
-                    value={store.budgetForm.serviceLocationId || 'madrid-capital'}
+                    value={selectedCommunity}
                     onValueChange={(value) => {
-                      const location = getServiceLocation(value);
+                      const province = getProvincesForCommunity(value)[0];
+                      const municipality = getMunicipalitiesForProvince(value, province)[0];
+                      if (!municipality) return;
+                      const location = buildServiceLocation(municipality);
                       store.setBudgetForm({
                         serviceLocationId: location.id,
                         serviceAutonomousCommunity: location.autonomousCommunity,
@@ -2026,20 +2048,42 @@ export default function BudgetForm() {
                       });
                     }}
                   >
-                    <SelectTrigger id="service-location" className="h-9">
+                    <SelectTrigger id="service-community" className="h-9 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {SERVICE_LOCATIONS.map((location) => (
-                        <SelectItem key={location.id} value={location.id}>
-                          {location.label}
-                        </SelectItem>
+                      {AUTONOMOUS_COMMUNITIES.map((community) => (
+                        <SelectItem key={community} value={community}>{community}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Determina calendario festivo y reglas territoriales de coste.
-                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="service-province" className="text-xs font-medium">Provincia *</Label>
+                  <Select value={selectedProvince} onValueChange={(value) => {
+                    const municipality = getMunicipalitiesForProvince(selectedCommunity, value)[0];
+                    if (!municipality) return;
+                    const location = buildServiceLocation(municipality);
+                    store.setBudgetForm({ serviceLocationId: location.id, serviceAutonomousCommunity: location.autonomousCommunity, serviceProvince: location.province, serviceMunicipality: location.municipality });
+                  }}>
+                    <SelectTrigger id="service-province" className="h-9 w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>{availableProvinces.map((province) => <SelectItem key={province} value={province}>{province}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="service-municipality" className="text-xs font-medium">Localidad *</Label>
+                  <Select value={store.budgetForm.serviceLocationId || DEFAULT_SERVICE_LOCATION_ID} onValueChange={(value) => {
+                    const municipality = availableMunicipalities.find((row) => `ine-${row.ineCode}` === value);
+                    if (!municipality) return;
+                    const location = buildServiceLocation(municipality);
+                    store.setBudgetForm({ serviceLocationId: location.id, serviceAutonomousCommunity: location.autonomousCommunity, serviceProvince: location.province, serviceMunicipality: location.municipality });
+                  }}>
+                    <SelectTrigger id="service-municipality" className="h-9 w-full"><SelectValue placeholder="Selecciona localidad" /></SelectTrigger>
+                    <SelectContent>{availableMunicipalities.map((municipality) => <SelectItem key={municipality.ineCode} value={`ine-${municipality.ineCode}`}>{municipality.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">La combinación fija festivos y convenio profesional aplicable.</p>
                 </div>
 
                 {/* Status (only admin or editing) */}

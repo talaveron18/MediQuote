@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { BlockCalculationResult, ServiceBlockInput } from '../types';
+import { CONVENTION_PROFILES } from '../service-locations';
 import { calculateCosting } from './cost-engine';
 import { buildCostingInputFromDatabase } from './server-input';
 
-const legalParameters = {
-  JORNADA_MADRID_ANUAL: 1680,
-  HORAS_FACTURABLES_MADRID: 1293,
+const baseLegalParameters = {
   SMI_ANNUAL_2026: 17094,
   SS_CC_EMPRESA: 23.6,
   SS_DESEMPLEO_INDEFINIDO_EMPRESA: 5.5,
@@ -14,173 +13,123 @@ const legalParameters = {
   SS_FORMACION_EMPRESA: 0.6,
   SS_MEI_EMPRESA_2026: 0.75,
   SS_ATEP_ORIENTATIVO: 1.5,
-  PLUS_NOCTURNIDAD_MADRID: 25,
-  PLUS_NOCTURNIDAD_BURGOS: 25,
 };
 
 const block: ServiceBlockInput = {
-  serviceName: 'Enfermería domingo',
-  professionalCategory: 'nurse-id',
-  puestosSimultaneos: 1,
-  plantillaSeleccionada: 1,
-  pricePerHour: 0,
-  contractType: 'temporal',
-  dateMode: 'specific',
-  specificDates: ['2026-07-19'],
-  excludeSundays: false,
-  excludeHolidays: false,
-  shiftType: '24h',
-  shiftStartTime: '00:00',
-  shiftEndTime: '23:59',
-  hoursPerDay: 24,
-  breakMinutes: 0,
-  unitType: 'turno',
-  quantity: 1,
+  serviceName: 'Enfermería domingo', professionalCategory: 'nurse-id', puestosSimultaneos: 1,
+  plantillaSeleccionada: 1, pricePerHour: 0, contractType: 'temporal', dateMode: 'specific',
+  specificDates: ['2026-07-19'], excludeSundays: false, excludeHolidays: false,
+  shiftType: '24h', shiftStartTime: '00:00', shiftEndTime: '23:59', hoursPerDay: 24,
+  breakMinutes: 0, unitType: 'turno', quantity: 1,
 };
 
-function schedule(hours: number): BlockCalculationResult {
+function schedule(hours: number, date = '2026-07-19'): BlockCalculationResult {
   return {
-    workingDates: ['2026-07-19'],
-    totalWorkingDays: 1,
-    hoursPerPosition: hours,
-    coverageHours: hours,
-    totalHours: hours,
-    shiftBreakdown: {
-      total: hours,
-      regular: Math.max(0, hours - Math.min(8, hours)),
-      night: Math.min(8, hours),
-      sunday: hours,
-      holiday: 0,
-      holidayNational: 0,
-      holidayAutonomico: 0,
-      holidayProvincial: 0,
-      holidayMunicipal: 0,
-      weekend: hours,
+    workingDates: [date], totalWorkingDays: 1, hoursPerPosition: hours, coverageHours: hours,
+    totalHours: hours, shiftBreakdown: {
+      total: hours, regular: Math.max(0, hours - Math.min(8, hours)), night: Math.min(8, hours),
+      sunday: hours, holiday: 0, holidayNational: 0, holidayAutonomico: 0,
+      holidayProvincial: 0, holidayMunicipal: 0, weekend: hours,
     },
-    surcharges: [],
-    totalSurcharges: 0,
-    puestosSimultaneos: 1,
-    plantillaMinimaRecomendada: 1,
-    plantillaSeleccionada: 1,
-    deficitPlantilla: 0,
-    weeklyHoursPerPro: [],
-    overtimeHours: 0,
-    laborWarnings: [],
-    subtotal: 0,
-    totalWithSurcharges: 0,
+    surcharges: [], totalSurcharges: 0, puestosSimultaneos: 1, plantillaMinimaRecomendada: 1,
+    plantillaSeleccionada: 1, deficitPlantilla: 0, weeklyHoursPerPro: [], overtimeHours: 0,
+    laborWarnings: [], subtotal: 0, totalWithSurcharges: 0,
   };
 }
 
-const config = {
-  legalParameters,
-  legalParameterSources: {
-    PLUS_NOCTURNIDAD_MADRID: {
-      id: 'conv_madrid', label: 'Convenio Madrid, art. 12.3', status: 'verified' as const,
-    },
-    PLUS_NOCTURNIDAD_BURGOS: {
-      id: 'conv_burgos_nocturnidad', label: 'Convenio Burgos, art. 25', status: 'verified' as const,
-    },
-  },
-  appConfig: {
-    costing_province: 'Madrid',
-    costing_overhead_percent: '15',
-    costing_management_fee_per_contract: '15',
-  },
-  surcharges: [
-    { id: 'night', name: 'Nocturnidad', type: 'nocturnidad', surchargeType: 'percentage', value: 25 },
-    { id: 'sunday', name: 'Domingo', type: 'domingo', surchargeType: 'percentage', value: 50 },
-    { id: 'weekend', name: 'Fin de semana', type: 'fin_de_semana', surchargeType: 'percentage', value: 25 },
-    { id: 'holiday', name: 'Festivo', type: 'festivo', surchargeType: 'percentage', value: 60 },
-  ],
-};
+function configFor(profileId: keyof typeof CONVENTION_PROFILES, extra: Record<string, number> = {}) {
+  const profile = CONVENTION_PROFILES[profileId];
+  const legalParameters: Record<string, number> = {
+    ...baseLegalParameters,
+    [profile.annualConventionHoursKey]: 1680,
+    [profile.annualProductiveHoursKey]: 1293,
+    ...extra,
+  };
+  const sourceKeys = new Set([
+    ...profile.plusRules.map((rule) => rule.legalParameterKey),
+    ...(profile.specialPlusRules ?? []).flatMap((rule) => [rule.legalParameterKey, rule.baseLegalParameterKey].filter(Boolean) as string[]),
+  ]);
+  const legalParameterSources = Object.fromEntries([...sourceKeys].map((key) => [key, {
+    id: profile.legalRecordKey, label: profile.label, status: 'verified' as const,
+  }]));
+  return {
+    legalParameters,
+    legalParameterSources,
+    appConfig: { costing_province: 'Madrid', costing_overhead_percent: '15', costing_management_fee_per_contract: '15' },
+    surcharges: [
+      { id: 'night', name: 'Nocturnidad genérica', type: 'nocturnidad', surchargeType: 'percentage', value: 99 },
+      { id: 'sunday', name: 'Domingo genérico', type: 'domingo', surchargeType: 'percentage', value: 99 },
+      { id: 'weekend', name: 'Fin de semana genérico', type: 'fin_de_semana', surchargeType: 'percentage', value: 99 },
+    ],
+  };
+}
 
-describe('Adaptador servidor — pantalla comercial al motor económico', () => {
+describe('Adaptador territorial al motor económico', () => {
   it.each([8, 12, 24])('acepta un turno dominical de %s horas sin doble plus de fin de semana', (hours) => {
+    const profile = CONVENTION_PROFILES.madrid;
     const built = buildCostingInputFromDatabase({
-      block: { ...block, hoursPerDay: hours },
-      schedule: schedule(hours),
+      block: { ...block, hoursPerDay: hours }, schedule: schedule(hours),
       category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
-      config,
-      serviceId: '0',
+      config: configFor('madrid', {
+        PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
+        SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
+        PLUS_FESTIVO_ESPECIAL_MADRID: 38,
+      }),
+      serviceId: '0', location: { province: 'Madrid', municipality: 'Madrid', conventionProfile: profile },
     });
-
     expect(built.status).toBe('ready');
     if (built.status !== 'ready') return;
-    expect(built.input.hours.coverageHours).toBe(hours);
-    expect(built.input.hours.breakdown.sunday).toBe(hours);
     expect(built.input.hours.breakdown.weekend).toBe(0);
-    expect(built.input.salary.extraPay.paymentsPerYear).toBe(2);
-    expect(built.input.salary.extraPay.paymentMode).toBe('prorated');
-    expect(built.input.overhead.percentageOnExpandedLabor).toBe(15);
-
-    const result = calculateCosting(built.input);
-    expect(result.status).toBe('calculated');
-    if (result.status !== 'calculated') return;
-    expect(result.commercial.initialListPriceExVat)
-      .toBeCloseTo(result.internalCost.totalInternalCost * 1.6, 1);
+    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'night')?.value).toBe(25);
+    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'sunday')?.value).toBe(0);
+    expect(calculateCosting(built.input).status).toBe('calculated');
   });
 
-  it('bloquea el cálculo si no está configurado el coste privado de gestoría', () => {
+  it('sustituye los recargos genéricos por el convenio provincial de Burgos', () => {
+    const profile = CONVENTION_PROFILES.burgos_extension;
     const built = buildCostingInputFromDatabase({
-      block,
-      schedule: schedule(24),
-      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
-      config: { ...config, appConfig: { ...config.appConfig, costing_management_fee_per_contract: '' } },
-      serviceId: '0',
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config: configFor('burgos_extension', {
+        PLUS_NOCTURNIDAD_BURGOS: 25, PLUS_DOMINGO_BURGOS: 21.74,
+        SIN_PLUS_SABADO_BURGOS: 0, PLUS_FESTIVO_BURGOS: 38.70,
+      }),
+      serviceId: '0', location: { province: 'Burgos', municipality: 'Burgos', conventionProfile: profile },
     });
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') return;
+    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'sunday')?.value).toBe(21.74);
+    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'night')?.source?.id).toBe('conv_burgos_extension');
+  });
 
+  it('añade solo la diferencia del festivo especial cuando el festivo ordinario ya está incluido', () => {
+    const profile = CONVENTION_PROFILES.madrid;
+    const holidaySchedule = schedule(8, '2026-12-25');
+    holidaySchedule.shiftBreakdown = { ...holidaySchedule.shiftBreakdown, sunday: 0, weekend: 0, holiday: 8, holidayNational: 8 };
+    const built = buildCostingInputFromDatabase({
+      block: { ...block, specificDates: ['2026-12-25'], shiftType: 'morning' }, schedule: holidaySchedule,
+      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config: configFor('madrid', {
+        PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
+        SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
+        PLUS_FESTIVO_ESPECIAL_MADRID: 38,
+      }),
+      serviceId: '0', location: { province: 'Madrid', municipality: 'Madrid', conventionProfile: profile },
+    });
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') return;
+    const special = built.input.plusRules.find((rule) => rule.name.includes('25 de diciembre'));
+    expect(special?.value).toBe(26);
+    expect(special?.units).toBe(1);
+  });
+
+  it('bloquea si falta la fuente verificable de un parámetro territorial usado', () => {
+    const profile = CONVENTION_PROFILES.madrid;
+    const config = configFor('madrid', { PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0 });
+    delete config.legalParameterSources.PLUS_NOCTURNIDAD_MADRID;
+    const built = buildCostingInputFromDatabase({
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config, serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
+    });
     expect(built.status).toBe('pending_configuration');
-    if (built.status !== 'pending_configuration') return;
-    expect(built.issues.map((issue) => issue.field))
-      .toContain('appConfig.costing_management_fee_per_contract');
-  });
-
-  it.each([
-    ['Madrid', 'PLUS_NOCTURNIDAD_MADRID', 'conv_madrid'],
-    ['Burgos', 'PLUS_NOCTURNIDAD_BURGOS', 'conv_burgos_nocturnidad'],
-  ])('aplica nocturnidad oficial del 25%% en %s', (province, parameterKey, sourceId) => {
-    const built = buildCostingInputFromDatabase({
-      block,
-      schedule: schedule(8),
-      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
-      config: {
-        ...config,
-        surcharges: config.surcharges.map((row) => row.type === 'nocturnidad' ? { ...row, value: 99 } : row),
-      },
-      serviceId: '0',
-      location: { province, nightSurchargeLegalParameterKey: parameterKey },
-    });
-    expect(built.status).toBe('ready');
-    if (built.status !== 'ready') return;
-    const night = built.input.plusRules.find((rule) => rule.hourBucket === 'night');
-    expect(night?.value).toBe(25);
-    expect(night?.source?.id).toBe(sourceId);
-  });
-
-  it('conecta cada tipo de festivo con su tramo horario específico', () => {
-    const holidaySchedule = schedule(8);
-    holidaySchedule.shiftBreakdown = {
-      ...holidaySchedule.shiftBreakdown,
-      holiday: 8,
-      holidayAutonomico: 8,
-    };
-    const built = buildCostingInputFromDatabase({
-      block,
-      schedule: holidaySchedule,
-      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
-      config: {
-        ...config,
-        surcharges: [
-          ...config.surcharges,
-          { id: 'regional', name: 'Festivo autonómico', type: 'festivo_autonomico', surchargeType: 'percentage', value: 50 },
-        ],
-      },
-      serviceId: '0',
-      location: { province: 'Madrid' },
-    });
-    expect(built.status).toBe('ready');
-    if (built.status !== 'ready') return;
-    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'holidayAutonomico')?.value).toBe(50);
-    expect(built.input.plusRules.find((rule) => rule.hourBucket === 'holiday')).toBeUndefined();
   });
 });

@@ -270,3 +270,4 @@ export interface CommercialProjection {
   requiresAuthorization: boolean;
   pendingFields?: string[];
 }
+

@@ -144,6 +144,68 @@ function locationFromCostingSnapshot(snapshot: string): {
   } catch { return null }
 }
 
+function approvalTriggerFromSnapshot(snapshot: string): {
+  required: boolean;
+  discountPercent: number;
+  semaphore: string | null;
+  reason: string;
+} {
+  try {
+    const commercial = JSON.parse(snapshot)?.commercial
+    const discountPercent = Number(commercial?.clientDiscountPercentOfList ?? 0)
+    const semaphore = typeof commercial?.semaphore === 'string' ? commercial.semaphore : null
+    const reasons: string[] = []
+    if (discountPercent > 0) reasons.push(`descuento del ${discountPercent.toFixed(2)} %`)
+    if (semaphore && semaphore !== 'green') reasons.push(`semáforo ${semaphore}`)
+    return {
+      required: reasons.length > 0,
+      discountPercent,
+      semaphore,
+      reason: reasons.length ? `Revisión requerida por ${reasons.join(' y ')}` : '',
+    }
+  } catch {
+    return { required: false, discountPercent: 0, semaphore: null, reason: '' }
+  }
+}
+
+async function ensureBudgetApproval(params: {
+  budgetId: string
+  budgetCode: string
+  requesterId: string
+  requesterRole: string
+  snapshot: string
+}) {
+  if (params.requesterRole === 'maestro') return
+  const trigger = approvalTriggerFromSnapshot(params.snapshot)
+  if (!trigger.required) return
+  const existing = await db.budgetApproval.findFirst({
+    where: { budgetId: params.budgetId, status: 'pending' },
+  })
+  if (existing) return
+  await db.budgetApproval.create({
+    data: {
+      budgetId: params.budgetId,
+      requesterId: params.requesterId,
+      reason: trigger.reason,
+      discountPercent: trigger.discountPercent,
+      semaphore: trigger.semaphore,
+    },
+  })
+  const maestros = await db.user.findMany({ where: { active: true, role: 'maestro' }, select: { id: true } })
+  if (maestros.length) {
+    await db.notification.createMany({
+      data: maestros.map(({ id }) => ({
+        userId: id,
+        type: 'approval_requested',
+        title: `Presupuesto ${params.budgetCode} pendiente de aprobación`,
+        body: trigger.reason,
+        linkView: 'communications',
+        entityId: params.budgetId,
+      })),
+    })
+  }
+}
+
 /**
  * Sanitize budget response for comercial users:
  * - Remove internalNotes from budget
@@ -325,6 +387,14 @@ export async function POST(request: NextRequest) {
     await db.costingQuote.update({
       where: { id: costingQuote.id },
       data: { usedAt: new Date(), budgetId: budget.id },
+    })
+
+    await ensureBudgetApproval({
+      budgetId: budget.id,
+      budgetCode: budget.code,
+      requesterId: auth.id,
+      requesterRole: auth.role,
+      snapshot: costingQuote.snapshot,
     })
 
     // Auto-export: JSON + CSV + AuditLog (lightweight, no PDF)
@@ -518,6 +588,13 @@ export async function PUT(request: NextRequest) {
       await db.costingQuote.update({
         where: { id: costingQuote.id },
         data: { usedAt: new Date(), budgetId: id },
+      })
+      await ensureBudgetApproval({
+        budgetId: updated.id,
+        budgetCode: updated.code,
+        requesterId: auth.id,
+        requesterRole: auth.role,
+        snapshot: costingQuote.snapshot,
       })
     }
 
