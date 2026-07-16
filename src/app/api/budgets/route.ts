@@ -154,7 +154,7 @@ function approvalTriggerFromSnapshot(snapshot: string): {
     const commercial = JSON.parse(snapshot)?.commercial
     const discountPercent = Number(commercial?.clientDiscountPercentOfList ?? 0)
     const semaphore = typeof commercial?.semaphore === 'string' ? commercial.semaphore : null
-    const reasons = []
+    const reasons: string[] = []
     if (discountPercent > 0) reasons.push(`descuento del ${discountPercent.toFixed(2)} %`)
     if (semaphore && semaphore !== 'green') reasons.push(`semáforo ${semaphore}`)
     return {
