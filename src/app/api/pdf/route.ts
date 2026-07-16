@@ -117,7 +117,11 @@ export function generateBudgetHTML(budget: any, company: Record<string, string>)
         <tr><td style="padding:3px 12px;color:#666;">Días trabajados</td><td style="padding:3px 12px;">${block.totalWorkingDays}</td></tr>
         <tr><td style="padding:3px 12px;color:#666;">Total horas</td><td style="padding:3px 12px;">${fmt(block.totalHours)}h</td></tr>
         <tr><td style="padding:3px 12px;color:#666;">Profesionales</td><td style="padding:3px 12px;">${block.selectedProfessionals}</td></tr>
-        <tr><td style="padding:3px 12px;color:#666;">Valoración</td><td style="padding:3px 12px;">Incluida en la propuesta económica global</td></tr>
+        ${block.blockTotalFinal > 0 ? `
+        <tr><td style="padding:3px 12px;color:#666;">Precio sin IVA</td><td style="padding:3px 12px;">${fmtEur(block.blockClosingPrice)}</td></tr>
+        <tr><td style="padding:3px 12px;color:#666;">IVA (${fmt(block.ivaPercent ?? budget.ivaPercent)}%)</td><td style="padding:3px 12px;">${fmtEur(block.ivaAmount)}</td></tr>
+        <tr><td style="padding:3px 12px;color:#666;font-weight:600;">Total partida</td><td style="padding:3px 12px;font-weight:600;">${fmtEur(block.blockTotalFinal)}</td></tr>` : `
+        <tr><td style="padding:3px 12px;color:#666;">Valoración</td><td style="padding:3px 12px;">Incluida en la propuesta económica global</td></tr>`}
       </table>
       ${surchargeRows ? `
       <table style="width:100%;border-collapse:collapse;margin-top:4px;">
@@ -192,7 +196,7 @@ ${budget.clientNotes ? `<div style="background:#eff6ff;border-left:3px solid #00
     <tr><td style="padding:6px 0;color:#666;">Recargos</td><td style="padding:6px 0;text-align:right;">${fmtEur(budget.totalSurcharges)}</td></tr>
     ${budget.discountAmount > 0 ? `<tr><td style="padding:6px 0;color:#666;">Descuento (${fmt(budget.discountPercent)}%)</td><td style="padding:6px 0;text-align:right;color:#dc2626;">-${fmtEur(budget.discountAmount)}</td></tr>` : ''}
     <tr><td style="padding:6px 0;color:#666;">Base imponible</td><td style="padding:6px 0;text-align:right;font-weight:600;">${fmtEur(baseImponible)}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">IVA (${fmt(budget.ivaPercent)}%)</td><td style="padding:6px 0;text-align:right;">${fmtEur(budget.ivaAmount)}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">IVA por partidas</td><td style="padding:6px 0;text-align:right;">${fmtEur(budget.ivaAmount)}</td></tr>
     <tr style="border-top:2px solid #00549b;"><td style="padding:10px 0;font-size:18px;font-weight:700;color:#00549b;">TOTAL FINAL</td><td style="padding:10px 0;text-align:right;font-size:18px;font-weight:700;color:#00549b;">${fmtEur(budget.totalFinal)}</td></tr>
   </table>
 </div>

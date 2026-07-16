@@ -21,6 +21,7 @@ import type { DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types'
 import { getConventionProfileForProvince, resolveServiceLocation } from '@/lib/service-locations';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import { getLocalHolidayCalendar, getMunicipalHolidays } from '@/lib/local-holidays';
+import { allocateBlockPricing } from '@/lib/block-pricing';
 
 export const runtime = 'nodejs';
 
@@ -171,6 +172,7 @@ export async function POST(request: NextRequest) {
       }
     }
     const internalBreakdowns: InternalCostBreakdown[] = [];
+    const blockInternalCosts = blocks.map(() => 0);
     let directCostTotal = 0;
     const simpleTypes = new Set([
       'servicio_fijo', 'material', 'desplazamiento', 'dietas', 'alojamiento',
@@ -188,6 +190,7 @@ export async function POST(request: NextRequest) {
           });
         } else {
           directCostTotal += amount;
+          blockInternalCosts[index] = amount;
         }
         continue;
       }
@@ -219,6 +222,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
       internalBreakdowns.push(costing.internalCost);
+      blockInternalCosts[index] = costing.internalCost.totalInternalCost;
     }
 
     if (issues.length > 0) {
@@ -236,7 +240,13 @@ export async function POST(request: NextRequest) {
     }
 
     const overheadPercent = Number(appConfig.costing_overhead_percent ?? 15);
-    const directCostWithOverhead = directCostTotal * (1 + overheadPercent / 100);
+    const overheadFactor = 1 + overheadPercent / 100;
+    for (const [index, block] of blocks.entries()) {
+      if (simpleTypes.has(block.blockType ?? '')) {
+        blockInternalCosts[index] = roundMoney(blockInternalCosts[index] * overheadFactor);
+      }
+    }
+    const directCostWithOverhead = directCostTotal * overheadFactor;
     const totalInternalCost = roundMoney(
       internalBreakdowns.reduce((sum, breakdown) => sum + breakdown.totalInternalCost, 0)
       + directCostWithOverhead,
@@ -254,25 +264,35 @@ export async function POST(request: NextRequest) {
       closingPriceExVat: closingPrice,
       policy: commercialPolicy,
     });
-    const ivaPercent = Math.min(100, Math.max(0, Number(body.ivaPercent ?? 21)));
-    const ivaAmount = commercial.closingPriceExVat * ivaPercent / 100;
+    const fallbackIvaPercent = Math.min(100, Math.max(0, Number(body.ivaPercent ?? 21)));
+    const blockPricing = allocateBlockPricing({
+      internalCosts: blockInternalCosts,
+      initialPriceExVat: commercial.initialListPriceExVat,
+      closingPriceExVat: commercial.closingPriceExVat,
+      ivaPercents: blocks.map((block) => block.ivaPercent ?? fallbackIvaPercent),
+    });
+    const ivaAmount = roundMoney(blockPricing.reduce((sum, block) => sum + block.ivaAmount, 0));
+    const effectiveIvaPercent = commercial.closingPriceExVat > 0
+      ? roundMoney(ivaAmount / commercial.closingPriceExVat * 100)
+      : 0;
     const maxVisibleDiscountPercent = calculateMaximumClientDiscountPercent(commercialPolicy);
 
     const result = {
-      blocks: scheduleResults.map((schedule) => ({
+      blocks: scheduleResults.map((schedule, index) => ({
         ...schedule,
-        subtotal: 0,
+        subtotal: blockPricing[index].initialPriceExVat,
         totalSurcharges: 0,
-        totalWithSurcharges: 0,
+        totalWithSurcharges: blockPricing[index].closingPriceExVat,
         surcharges: [],
+        ...blockPricing[index],
       })),
       totals: {
         blocks: scheduleResults,
         subtotal: commercial.initialListPriceExVat,
         totalSurcharges: 0,
         discountAmount: commercial.clientDiscountAmount,
-        ivaAmount: roundMoney(ivaAmount),
-        totalFinal: roundMoney(commercial.closingPriceExVat + ivaAmount),
+        ivaAmount,
+        totalFinal: roundMoney(blockPricing.reduce((sum, block) => sum + block.totalWithVat, 0)),
       },
       commercial: {
         status: 'calculated' as const,
@@ -300,7 +320,7 @@ export async function POST(request: NextRequest) {
           calculatedAt: new Date().toISOString(),
           serviceBlocks: blocks,
           location,
-          schedules: scheduleResults,
+          schedules: result.blocks,
           internalCost: result.internalCost,
           commercialPolicy: DEFAULT_GASI_COMMERCIAL_POLICY,
           commercial,
@@ -308,7 +328,7 @@ export async function POST(request: NextRequest) {
         subtotal: result.totals.subtotal,
         discountPercent: commercial.clientDiscountPercentOfList,
         discountAmount: result.totals.discountAmount,
-        ivaPercent,
+        ivaPercent: effectiveIvaPercent,
         ivaAmount: result.totals.ivaAmount,
         totalFinal: result.totals.totalFinal,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
