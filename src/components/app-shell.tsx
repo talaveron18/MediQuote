@@ -1,12 +1,13 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useAppStore } from '@/store/app-store';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import Image from 'next/image';
 import {
   LayoutDashboard, FilePlus, Users, Settings,
-  Menu, X, LogOut, Shield,
+  Menu, X, LogOut, Shield, Mail,
 } from 'lucide-react';
 import type { AppView, UserRole } from '@/lib/types';
 import ComercialImportDialog from '@/components/comercial-import-dialog';
@@ -17,18 +18,42 @@ const navItems: { view: AppView; label: string; icon: React.ReactNode; roles?: U
   { view: 'dashboard', label: 'Presupuestos', icon: <LayoutDashboard className="w-4 h-4" /> },
   { view: 'budget-new', label: 'Nuevo Presupuesto', icon: <FilePlus className="w-4 h-4" /> },
   { view: 'clients', label: 'Clientes', icon: <Users className="w-4 h-4" /> },
+  { view: 'communications', label: 'Buzón interno', icon: <Mail className="w-4 h-4" /> },
   { view: 'admin', label: 'Administración', icon: <Settings className="w-4 h-4" />, roles: ['admin', 'maestro'] },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { currentView, currentRole, currentUser, sidebarOpen, toggleSidebar, setView, newBudget, setRole, setCurrentUser } = useAppStore();
-  const isAdmin = currentRole === 'admin';
+  const isAdmin = currentRole === 'admin' || currentRole === 'maestro';
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const handleNav = (view: AppView) => {
+  useEffect(() => {
+    if (!currentUser) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch('/api/notifications', { cache: 'no-store' });
+        if (response.ok && active) setUnreadCount(Number((await response.json()).unreadCount ?? 0));
+      } catch { /* el buzón sigue disponible aunque falle el contador */ }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [currentUser]);
+
+  const handleNav = async (view: AppView) => {
     if (view === 'budget-new') {
       newBudget();
     } else {
       setView(view);
+    }
+    if (view === 'communications' && unreadCount > 0) {
+      setUnreadCount(0);
+      try {
+        await fetch('/api/notifications', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }),
+        });
+      } catch { /* no bloquea la navegación */ }
     }
   };
 
@@ -82,14 +107,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <button
                   key={item.view}
                   onClick={() => handleNav(item.view)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                  className={`relative w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                     active
                       ? 'bg-emerald-50 text-emerald-700 border-r-2 border-emerald-600 font-medium'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`}
                 >
                   {item.icon}
-                  {sidebarOpen && <span>{item.label}</span>}
+                  {sidebarOpen && <span className="flex min-w-0 flex-1 items-center justify-between gap-2"><span className="truncate">{item.label}</span>{item.view === 'communications' && unreadCount > 0 && <span className="min-w-5 rounded-full bg-red-600 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">{unreadCount > 99 ? '99+' : unreadCount}</span>}</span>}
+                  {!sidebarOpen && item.view === 'communications' && unreadCount > 0 && <span className="absolute ml-3 -mt-4 h-2.5 w-2.5 rounded-full bg-red-600 ring-2 ring-white" />}
                 </button>
               );
             })}
