@@ -205,3 +205,4 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
 }
+
