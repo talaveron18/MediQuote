@@ -25,6 +25,11 @@ model User {
   budgetsCreated     Budget[]      @relation("BudgetCreator")
   historyEntries     BudgetHistory[]
   createdUsers      User[]      @relation("UserCreator")
+  messagesSent       InternalMessage[] @relation("MessageSender")
+  messagesReceived   InternalMessage[] @relation("MessageRecipient")
+  approvalsRequested BudgetApproval[] @relation("ApprovalRequester")
+  approvalsReviewed  BudgetApproval[] @relation("ApprovalReviewer")
+  notifications      Notification[]
   // Granular permissions (JSON): overrides role defaults. maestro can toggle for admins.
   // Keys: canManageUsers, canManageAdmins, canManageCommercials, canViewInternalCosts,
   //   canEditPrices, canEditSurcharges, canEditLaborRules, canViewAuditLogs,
@@ -49,6 +54,7 @@ model Client {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   budgets       Budget[]
+  messages      InternalMessage[]
 }
 
 // ─── Budgets ─────────────────────────────────────────────────────
@@ -71,14 +77,16 @@ model Budget {
   totalFinal      Float    @default(0)
   clientNotes     String?
   internalNotes   String?
-  serviceLocationId String   @default("madrid-capital")
+  serviceLocationId String   @default("ine-280796")
   serviceAutonomousCommunity String @default("Madrid")
   serviceProvince String      @default("Madrid")
-  serviceMunicipality String?
+  serviceMunicipality String? @default("Madrid")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   serviceBlocks   ServiceBlock[]
   history         BudgetHistory[]
+  messages        InternalMessage[]
+  approvals       BudgetApproval[]
 }
 
 // ─── Service Blocks ──────────────────────────────────────────────
@@ -162,6 +170,62 @@ model BudgetHistory {
   snapshot  String?  // JSON
   notes     String?
   createdAt DateTime @default(now())
+}
+
+// ─── Internal communication & approvals ───────────────────────
+model InternalMessage {
+  id          String   @id @default(cuid())
+  senderId    String
+  sender      User     @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User     @relation("MessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  subject     String
+  body        String
+  budgetId    String?
+  budget      Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+model BudgetApproval {
+  id              String   @id @default(cuid())
+  budgetId        String
+  budget          Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  requesterId     String
+  requester       User     @relation("ApprovalRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  reviewerId      String?
+  reviewer        User?    @relation("ApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  status          String   @default("pending") // pending, approved, rejected
+  reason          String
+  decisionComment String?
+  discountPercent Float    @default(0)
+  semaphore       String?
+  decidedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([budgetId, status])
+  @@index([status, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  linkView  String?
+  entityId  String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
 }
 
 // ─── Professional Categories ─────────────────────────────────────
