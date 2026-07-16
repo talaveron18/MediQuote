@@ -520,3 +520,4 @@ export function projectCostingForCommercial(result: CostingResult): CommercialPr
     requiresAuthorization: result.commercial.requiresAuthorization,
   };
 }
+
