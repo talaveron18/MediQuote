@@ -9,7 +9,11 @@ describe('client/commercial PDF template', () => {
     description: 'Cobertura sanitaria', clientNotes: 'Propuesta válida',
     serviceAutonomousCommunity: 'Castilla y León', serviceProvince: 'Burgos', serviceMunicipality: 'Burgos',
     client: { businessName: 'Cliente Ejemplo', cif: 'B00000000', fiscalAddress: 'Burgos', paymentTerms: '30 días' },
-    serviceBlocks: [{ serviceName: 'Servicio médico', professionalCategory: 'Médico', totalWorkingDays: 1, totalHours: 8, selectedProfessionals: 1, overtimeHours: 0, surchargeBreakdown: null }],
+    serviceBlocks: [{
+      serviceName: 'Servicio médico', professionalCategory: 'Médico', totalWorkingDays: 1,
+      totalHours: 8, selectedProfessionals: 1, overtimeHours: 0, surchargeBreakdown: null,
+      blockClosingPrice: 1550, ivaPercent: 21, ivaAmount: 325.5, blockTotalFinal: 1875.5,
+    }],
   };
 
   it('includes GASI branding and service location', () => {
@@ -25,5 +29,13 @@ describe('client/commercial PDF template', () => {
     expect(html).not.toContain('SECRETO');
     expect(html).not.toContain('internalCost');
     expect(html).not.toContain('commission');
+  });
+
+  it('shows the sale price and IVA of every service block', () => {
+    const html = generateBudgetHTML(budget, {});
+    expect(html).toContain('Precio sin IVA');
+    expect(html).toContain('IVA (21,00%)');
+    expect(html).toContain('Total partida');
+    expect(html).toContain('IVA por partidas');
   });
 });
