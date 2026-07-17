@@ -9,6 +9,7 @@ import Clients from '@/components/views/clients';
 import Admin from '@/components/views/admin';
 import Communications from '@/components/views/communications';
 import CostAudit from '@/components/views/cost-audit';
+import AiReview from '@/components/views/ai-review';
 
 export default function Home() {
   const { currentView, currentRole, setClients, setCategories, setSurcharges, setLaborRule, setHolidays, setAppConfig, setCurrentUser, setRole } = useAppStore();
@@ -57,6 +58,8 @@ export default function Home() {
         return <Clients />;
       case 'communications':
         return <Communications />;
+      case 'ai-review':
+        return <AiReview />;
       case 'cost-audit':
         if (currentRole !== 'admin' && currentRole !== 'maestro') return <Dashboard />;
         return <CostAudit />;
