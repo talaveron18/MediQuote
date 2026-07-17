@@ -10,27 +10,28 @@ datasource db {
 // ─── Users & Roles ───────────────────────────────────────────────
 // Roles: maestro (owner), admin (GASI ops), comercial (sales)
 model User {
-  id                 String            @id @default(cuid())
-  email              String            @unique
-  password           String            @default("")
+  id                 String                   @id @default(cuid())
+  email              String                   @unique
+  password           String                   @default("")
   name               String
-  role               String            @default("comercial")
-  active             Boolean           @default(true)
-  mustChangePassword Boolean           @default(false)
+  role               String                   @default("comercial")
+  active             Boolean                  @default(true)
+  mustChangePassword Boolean                  @default(false)
   lastLoginAt        DateTime?
   createdById        String?
-  createdByUser      User?             @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  budgetsCreated     Budget[]          @relation("BudgetCreator")
+  createdByUser      User?                    @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  budgetsCreated     Budget[]                 @relation("BudgetCreator")
   historyEntries     BudgetHistory[]
-  createdUsers       User[]            @relation("UserCreator")
-  messagesSent       InternalMessage[] @relation("MessageSender")
-  messagesReceived   InternalMessage[] @relation("MessageRecipient")
-  approvalsRequested BudgetApproval[]  @relation("ApprovalRequester")
-  approvalsReviewed  BudgetApproval[]  @relation("ApprovalReviewer")
+  createdUsers       User[]                   @relation("UserCreator")
+  messagesSent       InternalMessage[]        @relation("MessageSender")
+  messagesReceived   InternalMessage[]        @relation("MessageRecipient")
+  approvalsRequested BudgetApproval[]         @relation("ApprovalRequester")
+  approvalsReviewed  BudgetApproval[]         @relation("ApprovalReviewer")
   notifications      Notification[]
-  costAudits         CostAudit[]       @relation("CostAuditCreator")
+  costAudits         CostAudit[]              @relation("CostAuditCreator")
+  signatureRequests  BudgetSignatureRequest[] @relation("SignatureRequestCreator")
   // Granular permissions (JSON): overrides role defaults. maestro can toggle for admins.
   // Keys: canManageUsers, canManageAdmins, canManageCommercials, canViewInternalCosts,
   //   canEditPrices, canEditSurcharges, canEditLaborRules, canViewAuditLogs,
@@ -60,35 +61,36 @@ model Client {
 
 // ─── Budgets ─────────────────────────────────────────────────────
 model Budget {
-  id                         String            @id @default(cuid())
-  code                       String            @unique
+  id                         String                   @id @default(cuid())
+  code                       String                   @unique
   clientId                   String
-  client                     Client            @relation(fields: [clientId], references: [id])
+  client                     Client                   @relation(fields: [clientId], references: [id])
   createdById                String
-  createdBy                  User              @relation("BudgetCreator", fields: [createdById], references: [id])
-  status                     String            @default("borrador") // borrador, enviado, aceptado, rechazado, caducado
+  createdBy                  User                     @relation("BudgetCreator", fields: [createdById], references: [id])
+  status                     String                   @default("borrador") // borrador, enviado, aceptado, rechazado, caducado
   validUntil                 String? // ISO date
   description                String?
-  subtotal                   Float             @default(0)
-  totalSurcharges            Float             @default(0)
-  discountPercent            Float             @default(0)
-  discountAmount             Float             @default(0)
-  ivaPercent                 Float             @default(21)
-  ivaAmount                  Float             @default(0)
-  totalFinal                 Float             @default(0)
+  subtotal                   Float                    @default(0)
+  totalSurcharges            Float                    @default(0)
+  discountPercent            Float                    @default(0)
+  discountAmount             Float                    @default(0)
+  ivaPercent                 Float                    @default(21)
+  ivaAmount                  Float                    @default(0)
+  totalFinal                 Float                    @default(0)
   clientNotes                String?
   internalNotes              String?
-  serviceLocationId          String            @default("ine-280796")
-  serviceAutonomousCommunity String            @default("Madrid")
-  serviceProvince            String            @default("Madrid")
-  serviceMunicipality        String?           @default("Madrid")
-  createdAt                  DateTime          @default(now())
-  updatedAt                  DateTime          @updatedAt
+  serviceLocationId          String                   @default("ine-280796")
+  serviceAutonomousCommunity String                   @default("Madrid")
+  serviceProvince            String                   @default("Madrid")
+  serviceMunicipality        String?                  @default("Madrid")
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
   serviceBlocks              ServiceBlock[]
   history                    BudgetHistory[]
   messages                   InternalMessage[]
   approvals                  BudgetApproval[]
   costAudits                 CostAudit[]
+  signatureRequests          BudgetSignatureRequest[]
 }
 
 // ─── Service Blocks ──────────────────────────────────────────────
@@ -259,6 +261,32 @@ model CostAudit {
 
   @@index([budgetId, createdAt])
   @@index([createdById, createdAt])
+}
+
+// ─── Client electronic acceptance ──────────────────────────────
+model BudgetSignatureRequest {
+  id             String    @id @default(cuid())
+  budgetId       String
+  budget         Budget    @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User      @relation("SignatureRequestCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  tokenHash      String    @unique
+  status         String    @default("pending") // pending, accepted, expired, revoked
+  recipientEmail String
+  documentHash   String
+  expiresAt      DateTime
+  signerName     String?
+  signerEmail    String?
+  signatureData  String? // PNG data URL drawn by the signer
+  consentText    String?
+  acceptedAt     DateTime?
+  acceptedIp     String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([budgetId, status, createdAt])
+  @@index([recipientEmail, createdAt])
 }
 
 // ─── Professional Categories ─────────────────────────────────────
