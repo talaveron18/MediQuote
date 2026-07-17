@@ -1,0 +1,27 @@
+name: Build Week isolated source snapshot
+
+on:
+  push:
+    branches:
+      - feature/build-week-ai-review-loop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+      - name: Upload isolated source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediquote-build-week-source
+          path: |
+            .
+            !node_modules
+            !.git
+          include-hidden-files: true
+          retention-days: 1
