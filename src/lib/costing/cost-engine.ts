@@ -15,6 +15,7 @@ import type {
   OccupationalRiskConfig,
 } from './cost-types';
 import { COST_ENGINE_VERSION } from './cost-types';
+import { assertFiniteNumbers } from '../numeric-safety';
 
 const roundMoney = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 const roundRate = (value: number): number => Math.round((value + Number.EPSILON) * 10_000) / 10_000;
@@ -430,7 +431,7 @@ export function calculateInternalCost(input: CostingInput): InternalCostBreakdow
     + input.overhead.fixedAmount;
   const totalInternalCost = costBeforeOverhead + overhead;
 
-  return {
+  const result: InternalCostBreakdown = {
     labor,
     managementCost: roundMoney(managementCost),
     terminationProvision: roundMoney(terminationProvision),
@@ -440,6 +441,8 @@ export function calculateInternalCost(input: CostingInput): InternalCostBreakdow
     totalDirectCosts,
     totalInternalCost: roundMoney(totalInternalCost),
   };
+  assertFiniteNumbers(result, 'internalCost');
+  return result;
 }
 
 export function calculateCosting(input: CostingInput): CostingResult {
@@ -520,4 +523,3 @@ export function projectCostingForCommercial(result: CostingResult): CommercialPr
     requiresAuthorization: result.commercial.requiresAuthorization,
   };
 }
-
