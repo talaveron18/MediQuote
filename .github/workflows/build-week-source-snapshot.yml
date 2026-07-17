@@ -4,13 +4,11 @@ on:
   push:
     branches:
       - feature/build-week-ai-review-loop
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   snapshot:
@@ -28,3 +26,13 @@ jobs:
             !.git
           include-hidden-files: true
           retention-days: 1
+      - name: Report snapshot run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 31,
+              body: `BUILD_WEEK_SNAPSHOT_RUN_ID=${context.runId}`
+            })
