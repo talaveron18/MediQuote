@@ -249,6 +249,7 @@ export type AppView =
   | 'budget-edit'
   | 'clients'
   | 'communications'
+  | 'ai-review'
   | 'cost-audit'
   | 'admin'
   | 'history';
