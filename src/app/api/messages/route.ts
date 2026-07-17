@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { requireAuth } from '@/lib/auth';
+import { logAudit, requireAuth, requireMaestro } from '@/lib/auth';
 
 const messageInclude = {
   sender: { select: { id: true, name: true, email: true, role: true } },
@@ -76,3 +76,21 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ success: true });
 }
 
+export async function DELETE(request: NextRequest) {
+  const auth = await requireMaestro(request);
+  if (auth instanceof NextResponse) return auth;
+  const id = new URL(request.url).searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'Falta el mensaje' }, { status: 400 });
+  const message = await db.internalMessage.findUnique({ where: { id }, select: { id: true, subject: true } });
+  if (!message) return NextResponse.json({ error: 'Mensaje no encontrado' }, { status: 404 });
+  await db.$transaction([
+    db.notification.deleteMany({ where: { entityId: id, type: 'internal_message' } }),
+    db.internalMessage.delete({ where: { id } }),
+  ]);
+  await logAudit({
+    action: 'internal_message_deleted', entity: 'internal_message', entityId: id,
+    userId: auth.id, userName: auth.name, userRole: auth.role,
+    summary: `Mensaje eliminado por Maestro: ${message.subject}`,
+  });
+  return NextResponse.json({ success: true });
+}
