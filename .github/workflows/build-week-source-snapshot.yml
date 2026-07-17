@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/build-week-ai-review-loop
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
