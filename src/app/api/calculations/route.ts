@@ -22,6 +22,7 @@ import { getConventionProfileForProvince, resolveServiceLocation } from '@/lib/s
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import { getLocalHolidayCalendar, getMunicipalHolidays } from '@/lib/local-holidays';
 import { allocateBlockPricing } from '@/lib/block-pricing';
+import { findNonFiniteNumbers } from '@/lib/numeric-safety';
 
 export const runtime = 'nodejs';
 
@@ -240,6 +241,12 @@ export async function POST(request: NextRequest) {
     }
 
     const overheadPercent = Number(appConfig.costing_overhead_percent ?? 15);
+    if (!Number.isFinite(overheadPercent) || overheadPercent < 0 || overheadPercent > 100) {
+      return NextResponse.json({
+        error: 'El overhead configurado debe ser un porcentaje entre 0 y 100.',
+        code: 'INVALID_ECONOMIC_CONFIGURATION',
+      }, { status: 422 });
+    }
     const overheadFactor = 1 + overheadPercent / 100;
     for (const [index, block] of blocks.entries()) {
       if (simpleTypes.has(block.blockType ?? '')) {
@@ -253,7 +260,11 @@ export async function POST(request: NextRequest) {
     );
     const commercialPolicy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
     const range = calculatePriceRange(totalInternalCost, commercialPolicy);
-    const requestedDiscount = Math.max(0, Number(body.discountPercent ?? 0));
+    const rawDiscount = Number(body.discountPercent ?? 0);
+    if (!Number.isFinite(rawDiscount) || rawDiscount < 0 || rawDiscount > 100) {
+      return NextResponse.json({ error: 'El descuento debe ser un porcentaje válido.', code: 'INVALID_DISCOUNT' }, { status: 400 });
+    }
+    const requestedDiscount = rawDiscount;
     const closingPrice = calculateClosingPriceFromDiscount({
       totalInternalCost,
       requestedDiscountPercent: requestedDiscount,
@@ -264,7 +275,11 @@ export async function POST(request: NextRequest) {
       closingPriceExVat: closingPrice,
       policy: commercialPolicy,
     });
-    const fallbackIvaPercent = Math.min(100, Math.max(0, Number(body.ivaPercent ?? 21)));
+    const rawFallbackIva = Number(body.ivaPercent ?? 21);
+    if (!Number.isFinite(rawFallbackIva) || rawFallbackIva < 0 || rawFallbackIva > 100) {
+      return NextResponse.json({ error: 'El IVA debe ser un porcentaje entre 0 y 100.', code: 'INVALID_IVA' }, { status: 400 });
+    }
+    const fallbackIvaPercent = rawFallbackIva;
     const blockPricing = allocateBlockPricing({
       internalCosts: blockInternalCosts,
       initialPriceExVat: commercial.initialListPriceExVat,
@@ -311,6 +326,15 @@ export async function POST(request: NextRequest) {
         directCostOverhead: roundMoney(directCostWithOverhead - directCostTotal),
       },
     };
+
+    const invalidNumbers = findNonFiniteNumbers(result, 'calculation');
+    if (invalidNumbers.length) {
+      console.error('[POST /api/calculations] Non-finite result blocked:', invalidNumbers);
+      return NextResponse.json({
+        error: 'El cálculo produjo un valor económico no válido y ha sido bloqueado. Revise los parámetros con administración.',
+        code: 'NON_FINITE_ECONOMIC_RESULT',
+      }, { status: 422 });
+    }
 
     const quote = await db.costingQuote.create({
       data: {

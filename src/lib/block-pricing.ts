@@ -10,14 +10,20 @@ export interface BlockPriceAllocation {
 const roundMoney = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
+function finiteNonNegative(value: unknown, field: string): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) throw new RangeError(`${field} debe ser un número finito igual o mayor que cero`);
+  return numeric;
+}
+
 /**
  * Reparte un total monetario entre bloques sin perder céntimos. El último
  * bloque con peso absorbe el ajuste de redondeo, por lo que la suma siempre
  * coincide exactamente con el total comercial calculado por el servidor.
  */
 export function allocateMoney(total: number, weights: number[]): number[] {
-  const safeTotal = roundMoney(Math.max(0, Number(total) || 0));
-  const safeWeights = weights.map((weight) => Math.max(0, Number(weight) || 0));
+  const safeTotal = roundMoney(finiteNonNegative(total, 'total'));
+  const safeWeights = weights.map((weight, index) => finiteNonNegative(weight, `weights[${index}]`));
   const weightTotal = safeWeights.reduce((sum, weight) => sum + weight, 0);
   if (safeWeights.length === 0) return [];
   if (weightTotal <= 0) return safeWeights.map(() => 0);
@@ -48,7 +54,9 @@ export function allocateBlockPricing(input: {
   return input.internalCosts.map((_, index) => {
     const initialPriceExVat = initial[index] ?? 0;
     const closingPriceExVat = closing[index] ?? 0;
-    const ivaPercent = Math.min(100, Math.max(0, Number(input.ivaPercents[index] ?? 21)));
+    const rawIva = finiteNonNegative(input.ivaPercents[index] ?? 21, `ivaPercents[${index}]`);
+    if (rawIva > 100) throw new RangeError(`ivaPercents[${index}] no puede superar el 100%`);
+    const ivaPercent = rawIva;
     const ivaAmount = roundMoney(closingPriceExVat * ivaPercent / 100);
     return {
       initialPriceExVat,
@@ -60,4 +68,3 @@ export function allocateBlockPricing(input: {
     };
   });
 }
-

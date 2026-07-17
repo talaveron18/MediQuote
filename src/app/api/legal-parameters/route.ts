@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireRole, requireMaestro, logAudit } from '@/lib/auth';
+import { validateLegalParameterValue } from '@/lib/legal-parameter-validation';
 
 // ─── GET /api/legal-parameters ─────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -60,6 +61,11 @@ export async function POST(request: NextRequest) {
         { error: 'Los campos key, label, value y category son obligatorios' },
         { status: 400 },
       );
+    }
+
+    const valueError = validateLegalParameterValue(key, value);
+    if (valueError) {
+      return NextResponse.json({ error: valueError }, { status: 400 });
     }
 
     // Check key uniqueness
@@ -140,6 +146,11 @@ export async function PUT(request: NextRequest) {
         { error: 'Parámetro legal no encontrado' },
         { status: 404 },
       );
+    }
+
+    const valueError = validateLegalParameterValue(fields.key ?? existing.key, fields.value ?? existing.value);
+    if (valueError) {
+      return NextResponse.json({ error: valueError }, { status: 400 });
     }
 
     // If key is being changed, check uniqueness

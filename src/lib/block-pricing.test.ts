@@ -38,4 +38,18 @@ describe('block pricing allocation', () => {
     expect(blocks.reduce((sum, block) => sum + block.ivaAmount, 0)).toBeCloseTo(expectedVat, 2);
     expect(blocks.reduce((sum, block) => sum + block.totalWithVat, 0)).toBeCloseTo(1848 + expectedVat, 2);
   });
+
+  it.each([
+    { total: Number.NaN, weights: [1] },
+    { total: Infinity, weights: [1] },
+    { total: 100, weights: [Number.NaN] },
+    { total: 100, weights: [-1] },
+  ])('blocks invalid money instead of silently turning it into zero: $total / $weights', input => {
+    expect(() => allocateMoney(input.total, input.weights)).toThrow(RangeError);
+  });
+
+  it('blocks an invalid IVA instead of contaminating totals', () => {
+    expect(() => allocateBlockPricing({ internalCosts: [100], initialPriceExVat: 160, closingPriceExVat: 152, ivaPercents: [Number.NaN] }))
+      .toThrow(RangeError);
+  });
 });
