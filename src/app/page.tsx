@@ -8,6 +8,7 @@ import BudgetForm from '@/components/views/budget-form';
 import Clients from '@/components/views/clients';
 import Admin from '@/components/views/admin';
 import Communications from '@/components/views/communications';
+import CostAudit from '@/components/views/cost-audit';
 
 export default function Home() {
   const { currentView, currentRole, setClients, setCategories, setSurcharges, setLaborRule, setHolidays, setAppConfig, setCurrentUser, setRole } = useAppStore();
@@ -56,6 +57,9 @@ export default function Home() {
         return <Clients />;
       case 'communications':
         return <Communications />;
+      case 'cost-audit':
+        if (currentRole !== 'admin' && currentRole !== 'maestro') return <Dashboard />;
+        return <CostAudit />;
       case 'admin':
         if (currentRole !== 'admin' && currentRole !== 'maestro') return <Dashboard />;
         return <Admin />;

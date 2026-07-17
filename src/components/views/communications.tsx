@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Mail, MailOpen, RefreshCw, Send, Check, X } from 'lucide-react';
+import { Mail, MailOpen, RefreshCw, Send, Check, X, Trash2, FileCheck2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,22 +19,26 @@ type Message = {
 type Approval = {
   id: string; status: string; reason: string; discountPercent: number; semaphore: string | null;
   decisionComment: string | null; createdAt: string; requester: Person; reviewer?: { name: string } | null;
-  budget: { code: string; totalFinal: number; client: { businessName: string } };
+  budget: { id: string; code: string; totalFinal: number; client: { businessName: string } };
 };
+type BudgetOption = { id: string; code: string; status: string; client: { businessName: string } };
 
 const dateTime = (value: string) => new Date(value).toLocaleString('es-ES');
 
 export default function Communications() {
-  const { currentRole } = useAppStore();
+  const { currentRole, editBudget } = useAppStore();
   const [users, setUsers] = useState<Person[]>([]);
   const [inbox, setInbox] = useState<Message[]>([]);
   const [sent, setSent] = useState<Message[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [budgets, setBudgets] = useState<BudgetOption[]>([]);
   const [selected, setSelected] = useState<Message | null>(null);
   const [recipientId, setRecipientId] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [approvalBudgetId, setApprovalBudgetId] = useState('');
+  const [approvalReason, setApprovalReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -42,19 +46,21 @@ export default function Communications() {
     setBusy(true);
     setError('');
     try {
-      const [usersRes, inboxRes, sentRes, approvalsRes] = await Promise.all([
+      const [usersRes, inboxRes, sentRes, approvalsRes, budgetsRes] = await Promise.all([
         fetch('/api/messages/recipients'),
         fetch('/api/messages?box=inbox'),
         fetch('/api/messages?box=sent'),
         fetch('/api/approvals'),
+        fetch('/api/budgets'),
       ]);
-      if (![usersRes, inboxRes, sentRes, approvalsRes].every((response) => response.ok)) {
+      if (![usersRes, inboxRes, sentRes, approvalsRes, budgetsRes].every((response) => response.ok)) {
         throw new Error('No se pudo cargar el buzón interno');
       }
       setUsers((await usersRes.json()).users ?? []);
       setInbox((await inboxRes.json()).messages ?? []);
       setSent((await sentRes.json()).messages ?? []);
       setApprovals((await approvalsRes.json()).approvals ?? []);
+      setBudgets((await budgetsRes.json()).budgets ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Error al cargar el buzón');
     } finally {
@@ -108,6 +114,35 @@ export default function Communications() {
     } finally { setBusy(false); }
   };
 
+  const requestApproval = async () => {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/approvals', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budgetId: approvalBudgetId, reason: approvalReason }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No se pudo enviar a validar');
+      setApprovalBudgetId(''); setApprovalReason('');
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Error al solicitar validación');
+    } finally { setBusy(false); }
+  };
+
+  const deleteMessage = async (message: Message) => {
+    if (!window.confirm(`¿Eliminar definitivamente el mensaje «${message.subject}»?`)) return;
+    setBusy(true); setError('');
+    try {
+      const response = await fetch(`/api/messages?id=${encodeURIComponent(message.id)}`, { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No se pudo borrar el mensaje');
+      setSelected(null); await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Error al borrar');
+    } finally { setBusy(false); }
+  };
+
   const messageList = (messages: Message[], sender: boolean) => (
     <div className="grid gap-3 lg:grid-cols-[360px_1fr]">
       <div className="space-y-2">
@@ -127,7 +162,7 @@ export default function Communications() {
       <Card>
         <CardContent className="p-5">
           {selected ? <>
-            <h3 className="text-lg font-semibold">{selected.subject}</h3>
+            <div className="flex items-start justify-between gap-3"><h3 className="text-lg font-semibold">{selected.subject}</h3>{currentRole === 'maestro' && <Button variant="destructive" size="sm" onClick={() => void deleteMessage(selected)} disabled={busy}><Trash2 className="mr-1 h-4 w-4" />Borrar</Button>}</div>
             <p className="mt-1 text-sm text-gray-500">De {selected.sender.name} para {selected.recipient.name} · {dateTime(selected.createdAt)}</p>
             <div className="mt-5 whitespace-pre-wrap rounded-md bg-gray-50 p-4 text-sm leading-6">{selected.body}</div>
           </> : <p className="text-sm text-gray-500">Selecciona un mensaje para leerlo.</p>}
@@ -160,9 +195,14 @@ export default function Communications() {
         </CardContent></Card>
       </TabsContent>
       <TabsContent value="approvals" className="space-y-3">
+        <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileCheck2 className="h-5 w-5" />Enviar presupuesto a validación</CardTitle></CardHeader><CardContent className="space-y-3">
+          <div><label className="mb-1 block text-sm font-medium">Presupuesto</label><Select value={approvalBudgetId} onValueChange={setApprovalBudgetId}><SelectTrigger className="w-full"><SelectValue placeholder="Selecciona el presupuesto" /></SelectTrigger><SelectContent>{budgets.map((budget) => <SelectItem key={budget.id} value={budget.id}>{budget.code} · {budget.client.businessName}</SelectItem>)}</SelectContent></Select></div>
+          <div><label className="mb-1 block text-sm font-medium">Qué debe validar el Maestro</label><Textarea value={approvalReason} rows={3} maxLength={2000} placeholder="Revisión general, condiciones especiales, observaciones…" onChange={(event) => setApprovalReason(event.target.value)} /></div>
+          <Button onClick={requestApproval} disabled={busy || !approvalBudgetId}><Send className="mr-2 h-4 w-4" />Enviar a validar</Button>
+        </CardContent></Card>
         {approvals.length === 0 && <p className="rounded-md border bg-white p-5 text-sm text-gray-500">No hay solicitudes de aprobación.</p>}
         {approvals.map((approval) => <Card key={approval.id}><CardContent className="p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{approval.budget.code} · {approval.budget.client.businessName}</h3><p className="text-sm text-gray-500">Solicita {approval.requester.name} · {dateTime(approval.createdAt)}</p></div><Badge variant={approval.status === 'rejected' ? 'destructive' : approval.status === 'approved' ? 'default' : 'secondary'}>{approval.status}</Badge></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{approval.budget.code} · {approval.budget.client.businessName}</h3><p className="text-sm text-gray-500">Solicita {approval.requester.name} · {dateTime(approval.createdAt)}</p></div><div className="flex items-center gap-2"><Button variant="outline" size="sm" onClick={() => editBudget(approval.budget.id)}><ExternalLink className="mr-1 h-4 w-4" />Abrir</Button><Badge variant={approval.status === 'rejected' ? 'destructive' : approval.status === 'approved' ? 'default' : 'secondary'}>{approval.status}</Badge></div></div>
           <p className="mt-3 text-sm">{approval.reason}</p>
           {approval.decisionComment && <p className="mt-2 rounded bg-gray-50 p-3 text-sm">Decisión: {approval.decisionComment}</p>}
           {currentRole === 'maestro' && approval.status === 'pending' && <div className="mt-4 flex flex-col gap-3 md:flex-row"><Input placeholder="Comentario de la decisión" value={comments[approval.id] || ''} onChange={(event) => setComments((all) => ({ ...all, [approval.id]: event.target.value }))} /><Button onClick={() => decide(approval.id, 'approved')} disabled={busy}><Check className="mr-1 h-4 w-4" />Aprobar</Button><Button variant="destructive" onClick={() => decide(approval.id, 'rejected')} disabled={busy}><X className="mr-1 h-4 w-4" />Rechazar</Button></div>}
@@ -171,4 +211,3 @@ export default function Communications() {
     </Tabs>
   </div>;
 }
-

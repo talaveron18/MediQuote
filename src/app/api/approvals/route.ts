@@ -24,6 +24,40 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ approvals });
 }
 
+export async function POST(request: NextRequest) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+  const body = await request.json() as { budgetId?: string; reason?: string };
+  if (!body.budgetId) return NextResponse.json({ error: 'Selecciona un presupuesto' }, { status: 400 });
+  const budget = await db.budget.findUnique({
+    where: { id: body.budgetId },
+    select: { id: true, code: true, createdById: true, discountPercent: true, totalFinal: true },
+  });
+  if (!budget) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 });
+  if (auth.role === 'comercial' && budget.createdById !== auth.id) {
+    return NextResponse.json({ error: 'Solo puedes enviar tus propios presupuestos' }, { status: 403 });
+  }
+  const pending = await db.budgetApproval.findFirst({ where: { budgetId: budget.id, status: 'pending' }, include });
+  if (pending) return NextResponse.json({ approval: pending, alreadyPending: true });
+  const reason = body.reason?.trim() || 'Validación general solicitada por el creador del presupuesto';
+  const approval = await db.budgetApproval.create({
+    data: {
+      budgetId: budget.id, requesterId: auth.id, reason,
+      discountPercent: budget.discountPercent, semaphore: null,
+    }, include,
+  });
+  const maestros = await db.user.findMany({ where: { active: true, role: 'maestro' }, select: { id: true } });
+  if (maestros.length) await db.notification.createMany({ data: maestros.map(({ id }) => ({
+    userId: id, type: 'approval_requested',
+    title: `Presupuesto ${budget.code} pendiente de validación`, body: reason,
+    linkView: 'communications', entityId: budget.id,
+  })) });
+  await db.budgetHistory.create({
+    data: { budgetId: budget.id, userId: auth.id, action: 'approval_requested', notes: reason },
+  });
+  return NextResponse.json({ approval }, { status: 201 });
+}
+
 export async function PATCH(request: NextRequest) {
   const auth = await requireMaestro(request);
   if (auth instanceof NextResponse) return auth;
@@ -65,4 +99,3 @@ export async function PATCH(request: NextRequest) {
   });
   return NextResponse.json({ approval });
 }
-

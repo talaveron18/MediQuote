@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import Image from 'next/image';
 import {
   LayoutDashboard, FilePlus, Users, Settings,
-  Menu, X, LogOut, Shield, Mail,
+  Menu, X, LogOut, Shield, Mail, Activity,
 } from 'lucide-react';
 import type { AppView, UserRole } from '@/lib/types';
 import ComercialImportDialog from '@/components/comercial-import-dialog';
@@ -19,6 +19,7 @@ const navItems: { view: AppView; label: string; icon: React.ReactNode; roles?: U
   { view: 'budget-new', label: 'Nuevo Presupuesto', icon: <FilePlus className="w-4 h-4" /> },
   { view: 'clients', label: 'Clientes', icon: <Users className="w-4 h-4" /> },
   { view: 'communications', label: 'Buzón interno', icon: <Mail className="w-4 h-4" /> },
+  { view: 'cost-audit', label: 'Auditoría de costes', icon: <Activity className="w-4 h-4" />, roles: ['admin', 'maestro'] },
   { view: 'admin', label: 'Administración', icon: <Settings className="w-4 h-4" />, roles: ['admin', 'maestro'] },
 ];
 

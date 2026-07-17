@@ -10,38 +10,39 @@ datasource db {
 // ─── Users & Roles ───────────────────────────────────────────────
 // Roles: maestro (owner), admin (GASI ops), comercial (sales)
 model User {
-  id                 String    @id @default(cuid())
-  email              String    @unique
-  password           String    @default("")
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  password           String            @default("")
   name               String
-  role               String    @default("comercial")
-  active             Boolean   @default(true)
-  mustChangePassword Boolean   @default(false)
+  role               String            @default("comercial")
+  active             Boolean           @default(true)
+  mustChangePassword Boolean           @default(false)
   lastLoginAt        DateTime?
-  createdById       String?
-  createdByUser      User?     @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  budgetsCreated     Budget[]      @relation("BudgetCreator")
+  createdById        String?
+  createdByUser      User?             @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  budgetsCreated     Budget[]          @relation("BudgetCreator")
   historyEntries     BudgetHistory[]
-  createdUsers      User[]      @relation("UserCreator")
+  createdUsers       User[]            @relation("UserCreator")
   messagesSent       InternalMessage[] @relation("MessageSender")
   messagesReceived   InternalMessage[] @relation("MessageRecipient")
-  approvalsRequested BudgetApproval[] @relation("ApprovalRequester")
-  approvalsReviewed  BudgetApproval[] @relation("ApprovalReviewer")
+  approvalsRequested BudgetApproval[]  @relation("ApprovalRequester")
+  approvalsReviewed  BudgetApproval[]  @relation("ApprovalReviewer")
   notifications      Notification[]
+  costAudits         CostAudit[]       @relation("CostAuditCreator")
   // Granular permissions (JSON): overrides role defaults. maestro can toggle for admins.
   // Keys: canManageUsers, canManageAdmins, canManageCommercials, canViewInternalCosts,
   //   canEditPrices, canEditSurcharges, canEditLaborRules, canViewAuditLogs,
   //   canExportAuditPackage, canManageBranding, canManageLicense, canImportRemoteConfig,
   //   canExportRemoteConfig, canCreateBudgets, canEditBudgets, canDeleteBudgets,
   //   canGeneratePDF, canViewAllBudgets, canViewOwnBudgetsOnly, canManageBackups
-  permissions        String?   // JSON object
+  permissions        String? // JSON object
 }
 
 // ─── Clients ─────────────────────────────────────────────────────
 model Client {
-  id            String   @id @default(cuid())
+  id            String            @id @default(cuid())
   businessName  String
   cif           String
   fiscalAddress String
@@ -51,115 +52,116 @@ model Client {
   sector        String?
   paymentTerms  String?
   notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
   budgets       Budget[]
   messages      InternalMessage[]
 }
 
 // ─── Budgets ─────────────────────────────────────────────────────
 model Budget {
-  id              String   @id @default(cuid())
-  code            String   @unique
-  clientId        String
-  client          Client   @relation(fields: [clientId], references: [id])
-  createdById     String
-  createdBy       User     @relation("BudgetCreator", fields: [createdById], references: [id])
-  status          String   @default("borrador") // borrador, enviado, aceptado, rechazado, caducado
-  validUntil      String?  // ISO date
-  description     String?
-  subtotal        Float    @default(0)
-  totalSurcharges Float    @default(0)
-  discountPercent Float    @default(0)
-  discountAmount  Float    @default(0)
-  ivaPercent      Float    @default(21)
-  ivaAmount       Float    @default(0)
-  totalFinal      Float    @default(0)
-  clientNotes     String?
-  internalNotes   String?
-  serviceLocationId String   @default("ine-280796")
-  serviceAutonomousCommunity String @default("Madrid")
-  serviceProvince String      @default("Madrid")
-  serviceMunicipality String? @default("Madrid")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  serviceBlocks   ServiceBlock[]
-  history         BudgetHistory[]
-  messages        InternalMessage[]
-  approvals       BudgetApproval[]
+  id                         String            @id @default(cuid())
+  code                       String            @unique
+  clientId                   String
+  client                     Client            @relation(fields: [clientId], references: [id])
+  createdById                String
+  createdBy                  User              @relation("BudgetCreator", fields: [createdById], references: [id])
+  status                     String            @default("borrador") // borrador, enviado, aceptado, rechazado, caducado
+  validUntil                 String? // ISO date
+  description                String?
+  subtotal                   Float             @default(0)
+  totalSurcharges            Float             @default(0)
+  discountPercent            Float             @default(0)
+  discountAmount             Float             @default(0)
+  ivaPercent                 Float             @default(21)
+  ivaAmount                  Float             @default(0)
+  totalFinal                 Float             @default(0)
+  clientNotes                String?
+  internalNotes              String?
+  serviceLocationId          String            @default("ine-280796")
+  serviceAutonomousCommunity String            @default("Madrid")
+  serviceProvince            String            @default("Madrid")
+  serviceMunicipality        String?           @default("Madrid")
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  serviceBlocks              ServiceBlock[]
+  history                    BudgetHistory[]
+  messages                   InternalMessage[]
+  approvals                  BudgetApproval[]
+  costAudits                 CostAudit[]
 }
 
 // ─── Service Blocks ──────────────────────────────────────────────
 model ServiceBlock {
-  id                     String   @id @default(cuid())
+  id                     String  @id @default(cuid())
   budgetId               String
-  budget                 Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  budget                 Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   serviceName            String
   professionalCategory   String
-  professionalsRequested Int      @default(1)
+  professionalsRequested Int     @default(1)
   pricePerHour           Float
   internalCostPerHour    Float?
   internalMargin         Float?
-  contractType           String?  // indefinido, temporal, fijo_discontinuo, mercantil_autonomo
+  contractType           String? // indefinido, temporal, fijo_discontinuo, mercantil_autonomo
 
   // Block type and UI mode
-  blockType              String?  // profesional_hora, servicio_fijo, material, alojamiento, curso, etc.
-  dateUIMode             String?  // weekly, specific, month
+  blockType  String? // profesional_hora, servicio_fijo, material, alojamiento, curso, etc.
+  dateUIMode String? // weekly, specific, month
 
   // Date configuration
-  dateMode               String   @default("range") // specific, range
-  specificDates          String?  // JSON: ["2026-01-15","2026-01-16"]
-  dateRangeStart         String?  // ISO date
-  dateRangeEnd           String?  // ISO date
-  daysOfWeek             String?  // JSON: [1,2,3,4,5] Mon-Fri
-  excludeSundays         Boolean  @default(false)
-  excludeHolidays        Boolean  @default(false)
-  holidayTypesExcluded   String?  // JSON: ["nacional","autonomico","provincial","municipal"]
+  dateMode             String  @default("range") // specific, range
+  specificDates        String? // JSON: ["2026-01-15","2026-01-16"]
+  dateRangeStart       String? // ISO date
+  dateRangeEnd         String? // ISO date
+  daysOfWeek           String? // JSON: [1,2,3,4,5] Mon-Fri
+  excludeSundays       Boolean @default(false)
+  excludeHolidays      Boolean @default(false)
+  holidayTypesExcluded String? // JSON: ["nacional","autonomico","provincial","municipal"]
 
   // Shift configuration
-  shiftType              String   @default("morning") // morning, afternoon, night, 24h, custom
-  shiftStartTime         String?  // "20:00"
-  shiftEndTime           String?  // "08:00"
-  hoursPerDay            Float    @default(8)
-  breakMinutes           Int      @default(0)
+  shiftType      String  @default("morning") // morning, afternoon, night, 24h, custom
+  shiftStartTime String? // "20:00"
+  shiftEndTime   String? // "08:00"
+  hoursPerDay    Float   @default(8)
+  breakMinutes   Int     @default(0)
 
   // Unit & quantity (for non-time-based services)
-  unitType               String   @default("hora") // hora, dia, servicio, kilometro, unidad, turno
-  quantity               Float    @default(1)
-  fixedPrice             Float?   // for fixed-price services like ambulance
+  unitType   String @default("hora") // hora, dia, servicio, kilometro, unidad, turno
+  quantity   Float  @default(1)
+  fixedPrice Float? // for fixed-price services like ambulance
 
   // Special block fields
-  courseName             String?
-  courseTeacher          String?
-  courseModality         String?
-  courseSessions         Int?
-  materialName           String?
-  accommodationNights    Float?
-  accommodationPersons   Float?
-  transportType          String?
+  courseName           String?
+  courseTeacher        String?
+  courseModality       String?
+  courseSessions       Int?
+  materialName         String?
+  accommodationNights  Float?
+  accommodationPersons Float?
+  transportType        String?
 
   // Cached calculation results
-  totalWorkingDays       Int      @default(0)
-  totalHours             Float    @default(0)
-  totalSurcharges        Float    @default(0)
-  minProfessionals       Int      @default(1)
-  selectedProfessionals  Int      @default(1)
-  overtimeHours          Float    @default(0)
-  blockSubtotal          Float    @default(0)
-  blockDiscountAmount    Float    @default(0)
-  blockClosingPrice      Float    @default(0)
-  ivaPercent             Float    @default(21)
-  ivaAmount              Float    @default(0)
-  blockTotalFinal        Float    @default(0)
-  enabledSurcharges      String?  // JSON: ["urgencia","desplazamiento"]
+  totalWorkingDays      Int     @default(0)
+  totalHours            Float   @default(0)
+  totalSurcharges       Float   @default(0)
+  minProfessionals      Int     @default(1)
+  selectedProfessionals Int     @default(1)
+  overtimeHours         Float   @default(0)
+  blockSubtotal         Float   @default(0)
+  blockDiscountAmount   Float   @default(0)
+  blockClosingPrice     Float   @default(0)
+  ivaPercent            Float   @default(21)
+  ivaAmount             Float   @default(0)
+  blockTotalFinal       Float   @default(0)
+  enabledSurcharges     String? // JSON: ["urgencia","desplazamiento"]
 
-  surchargeBreakdown     String?  // JSON
-  laborWarnings          String?  // JSON
+  surchargeBreakdown String? // JSON
+  laborWarnings      String? // JSON
 
-  observations           String?
-  sortOrder              Int      @default(0)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  observations String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 // ─── Budget History ──────────────────────────────────────────────
@@ -169,87 +171,113 @@ model BudgetHistory {
   budget    Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id])
-  action    String   // created, modified, status_changed, duplicated
+  action    String // created, modified, status_changed, duplicated
   oldStatus String?
   newStatus String?
-  snapshot  String?  // JSON
+  snapshot  String? // JSON
   notes     String?
   createdAt DateTime @default(now())
 }
 
 // ─── Internal communication & approvals ───────────────────────
 model InternalMessage {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   senderId    String
-  sender      User     @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  sender      User      @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
   recipientId String
-  recipient   User     @relation("MessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  recipient   User      @relation("MessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   subject     String
   body        String
   budgetId    String?
-  budget      Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budget      Budget?   @relation(fields: [budgetId], references: [id], onDelete: SetNull)
   clientId    String?
-  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
   readAt      DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([recipientId, createdAt])
   @@index([senderId, createdAt])
 }
 
 model BudgetApproval {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   budgetId        String
-  budget          Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  budget          Budget    @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   requesterId     String
-  requester       User     @relation("ApprovalRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  requester       User      @relation("ApprovalRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   reviewerId      String?
-  reviewer        User?    @relation("ApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  status          String   @default("pending") // pending, approved, rejected
+  reviewer        User?     @relation("ApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  status          String    @default("pending") // pending, approved, rejected
   reason          String
   decisionComment String?
-  discountPercent Float    @default(0)
+  discountPercent Float     @default(0)
   semaphore       String?
   decidedAt       DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([budgetId, status])
   @@index([status, createdAt])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      String
   title     String
   body      String?
   linkView  String?
   entityId  String?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, readAt, createdAt])
 }
 
-// ─── Professional Categories ─────────────────────────────────────
-model ProfessionalCategory {
+// ─── Continuous cost audit ──────────────────────────────────────
+// Compares the immutable engine estimate with the real gestoría cost.
+model CostAudit {
   id                 String   @id @default(cuid())
-  name               String   @unique
-  description        String?
-  defaultPricePerHour Float
-  defaultInternalCost Float?
-  active             Boolean  @default(true)
+  budgetId           String
+  budget             Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  createdById        String
+  createdBy          User     @relation("CostAuditCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  estimatedCost      Float
+  actualCost         Float
+  deviationAmount    Float
+  deviationPercent   Float
+  estimatedBreakdown String? // JSON: salary, pluses, SS, AT/EP, overhead, etc.
+  actualBreakdown    String? // JSON entered from gestoría
+  analysis           String? // JSON ranked component deviations
+  notes              String?
+  documentName       String?
+  documentType       String?
+  documentData       Bytes?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  @@index([budgetId, createdAt])
+  @@index([createdById, createdAt])
+}
+
+// ─── Professional Categories ─────────────────────────────────────
+model ProfessionalCategory {
+  id                  String   @id @default(cuid())
+  name                String   @unique
+  description         String?
+  defaultPricePerHour Float
+  defaultInternalCost Float?
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 // ─── Surcharge Config ────────────────────────────────────────────
 model SurchargeConfig {
   id            String   @id @default(cuid())
   name          String   @unique
-  type          String   // nocturnidad, domingo, festivo, urgencia, dificil_cobertura, desplazamiento, guardia_24h, fin_de_semana, municipio_especial, servicio_premium, festivo_nacional, festivo_autonomico, festivo_provincial, festivo_municipal
+  type          String // nocturnidad, domingo, festivo, urgencia, dificil_cobertura, desplazamiento, guardia_24h, fin_de_semana, municipio_especial, servicio_premium, festivo_nacional, festivo_autonomico, festivo_provincial, festivo_municipal
   surchargeType String   @default("percentage") // percentage, fixed, multiplier, special_price
   value         Float
   description   String?
@@ -260,31 +288,31 @@ model SurchargeConfig {
 
 // ─── Holidays ────────────────────────────────────────────────────
 model Holiday {
-  id                   String   @id @default(cuid())
-  date                 String   // YYYY-MM-DD
-  name                 String
-  type                 String   @default("nacional") // nacional, autonomico, provincial, municipal
-  autonomousCommunity  String?  // e.g. "Madrid", "Cataluña"
-  province             String?
-  municipality          String?
-  year                 Int?
+  id                  String   @id @default(cuid())
+  date                String // YYYY-MM-DD
+  name                String
+  type                String   @default("nacional") // nacional, autonomico, provincial, municipal
+  autonomousCommunity String? // e.g. "Madrid", "Cataluña"
+  province            String?
+  municipality        String?
+  year                Int?
   // Default must be false. Only fixed annual holidays should opt into MM-DD matching.
-  recurring            Boolean  @default(false)
-  createdAt            DateTime @default(now())
+  recurring           Boolean  @default(false)
+  createdAt           DateTime @default(now())
 }
 
 // ─── Labor Rules ─────────────────────────────────────────────────
 model LaborRule {
-  id                     String  @id @default(cuid())
-  name                   String  @unique
-  maxWeeklyHours         Float   @default(40)
-  maxDailyHours          Float   @default(12)
-  minRestBetweenShiftsH  Float   @default(12)
-  maxConsecutiveDays     Int     @default(6)
-  nightStartHour         Int     @default(22)
-  nightEndHour           Int     @default(6)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  name                  String   @unique
+  maxWeeklyHours        Float    @default(40)
+  maxDailyHours         Float    @default(12)
+  minRestBetweenShiftsH Float    @default(12)
+  maxConsecutiveDays    Int      @default(6)
+  nightStartHour        Int      @default(22)
+  nightEndHour          Int      @default(6)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 // ─── App Config (key-value) ─────────────────────────────────────
@@ -297,10 +325,10 @@ model AppConfig {
 
 // ─── Server-side immutable costing quotes ──────────────────────
 model CostingQuote {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
   budgetId        String?
-  snapshot        String   // JSON interno: coste, política y resultado económico
+  snapshot        String // JSON interno: coste, política y resultado económico
   subtotal        Float
   discountPercent Float
   discountAmount  Float
@@ -309,7 +337,7 @@ model CostingQuote {
   totalFinal      Float
   expiresAt       DateTime
   usedAt          DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@index([budgetId])
 }
@@ -324,8 +352,8 @@ model AuditLog {
   userName      String?
   userRole      String?
   summary       String?
-  oldData       String?  // JSON
-  newData       String?  // JSON
+  oldData       String? // JSON
+  newData       String? // JSON
   result        String   @default("success")
   errorMessage  String?
   appVersion    String?
@@ -338,58 +366,58 @@ model LegalRecord {
   id               String   @id @default(cuid())
   key              String   @unique // e.g. "smi_2026", "cotiz_cc" — stable identifier for upsert
   title            String
-  category         String   // Salario mínimo, Cotización SS 2026, IVA, Contratos, Comercial, Convenios salariales
-  norm             String   // e.g. "Real Decreto 126/2026, de 18 de febrero"
-  location         String?  // article/section reference, e.g. "Art. 1"
-  reference        String?  // short code, e.g. "BOE-A-2026-3815"
-  eliUrl           String?  // ELI link, e.g. "https://www.boe.es/eli/es/rd/2026/02/18/126"
+  category         String // Salario mínimo, Cotización SS 2026, IVA, Contratos, Comercial, Convenios salariales
+  norm             String // e.g. "Real Decreto 126/2026, de 18 de febrero"
+  location         String? // article/section reference, e.g. "Art. 1"
+  reference        String? // short code, e.g. "BOE-A-2026-3815"
+  eliUrl           String? // ELI link, e.g. "https://www.boe.es/eli/es/rd/2026/02/18/126"
   officialUrl      String?
   hasLiteralQuote  Boolean  @default(false)
-  literalQuote     String?  // exact legal text
-  quoteSource      String?  // source description for the literal quote
-  operativeSummary String?  // operational summary for internal use
+  literalQuote     String? // exact legal text
+  quoteSource      String? // source description for the literal quote
+  operativeSummary String? // operational summary for internal use
   status           String   @default("pendiente_revision") // vigente, derogado, pendiente_revision, validar_con_asesoria, orientativo
   sourceType       String   @default("boe") // boe, boletin_autonomico, convenio, interno, otro
-  reviewDate       String?  // YYYY-MM-DD
+  reviewDate       String? // YYYY-MM-DD
   internalNotes    String?
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   // Reverse relation
-  legalParameters  LegalParameter[]
+  legalParameters LegalParameter[]
 }
 
 // ─── Legal Parameters ────────────────────────────────────────────
 model LegalParameter {
-  id             String       @id @default(cuid())
-  key            String       @unique // e.g. "SMI_MONTHLY_2026"
-  label          String       // e.g. "Salario Mínimo Interprofesional Mensual 2026"
-  value          String       // value as string (numeric or text)
-  unit           String?      // e.g. "EUR/mes", "%"
-  category       String       // matches LegalRecord.category
-  effectiveFrom  String?      // YYYY-MM-DD
-  effectiveTo    String?      // YYYY-MM-DD or empty if current
-  isActive       Boolean      @default(true)
-  notes          String?
-  legalRecordId  String?
-  legalRecord    LegalRecord? @relation(fields: [legalRecordId], references: [id], onDelete: SetNull)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id            String       @id @default(cuid())
+  key           String       @unique // e.g. "SMI_MONTHLY_2026"
+  label         String // e.g. "Salario Mínimo Interprofesional Mensual 2026"
+  value         String // value as string (numeric or text)
+  unit          String? // e.g. "EUR/mes", "%"
+  category      String // matches LegalRecord.category
+  effectiveFrom String? // YYYY-MM-DD
+  effectiveTo   String? // YYYY-MM-DD or empty if current
+  isActive      Boolean      @default(true)
+  notes         String?
+  legalRecordId String?
+  legalRecord   LegalRecord? @relation(fields: [legalRecordId], references: [id], onDelete: SetNull)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 // ─── Remote Config Audit Log ───────────────────────────────────
 model ConfigAuditLog {
-  id           String   @id @default(cuid())
-  action       String   // export, import, import_error, auto_check
-  userEmail    String?
-  userName     String?
-  role         String?
-  oldVersion   String?
-  newVersion   String?
+  id             String   @id @default(cuid())
+  action         String // export, import, import_error, auto_check
+  userEmail      String?
+  userName       String?
+  role           String?
+  oldVersion     String?
+  newVersion     String?
   changesApplied String? // JSON: { categories: 3, surcharges: 5, ... }
-  fileSource   String?  // e.g. "remote-config/gasi-config.json"
-  result       String   // success, error, skipped
-  errorMessage String?
-  createdAt    DateTime @default(now())
+  fileSource     String? // e.g. "remote-config/gasi-config.json"
+  result         String // success, error, skipped
+  errorMessage   String?
+  createdAt      DateTime @default(now())
 }
