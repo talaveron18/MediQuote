@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateBudgetHTML } from './route';
+import { generateBudgetHTML, generateCommercialBudgetHTML } from './route';
 
 describe('client/commercial PDF template', () => {
   const budget = {
@@ -37,5 +37,17 @@ describe('client/commercial PDF template', () => {
     expect(html).toContain('IVA (21,00%)');
     expect(html).toContain('Total partida');
     expect(html).toContain('IVA por partidas');
+  });
+
+  it('puts client sending only in the client document', () => {
+    const client = generateBudgetHTML({ ...budget, id: 'budget-1', client: { ...budget.client, email: 'cliente@example.com' } }, {}, { enableSignatureSend: true });
+    expect(client).toContain('Enviar al cliente para firma');
+    expect(client).toContain('/api/signatures');
+    expect(client).not.toContain('Ver firma / aceptación');
+
+    const commercial = generateCommercialBudgetHTML(generateBudgetHTML(budget, {}), { commissionRatePercent: 15, commissionAmount: 100 });
+    expect(commercial).toContain('DOCUMENTO COMERCIAL — USO INTERNO');
+    expect(commercial).not.toContain('Enviar al cliente para firma');
+    expect(commercial).not.toContain('Ver firma / aceptación');
   });
 });
