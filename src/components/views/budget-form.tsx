@@ -54,7 +54,7 @@ import {
 } from '@/lib/service-locations';
 import { calculateWorkingDates, findHolidayForDate } from '@/lib/schedule-engine';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
-import { cloneServiceBlockForReinforcement } from '@/lib/service-block-clone';
+import { splitServiceBlockForReinforcement } from '@/lib/service-block-clone';
 import type {
   ServiceBlockInput,
   DateMode,
@@ -355,14 +355,29 @@ export default function BudgetForm() {
     setAddBlockMenuOpen(false);
   }, [store]);
 
-  const handleCloneReinforcementBlock = useCallback((index: number) => {
+  const handleCloneReinforcementBlock = useCallback((index: number, result: BlockCalculationResult) => {
     const source = store.serviceBlocks[index];
     if (!source) return;
-    const clone = cloneServiceBlockForReinforcement(source);
-    store.addServiceBlock(clone);
-    const newIndex = store.serviceBlocks.length;
-    setExpandedBlocks((previous) => new Set([...previous, newIndex]));
-    toast.success('Bloque de refuerzo creado. Modifica sus días u horario y vuelve a calcular.');
+    try {
+      const split = splitServiceBlockForReinforcement({
+        source,
+        workingDates: result.workingDates,
+        professionals: result.plantillaMinimaRecomendada,
+      });
+      const next = [...store.serviceBlocks.slice(0, index), ...split, ...store.serviceBlocks.slice(index + 1)];
+      store.setServiceBlocks(next);
+      store.setBlockResults([]);
+      store.setBudgetTotals(null);
+      setExpandedBlocks((previous) => {
+        const expanded = new Set(previous);
+        expanded.delete(index);
+        split.forEach((_, offset) => expanded.add(index + offset));
+        return expanded;
+      });
+      toast.success(`Cobertura repartida entre ${split.length} ficha(s), sin duplicar las horas del cliente. Pulsa Calcular.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo repartir la cobertura');
+    }
   }, [store]);
 
   const handleRemoveBlock = useCallback(
@@ -874,13 +889,13 @@ export default function BudgetForm() {
                   size="sm"
                   variant="outline"
                   className="border-amber-500 bg-white hover:bg-amber-100 dark:bg-transparent"
-                  onClick={() => handleCloneReinforcementBlock(blockIndex)}
+                  onClick={() => handleCloneReinforcementBlock(blockIndex, result)}
                 >
                   <Users className="h-3.5 w-3.5 mr-1" />
-                  Crear bloque de refuerzo
+                  Repartir cobertura
                 </Button>
                 <span className="self-center text-xs text-amber-800 dark:text-amber-200">
-                  Se clonará este bloque completo para que ajustes sus días y horario.
+                  Se crearán fichas con fechas o turnos complementarios. La cobertura total no se duplica.
                 </span>
               </div>
             </AlertDescription>

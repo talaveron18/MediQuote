@@ -22,4 +22,20 @@ describe('block pricing allocation', () => {
     expect(blocks.reduce((sum, block) => sum + block.closingPriceExVat, 0)).toBe(304);
     expect(blocks.reduce((sum, block) => sum + block.totalWithVat, 0)).toBeCloseTo(335.92, 2);
   });
+
+  it('adds every amount across several tabs without losing cents', () => {
+    const blocks = allocateBlockPricing({
+      internalCosts: [187.31, 602.77, 94.19, 315.73],
+      initialPriceExVat: 1920,
+      closingPriceExVat: 1848,
+      ivaPercents: [21, 10, 0, 21],
+    });
+    expect(blocks).toHaveLength(4);
+    expect(blocks.every(block => block.closingPriceExVat > 0)).toBe(true);
+    expect(blocks.reduce((sum, block) => sum + block.closingPriceExVat, 0)).toBe(1848);
+    expect(blocks.reduce((sum, block) => sum + block.initialPriceExVat, 0)).toBe(1920);
+    const expectedVat = blocks.reduce((sum, block) => sum + Math.round(block.closingPriceExVat * block.ivaPercent) / 100, 0);
+    expect(blocks.reduce((sum, block) => sum + block.ivaAmount, 0)).toBeCloseTo(expectedVat, 2);
+    expect(blocks.reduce((sum, block) => sum + block.totalWithVat, 0)).toBeCloseTo(1848 + expectedVat, 2);
+  });
 });

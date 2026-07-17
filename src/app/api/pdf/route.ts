@@ -65,7 +65,10 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'No hay cálculo comercial guardado para este presupuesto' }, { status: 409 });
       }
       const snapshot = JSON.parse(quote.snapshot) as { commercial?: Record<string, unknown> };
-      html = generateCommercialBudgetHTML(html, snapshot.commercial ?? {});
+      html = generateCommercialBudgetHTML(html, snapshot.commercial ?? {}, {
+        budgetId: budget.id,
+        recipientEmail: budget.client.email ?? '',
+      });
     }
 
     return new NextResponse(html, {
@@ -231,13 +234,19 @@ ${budget.clientNotes ? `<div style="background:#eff6ff;border-left:3px solid #00
 }
 
 /** Documento interno: añade únicamente la comisión del comercial, nunca el coste interno. */
-export function generateCommercialBudgetHTML(clientHtml: string, commercial: Record<string, unknown>): string {
+export function generateCommercialBudgetHTML(
+  clientHtml: string,
+  commercial: Record<string, unknown>,
+  options: { budgetId?: string; recipientEmail?: string } = {},
+): string {
   const rate = Number(commercial.commissionRatePercent ?? 0);
   const amount = Number(commercial.commissionAmount ?? 0);
   const tierLabels: Record<string, string> = {
     floor: 'Precio mínimo', intermediate: 'Precio intermedio', list: 'Precio inicial',
   };
   const tier = String(commercial.commissionTier ?? '');
+  const budgetId = JSON.stringify(options.budgetId ?? '');
+  const recipientEmail = JSON.stringify(options.recipientEmail ?? '');
   const section = `
 <!-- Commercial-only -->
 <div style="margin-top:24px;padding:16px;border:2px solid #1d4ed8;background:#eff6ff;border-radius:8px;page-break-inside:avoid;">
@@ -247,11 +256,37 @@ export function generateCommercialBudgetHTML(clientHtml: string, commercial: Rec
     <tr><td style="padding:4px 0;color:#374151;">Comisión aplicable</td><td style="padding:4px 0;text-align:right;font-weight:600;">${fmt(rate)}%</td></tr>
     <tr style="border-top:1px solid #93c5fd;"><td style="padding:8px 0;font-weight:700;color:#1d4ed8;">Comisión estimada del comercial</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#1d4ed8;">${fmtEur(amount)}</td></tr>
   </table>
+  <div class="no-print" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+    <button type="button" onclick="sendBudgetForSignature()" style="padding:9px 14px;background:#07579b;color:white;border:0;border-radius:6px;font-weight:700;">Enviar presupuesto al cliente</button>
+    <button type="button" onclick="openSignedCertificate()" style="padding:9px 14px;background:white;color:#07579b;border:1px solid #07579b;border-radius:6px;font-weight:700;">Ver firma / aceptación</button>
+  </div>
   <p style="margin:10px 0 0;font-size:11px;color:#475569;">Documento interno. No entregar al cliente.</p>
 </div>`;
+  const script = `<script>
+const commercialBudgetId=${budgetId};
+const commercialRecipientEmail=${recipientEmail};
+async function sendBudgetForSignature(){
+  if(!commercialBudgetId){alert('No se ha podido identificar el presupuesto.');return;}
+  const email=window.prompt('Correo del cliente',commercialRecipientEmail);
+  if(!email)return;
+  const response=await fetch('/api/signatures',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({budgetId:commercialBudgetId,recipientEmail:email})});
+  const data=await response.json();
+  if(!response.ok){alert(data.error||'No se pudo preparar el envío');return;}
+  window.location.href=data.mailtoUrl;
+}
+async function openSignedCertificate(){
+  const response=await fetch('/api/signatures?budgetId='+encodeURIComponent(commercialBudgetId));
+  const data=await response.json();
+  if(!response.ok){alert(data.error||'No se pudo consultar la firma');return;}
+  const accepted=(data.requests||[]).find(item=>item.status==='accepted');
+  if(!accepted){alert('El cliente todavía no ha firmado este presupuesto.');return;}
+  window.open('/api/signatures?certificate='+encodeURIComponent(accepted.id),'_blank','noopener');
+}
+</script>`;
   return clientHtml
     .replace('<title>Presupuesto ', '<title>Documento comercial — Presupuesto ')
-    .replace('<!-- Conditions -->', `${section}\n<!-- Conditions -->`);
+    .replace('<!-- Conditions -->', `${section}\n<!-- Conditions -->`)
+    .replace('</body>', `${script}</body>`);
 }
 
 function esc(s: string): string {
