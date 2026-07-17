@@ -101,13 +101,27 @@ export async function POST(request: NextRequest) {
         oldStatus: signature.budget.status, newStatus: 'aceptado', notes: `Firmado por ${signerName} (${signerEmail})`,
       } },
     } }),
-    db.notification.create({ data: {
-      userId: signature.createdById, type: 'budget_signed',
+  ]);
+  const recipients = await db.user.findMany({
+    where: { active: true, OR: [{ id: signature.createdById }, { role: { in: ['maestro', 'admin'] } }] },
+    select: { id: true },
+  });
+  for (const recipient of recipients) {
+    const message = await db.internalMessage.create({ data: {
+      senderId: signature.createdById,
+      recipientId: recipient.id,
+      subject: `Presupuesto ${signature.budget.code} firmado y aceptado`,
+      body: `${signerName} (${signerEmail}) ha firmado y aceptado el presupuesto. Certificado: /api/signatures?certificate=${signature.id}`,
+      budgetId: signature.budget.id,
+      clientId: signature.budget.clientId,
+    } });
+    await db.notification.create({ data: {
+      userId: recipient.id, type: 'budget_signed',
       title: `Presupuesto ${signature.budget.code} firmado`,
       body: `${signerName} ha aceptado electrónicamente el presupuesto.`,
-      linkView: 'budgets', entityId: signature.budget.id,
-    } }),
-  ]);
+      linkView: 'communications', entityId: message.id,
+    } });
+  }
   await logAudit({
     action: 'budget_accepted_electronically', entity: 'budget', entityId: signature.budget.id,
     userName: signerName, userRole: 'client', summary: `${signature.budget.code} firmado por ${signerEmail}`,
