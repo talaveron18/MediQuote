@@ -34,4 +34,4 @@ Se han eliminado la ruta `/demo/build-week`, el consejo de cinco personajes, vot
 
 - 25 evaluaciones específicas cubren extracción operativa, meses múltiples, precedencia manual, separación normativa, ausencia de campos económicos y detección de valores no finitos.
 - El formulario clásico expone un callback opcional únicamente después de un cálculo válido; su uso por defecto no cambia.
-- La marca visual del asistente es un indicador sobrio temporal, pendiente de sustituir por el recurso oficial de Gasito.
+- El asistente utiliza el recurso oficial de Gasito aportado por GASI.
