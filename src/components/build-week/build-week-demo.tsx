@@ -3,8 +3,8 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import {
-  Activity, AlertTriangle, ArrowRight, Bot, BriefcaseBusiness, Check, CheckCircle2, ChevronDown,
-  CircleDollarSign, ClipboardCheck, Download, Eye, FileCheck2, Gavel, History, Play, RefreshCcw,
+  Activity, AlertTriangle, ArrowRight, CheckCircle2, ChevronDown,
+  Download, Eye, FileCheck2, Gavel, History, Play, RefreshCcw,
   Scale, ShieldCheck, Sparkles, Target, UserRoundCheck, UsersRound, XCircle,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -26,6 +26,7 @@ import type {
   ContractDraft, DecisionStatus, HumanDecision, OperationalAnnex, ReviewBundle, ReviewFinding,
   ServiceIntakeDraft,
 } from '@/lib/ai-review/types';
+import { GasitoContextual, GasitoCouncil, GasitoFigure } from './gasito-council';
 
 type CenterPanel = 'decision' | 'committee' | 'risks' | 'debate' | 'artifacts' | 'versions' | 'timeline';
 type ViewMode = 'ejecutiva' | 'tecnica' | 'cliente';
@@ -36,7 +37,6 @@ const reviewerProgress = [
   ['auditor', 'Auditoría está buscando omisiones y contradicciones…'],
   ['legal', 'Legal está revisando la exposición contractual…'],
 ] as const;
-const roleIcon = { gestoria: BriefcaseBusiness, finanzas: CircleDollarSign, auditor: ClipboardCheck, legal: Scale };
 const roleColor = { gestoria: 'border-cyan-300 bg-cyan-50', finanzas: 'border-emerald-300 bg-emerald-50', auditor: 'border-orange-300 bg-orange-50', legal: 'border-violet-300 bg-violet-50' };
 const severityOrder = { critical: 0, high: 1, warning: 2, info: 3 };
 
@@ -195,7 +195,7 @@ export default function BuildWeekDemo({ presentation = false, connected = false 
           <CommandCenter panel={panel} setPanel={setPanel} runCommittee={runCommittee} generateArtifacts={generateArtifacts} exportRecord={exportRecord} canExport={Boolean(bundle)} busy={busy} />
 
           {panel === 'decision' && <DecisionDashboard draft={draft} intakeText={intakeText} setIntakeText={setIntakeText} prepareDraft={prepareDraft} bundle={bundle} decisions={decisions} decide={decide} scenario={scenario} scenarioPercent={scenarioPercent} setScenarioPercent={setScenarioPercent} complete={complete} metrics={metrics} />}
-          {panel === 'committee' && <LiveCommittee bundle={bundle} stage={committeeStage} />}
+          {panel === 'committee' && <LiveCommittee bundle={bundle} stage={committeeStage} onEvidence={(id) => { setSelectedFindingId(id); setPanel('risks'); }} />}
           {panel === 'risks' && <RiskMap findings={findings} decisions={decisions} onSelect={(id) => { setSelectedFindingId(id); }} />}
           {panel === 'debate' && <Debate bundle={bundle} />}
           {panel === 'artifacts' && <Artifacts contract={contract} annex={annex} consistency={consistency} onGenerate={generateArtifacts} onCorrect={correctContract} />}
@@ -236,7 +236,7 @@ function NumberExplanation({ view }: { view: ViewMode }) {
 }
 
 function GasitoAction({ text, complete, onAction, busy }: { text: string; complete: boolean; onAction: () => void; busy: boolean }) {
-  return <Alert className="border-blue-200 bg-gradient-to-r from-blue-50 to-cyan-50"><Bot className="text-blue-700" /><AlertTitle>Gasito · Siguiente mejor acción</AlertTitle><AlertDescription><div className="flex w-full flex-wrap items-center justify-between gap-3"><span>{complete ? 'El presupuesto ya no tiene bloqueos. El expediente está listo para decisión.' : text}</span><Button size="sm" onClick={onAction} disabled={busy}>{busy ? 'Trabajando…' : complete ? 'Ver cierre' : 'Continuar'}<ArrowRight /></Button></div></AlertDescription></Alert>;
+  return <GasitoContextual text={text} complete={complete} onAction={onAction} busy={busy} />;
 }
 
 function CommandCenter({ panel, setPanel, runCommittee, generateArtifacts, exportRecord, canExport, busy }: { panel: CenterPanel; setPanel: (p: CenterPanel) => void; runCommittee: () => void; generateArtifacts: () => void; exportRecord: () => void; canExport: boolean; busy: boolean }) {
@@ -248,14 +248,14 @@ function DecisionDashboard({ draft, intakeText, setIntakeText, prepareDraft, bun
   const findings = allFindings(bundle);
   return <div className="space-y-4">{!draft && <Card><CardHeader><CardTitle>1. Describa la necesidad</CardTitle><CardDescription>La IA estructura; usted confirma. No se crea ningún presupuesto automáticamente.</CardDescription></CardHeader><CardContent className="space-y-3"><Textarea rows={5} value={intakeText} onChange={(e) => setIntakeText(e.target.value)} /><Button onClick={prepareDraft}><Sparkles /> Preparar borrador</Button></CardContent></Card>}
     {draft && !bundle && <Card><CardHeader><CardTitle>2. Confirme la configuración</CardTitle><CardDescription>{draft.professionalCategory} · {draft.municipality} · {draft.schedule}</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-3"><SmallFact label="Periodo" value={`${draft.startDate} → ${draft.endDate}`} /><SmallFact label="Plantilla" value={`${draft.professionals} profesional`} /><SmallFact label="Contrato" value={draft.contractType} /><div className="sm:col-span-3 rounded-lg bg-amber-50 p-3 text-sm"><b>Pendiente:</b> {draft.pendingConfirmation.join(' · ')}</div></CardContent></Card>}
-    {bundle && <><section className="grid gap-3 md:grid-cols-4">{bundle.reviews.map((review) => { const Icon = roleIcon[review.reviewer]; const principal = review.findings[0]; return <Card key={review.reviewer} className={`gap-3 py-4 ${roleColor[review.reviewer]}`}><CardContent><div className="flex items-center justify-between"><Icon className="h-5 w-5" /><Badge variant={review.status === 'no_apto' ? 'destructive' : 'outline'}>{review.status === 'no_apto' ? 'Bloquea' : 'Revisado'}</Badge></div><h3 className="mt-3 font-bold">{review.label}</h3><p className="mt-1 text-xs text-slate-600">{review.summary}</p><p className="mt-3 text-sm font-semibold">{principal.title}</p></CardContent></Card>; })}</section>
+    {bundle && <><section className="grid gap-3 md:grid-cols-4">{bundle.reviews.map((review) => { const principal = review.findings[0]; return <Card key={review.reviewer} className={`gap-3 py-4 ${roleColor[review.reviewer]}`}><CardContent><div className="flex items-start justify-between"><GasitoFigure role={review.reviewer} state={review.status === 'no_apto' || principal?.severity === 'critical' ? 'con_hallazgos' : 'completado'} compact /><Badge variant={review.status === 'no_apto' ? 'destructive' : 'outline'}>{review.status === 'no_apto' ? 'Bloquea' : 'Revisado'}</Badge></div><h3 className="mt-1 font-bold">Gasito {review.label}</h3><p className="mt-1 text-xs text-slate-600">{review.summary}</p><p className="mt-3 text-sm font-semibold">{principal.title}</p></CardContent></Card>; })}</section>
       <Card><CardHeader><CardTitle>Antes y después</CardTitle><CardDescription>El valor está en mejorar el expediente, no en producir texto.</CardDescription></CardHeader><CardContent><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b text-xs uppercase text-slate-500"><th className="p-2">Antes de revisar</th><th className="p-2">Después de revisar</th><th className="p-2">Estado</th></tr></thead><tbody>{findings.slice(0, 4).map((finding) => { const resolved = decisions[finding.id]?.status === 'resuelto'; return <tr key={finding.id} className="border-b"><td className="p-2">{finding.title}</td><td className="p-2">{resolved ? decisions[finding.id].comment : finding.recommendation}</td><td className="p-2"><Badge variant={resolved ? 'outline' : finding.severity === 'critical' ? 'destructive' : 'secondary'}>{resolved ? 'Resuelto' : 'Pendiente'}</Badge>{!resolved && <Button size="sm" variant="ghost" onClick={() => decide(finding, 'resuelto', 'Evidencia confirmada en la sesión demo.')} className="ml-1">Resolver</Button>}</td></tr>; })}</tbody></table></div></CardContent></Card>
       <Card><CardHeader><CardTitle>Resistencia del margen</CardTitle><CardDescription>Escenario determinista de absentismo. La IA no recalcula.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 sm:grid-cols-[1fr_180px]"><Input type="range" min={0} max={20} value={scenarioPercent} onChange={(e) => setScenarioPercent(Number(e.target.value))} aria-label="Absentismo estimado" /><div className="rounded border p-2 text-center font-bold">{scenarioPercent}% absentismo</div></div><div className="grid gap-2 sm:grid-cols-3"><SmallFact label="Coste ajustado" value={`${scenario.adjustedCost.toLocaleString('es-ES')} €`} /><SmallFact label="Margen ajustado" value={`${scenario.adjustedMargin.toLocaleString('es-ES')} €`} /><SmallFact label="Semáforo" value={scenario.status.toUpperCase()} /></div></CardContent></Card></>}
     {complete && <FinalSummary metrics={metrics} />}</div>;
 }
 
-function LiveCommittee({ bundle, stage }: { bundle: ReviewBundle | null; stage: number }) {
-  return <div className="space-y-4"><Card><CardHeader><CardTitle>Comité en directo</CardTitle><CardDescription>Cuatro perspectivas independientes sobre la misma foto inmutable.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-4">{reviewerProgress.map(([role, text], index) => { const Icon = roleIcon[role]; const review = bundle?.reviews.find((item) => item.reviewer === role); const done = Boolean(review); const active = stage === index && !bundle; return <div key={role} className={`rounded-xl border p-4 transition ${done ? 'border-emerald-300 bg-emerald-50' : active ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-100' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-center justify-between"><Icon /><span aria-label={done ? 'Completado' : active ? 'En revisión' : 'Pendiente'}>{done ? <Check className="text-emerald-700" /> : active ? <Activity className="animate-pulse text-blue-700" /> : <span className="h-2 w-2 rounded-full bg-slate-300" />}</span></div><p className="mt-3 text-sm font-semibold">{done ? review?.label : text}</p>{review && <><p className="mt-2 text-xs text-slate-600">{review.summary}</p><p className="mt-3 text-xs"><b>Voto:</b> {review.status}</p></>}</div>; })}</CardContent></Card>{bundle && <Card className="border-slate-900"><CardHeader><CardTitle>Dictamen conjunto: {bundle.verdict.status.replaceAll('_', ' ')}</CardTitle><CardDescription>{bundle.verdict.headline}</CardDescription></CardHeader><CardContent><p className="text-sm">Un crítico prevalece sobre cualquier promedio. {bundle.contradictions?.length ?? 0} desacuerdo(s) explícito(s).</p></CardContent></Card>}</div>;
+function LiveCommittee({ bundle, stage, onEvidence }: { bundle: ReviewBundle | null; stage: number; onEvidence: (findingId: string) => void }) {
+  return <div className="space-y-4"><Card><CardHeader><CardTitle>Mesa del Consejo</CardTitle><CardDescription>Una familia Gasito, cinco funciones diferenciadas y cuatro votos independientes sobre la misma foto inmutable.</CardDescription></CardHeader><CardContent><GasitoCouncil bundle={bundle} stage={stage} onEvidence={onEvidence} /></CardContent></Card>{bundle && <Card className="border-slate-900"><CardHeader><CardTitle>Dictamen conjunto: {bundle.verdict.status.replaceAll('_', ' ')}</CardTitle><CardDescription>{bundle.verdict.headline}</CardDescription></CardHeader><CardContent><p className="text-sm">Gasito modera, pero no vota. Un crítico prevalece sobre cualquier promedio. {bundle.contradictions?.length ?? 0} desacuerdo(s) explícito(s).</p></CardContent></Card>}</div>;
 }
 
 function RiskMap({ findings, decisions, onSelect }: { findings: ReviewFinding[]; decisions: Record<string, HumanDecision>; onSelect: (id: string) => void }) {
