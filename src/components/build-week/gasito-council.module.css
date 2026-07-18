@@ -1,0 +1,175 @@
+.figure {
+  --gasito-accent: #1261a5;
+  position: relative;
+  width: 92px;
+  height: 112px;
+  margin-inline: auto;
+  transform-origin: 50% 85%;
+  isolation: isolate;
+}
+
+.accentBlue { --gasito-accent: #1261a5; }
+.accentGreen { --gasito-accent: #0f9f6e; }
+.accentNavy { --gasito-accent: #163a69; }
+.accentOrange { --gasito-accent: #e66b17; }
+.accentViolet { --gasito-accent: #7c3aed; }
+
+.halo {
+  position: absolute;
+  inset: 13px 10px 20px;
+  z-index: -1;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gasito-accent) 20%, transparent);
+  filter: blur(14px);
+  opacity: .52;
+}
+
+.head {
+  position: absolute;
+  top: 7px;
+  left: 17px;
+  width: 58px;
+  height: 45px;
+  border: 2px solid #dbe7f2;
+  border-radius: 23px 23px 19px 19px;
+  background: linear-gradient(145deg, #fff 15%, #edf5fb 88%);
+  box-shadow: 0 6px 13px rgb(15 23 42 / 12%);
+}
+
+.visor {
+  position: absolute;
+  inset: 8px 7px 9px;
+  overflow: hidden;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #081521, #132c3f);
+  box-shadow: inset 0 0 10px rgb(62 181 255 / 24%);
+}
+
+.eyes {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  width: 8px;
+  height: 7px;
+  border-radius: 50%;
+  background: #58c8ff;
+  box-shadow: 22px 0 #58c8ff, 0 0 8px #58c8ff, 22px 0 8px #58c8ff;
+}
+
+.body {
+  position: absolute;
+  top: 49px;
+  left: 22px;
+  width: 48px;
+  height: 50px;
+  border: 2px solid #dbe7f2;
+  border-radius: 18px 18px 14px 14px;
+  background: linear-gradient(145deg, #fff, #eaf3f9);
+  box-shadow: 0 8px 15px rgb(15 23 42 / 13%);
+}
+
+.chest {
+  position: absolute;
+  top: 13px;
+  left: 14px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--gasito-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.armLeft, .armRight {
+  position: absolute;
+  top: 59px;
+  width: 14px;
+  height: 36px;
+  border: 2px solid #dbe7f2;
+  border-radius: 10px;
+  background: #f5f9fc;
+}
+.armLeft { left: 10px; transform: rotate(9deg); }
+.armRight { right: 10px; transform: rotate(-9deg); }
+
+.footLeft, .footRight {
+  position: absolute;
+  top: 95px;
+  width: 25px;
+  height: 11px;
+  border-radius: 9px;
+  background: #e9f3f9;
+  border: 2px solid #d5e5ef;
+}
+.footLeft { left: 20px; }
+.footRight { right: 20px; }
+
+.tool {
+  position: absolute;
+  right: -2px;
+  top: 43px;
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  background: var(--gasito-accent);
+  color: #fff;
+  box-shadow: 0 5px 12px rgb(15 23 42 / 18%);
+}
+
+.roleBand {
+  position: absolute;
+  top: 50px;
+  left: 31px;
+  width: 30px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--gasito-accent);
+}
+
+.offline { filter: grayscale(.76); opacity: .58; }
+.target::after {
+  position: absolute;
+  inset: -7px;
+  border: 2px dashed var(--gasito-accent);
+  border-radius: 30px;
+  content: '';
+  animation: targetPulse 1.25s ease-out 1;
+}
+
+.motionIdle { animation: gasitoBreathe 4.8s ease-in-out infinite; }
+.motionPrimary { animation: gasitoReview 1.05s ease-in-out infinite; }
+.motionFinding { animation: gasitoNotice .72s ease-out 1; }
+.motionAgree { animation: gasitoNod .65s ease-in-out 1; }
+.motionDisagree { animation: gasitoQuestion .8s ease-in-out 1; }
+.motionComplete { animation: gasitoComplete .72s ease-out 1; }
+.motionOffline { animation: none; }
+
+.motionPrimary .tool { animation: toolLift 1.05s ease-in-out infinite; }
+.motionPrimary .halo { opacity: .9; }
+.motionFinding .halo { opacity: 1; }
+.motionFinding .eyes { background: #ffd166; box-shadow: 22px 0 #ffd166, 0 0 8px #ffd166, 22px 0 8px #ffd166; }
+
+@keyframes gasitoBreathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes gasitoReview { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-4px) scale(1.025); } }
+@keyframes gasitoNotice { 0% { transform: translateY(-2px); } 35% { transform: rotate(-3deg); } 70% { transform: rotate(3deg); } 100% { transform: none; } }
+@keyframes gasitoNod { 0%, 100% { transform: rotate(0); } 45% { transform: rotate(0) translateY(3px) scaleY(.98); } }
+@keyframes gasitoQuestion { 0%, 100% { transform: rotate(0); } 55% { transform: rotate(-5deg); } }
+@keyframes gasitoComplete { 0% { transform: scale(.96); } 50% { transform: translateY(-4px) scale(1.04); } 100% { transform: none; } }
+@keyframes toolLift { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-5px) rotate(-5deg); } }
+@keyframes targetPulse { 0% { opacity: 0; transform: scale(.94); } 45% { opacity: 1; } 100% { opacity: 0; transform: scale(1.06); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .figure,
+  .figure *,
+  .target::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
