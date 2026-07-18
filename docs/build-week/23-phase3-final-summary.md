@@ -20,6 +20,15 @@
 - La animación no altera el resultado, el voto ni la lógica de revisión.
 - La vista cliente conserva las garantías ya probadas de no mostrar coste interno ni margen.
 
+## Puertas de calidad
+
+- Tests: 68/68.
+- Evaluaciones de IA: 12/12.
+- TypeScript: sin errores.
+- Lint del módulo Build Week y AI Review: sin errores.
+- Build de producción: correcto; `/demo/build-week` se genera como ruta estática.
+- Advertencia heredada: Turbopack detecta un trazado amplio desde `data-paths`/`sqlite-backup`; no lo introduce esta fase y no bloquea el build.
+
 ## Aislamiento
 
 Todo el trabajo pertenece exclusivamente a `feature/build-week-ai-review-loop`. No modifica el motor determinista, Prisma, cálculos, política comercial, `main` ni producción.
