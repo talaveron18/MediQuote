@@ -246,10 +246,10 @@ export interface LaborRuleDTO {
 export type AppView =
   | 'dashboard'
   | 'budget-new'
+  | 'ai-budget'
   | 'budget-edit'
   | 'clients'
   | 'communications'
-  | 'ai-review'
   | 'cost-audit'
   | 'admin'
   | 'history';
