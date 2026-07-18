@@ -13,8 +13,8 @@ export function consumeReviewQuota(userId: string, now = Date.now()): boolean {
   recent.push(now); requests.set(userId, recent); return true;
 }
 
-export function snapshotCacheKey(snapshot: unknown, mode: string): string {
-  return createHash('sha256').update(`${mode}:${JSON.stringify(snapshot)}`).digest('hex');
+export function snapshotCacheKey(snapshot: unknown, mode: string, userScope: string): string {
+  return createHash('sha256').update(`${userScope}:${mode}:${JSON.stringify(snapshot)}`).digest('hex');
 }
 
 export function getCachedReview(key: string, now = Date.now()): ReviewBundle | null {
