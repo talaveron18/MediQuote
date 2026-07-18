@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Bot, CheckCircle2, ExternalLink, Send, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Send, ShieldCheck } from 'lucide-react';
 import BudgetForm from './budget-form';
 import { useAppStore, emptyBlock } from '@/store/app-store';
 import { Button } from '@/components/ui/button';
