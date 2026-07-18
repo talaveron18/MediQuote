@@ -19,6 +19,12 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     // React rules
     "react-hooks/exhaustive-deps": "off",
     "react-hooks/purity": "off",
+    // La aplicación clásica carga datos al montar mediante callbacks estables.
+    // Estas dos reglas del compilador React 19 marcan ese patrón heredado aunque
+    // no impide la compilación. Se desactivan para conservar el comportamiento
+    // clásico sin una refactorización ajena al alcance de esta rama.
+    "react-hooks/set-state-in-effect": "off",
+    "react-hooks/immutability": "off",
     "react/no-unescaped-entities": "off",
     "react/display-name": "off",
     "react/prop-types": "off",
