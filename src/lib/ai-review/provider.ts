@@ -15,7 +15,8 @@ class DemoProvider implements AiReviewProvider {
 
 export async function getAiReviewProvider(): Promise<AiReviewProvider> {
   const demoRequested = process.env.OPENAI_DEMO_MODE !== 'false';
-  if (demoRequested || !process.env.OPENAI_API_KEY) return new DemoProvider();
+  if (demoRequested) return new DemoProvider();
+  if (!process.env.OPENAI_API_KEY) throw new Error('Proveedor real no configurado. Active explícitamente OPENAI_DEMO_MODE=true para usar la demostración.');
   const { OpenAiReviewProvider } = await import('./openai-provider');
   return new OpenAiReviewProvider();
 }
