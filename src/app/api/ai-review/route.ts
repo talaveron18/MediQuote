@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       if (containsPromptInjection(text)) return NextResponse.json({ error: 'La entrada contiene instrucciones no fiables. Reformúlala como datos del servicio.' }, { status: 400 });
       return NextResponse.json({ mode: provider.mode, draft: await provider.parseIntake(text) });
     }
-    const key = snapshotCacheKey(parsed.data.payload.snapshot, provider.mode);
+    const key = snapshotCacheKey(parsed.data.payload.snapshot, provider.mode, auth.id);
     const cached = getCachedReview(key);
     if (cached) return NextResponse.json({ ...cached, cached: true });
     const review = await provider.review(parsed.data.payload.snapshot);
