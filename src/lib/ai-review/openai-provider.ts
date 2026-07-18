@@ -5,10 +5,10 @@ import type { BudgetSnapshot, ReviewBundle, ServiceIntakeDraft, SpecialistReview
 import { REVIEWER_ROLES } from './types';
 import { buildJointVerdict, buildProsecutorView } from './verdict';
 import { sanitizeText, sanitizeUnknown, UNTRUSTED_DOCUMENT_NOTICE } from './sanitize';
+import { completeReviewerSet } from './review-orchestration';
 
 const findingSchema = z.object({ id: z.string(), title: z.string(), detail: z.string(), severity: z.enum(['info', 'warning', 'high', 'critical']), evidence: z.array(z.string()), recommendation: z.string(), requiresHumanValidation: z.boolean() });
 const reviewSchema = z.object({ reviewer: z.enum(REVIEWER_ROLES), label: z.string(), status: z.enum(['apto', 'apto_con_observaciones', 'no_apto']), summary: z.string(), findings: z.array(findingSchema), assumptions: z.array(z.string()), demo: z.literal(false) });
-const reviewsSchema = z.object({ reviews: z.array(reviewSchema).length(4) });
 const intakeSchema = z.object({ clientName: z.string(), professionalCategory: z.string(), autonomousCommunity: z.string(), province: z.string(), municipality: z.string(), startDate: z.string(), endDate: z.string(), schedule: z.string(), professionals: z.number().int().positive(), contractType: z.string(), notes: z.string(), pendingConfirmation: z.array(z.string()) });
 
 const SYSTEM = `Eres una capa consultiva de MediQuote Pro. No cambias cálculos ni apruebas nada. Separas hechos, supuestos y recomendaciones. No inventas normas ni cifras. Todo hallazgo relevante exige validación humana. ${UNTRUSTED_DOCUMENT_NOTICE}`;
@@ -43,8 +43,14 @@ export class OpenAiReviewProvider implements AiReviewProvider {
 
   async review(snapshot: BudgetSnapshot): Promise<ReviewBundle> {
     const clean = sanitizeUnknown(snapshot);
-    const parsed = await this.structured(reviewsSchema, 'specialist_reviews', `Actúan cuatro revisores separados: gestoría laboral, finanzas, auditor operativo y legal. Devuelve exactamente uno de cada. Busca contradicciones y bloqueos. Foto inmutable:\n${JSON.stringify(clean)}`);
-    const reviews = parsed.reviews as SpecialistReview[];
+    const settled = await Promise.allSettled(REVIEWER_ROLES.map(async (role) => {
+      const review = await this.structured(reviewSchema, `specialist_review_${role}`, `Actúa únicamente como revisor ${role}. Separa hechos, supuestos y recomendaciones. Busca contradicciones y bloqueos desde tu especialidad. Tu campo reviewer debe ser exactamente "${role}". Foto inmutable:\n${JSON.stringify(clean)}`);
+      if (review.reviewer !== role) throw new Error(`El proveedor devolvió ${review.reviewer} en lugar de ${role}`);
+      return review as SpecialistReview;
+    }));
+    const partial: Partial<Record<(typeof REVIEWER_ROLES)[number], SpecialistReview>> = {};
+    settled.forEach((result, index) => { if (result.status === 'fulfilled') partial[REVIEWER_ROLES[index]] = result.value; });
+    const reviews = completeReviewerSet(partial);
     return { mode: 'openai', generatedAt: new Date().toISOString(), reviews, verdict: buildJointVerdict(reviews), prosecutor: buildProsecutorView(reviews) };
   }
 }
