@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Send, ShieldCheck } from 'lucide-react';
 import BudgetForm from './budget-form';
 import { useAppStore, emptyBlock } from '@/store/app-store';
@@ -173,7 +174,7 @@ export default function AiBudget() {
       </div>
       <div className="grid min-h-[calc(100vh-9rem)] gap-4 xl:grid-cols-[minmax(330px,38%)_minmax(0,62%)]">
         <Card className="relative flex min-h-[650px] flex-col overflow-hidden">
-          <CardHeader className="border-b pb-3"><CardTitle className="flex items-center gap-2 text-base"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-800">G</span>Asistente de preparación</CardTitle><p className="text-xs text-gray-500">No calcula precios ni modifica el motor.</p></CardHeader>
+          <CardHeader className="border-b pb-3"><CardTitle className="flex items-center gap-2 text-base"><Image src="/branding/gasito.png" alt="Gasito, asistente de GASI" width={36} height={36} className="h-9 w-9 rounded-full object-cover" priority />Asistente de preparación</CardTitle><p className="text-xs text-gray-500">No calcula precios ni modifica el motor.</p></CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col p-0">
             <div className="flex-1 space-y-3 overflow-y-auto p-4 pb-44">
               {messages.map((message) => <div key={message.id} className={`rounded-xl p-3 text-sm ${message.role === 'user' ? 'ml-8 bg-emerald-700 text-white' : 'mr-4 border bg-white'}`}>
