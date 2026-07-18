@@ -1,8 +1,8 @@
-# MediQuote Pro — AI Review Loop
+# MediQuote Pro — Presupuesto con IA
 
-> Deterministic healthcare-service costing, challenged by four independent AI perspectives and governed by human decisions.
+> El formulario y el motor determinista de MediQuote, con una capa de preparación conversacional y revisión humana.
 
-## Quick start
+## Inicio
 
 ```bash
 npm install
@@ -11,38 +11,37 @@ cp .env.example .env
 npm run dev
 ```
 
-Open `/demo/build-week`. The competition demo uses fictional data, needs no OpenAI key and can be reset at any time.
+Inicie sesión y abra **Presupuesto con IA** en el menú lateral. **Nuevo Presupuesto** conserva el recorrido clásico.
 
-## Demo path
+## Recorrido funcional
 
-Need → configuration → calculation → four-reviewer committee → human decisions → absence scenario → contract and operational annex → inconsistency correction → verifiable JSON record.
+1. Describir la necesidad en lenguaje normal.
+2. Revisar los campos preparados en el formulario real.
+3. Corregir manualmente cualquier dato; la corrección humana tiene prioridad.
+4. Ejecutar el motor determinista existente con **Calcular**.
+5. Revisar cobertura, jornada, riesgos, IVA por partidas y pendientes antes de decidir.
 
-## Quality commands
+El asistente no calcula precios, costes, márgenes, comisiones ni cotizaciones. Las consultas normativas usan fuentes oficiales cuando `OPENAI_API_KEY` está configurada y nunca cambian automáticamente una regla del motor.
+
+## Calidad
 
 ```bash
 npm test
 npm run eval:ai
 npx tsc --noEmit
-npx eslint src/lib/ai-review src/app/api/ai-review src/components/build-week
+npm run lint
 npm run build
 ```
 
-## Architecture
+## Límites honestos
 
-The existing MediQuote deterministic engine is unchanged. The new module consumes a validated `BudgetSnapshot`. Demo logic is deterministic. Optional real reviews use the OpenAI Responses API from a server-only provider with strict JSON Schema, one call per specialist, privacy masking, explicit partial failure, rate limiting and per-user cache isolation.
+- La revisión es orientativa y no sustituye a gestoría ni asesoramiento profesional.
+- Sin clave de búsqueda, una consulta normativa se rechaza de forma explícita; no se simula.
+- La aprobación final sigue siendo humana.
+- El indicador visual «G» es temporal hasta incorporar el recurso oficial de Gasito.
 
-## Why AI?
+Detalles: [`docs/build-week/24-functional-ai-budget.md`](docs/build-week/24-functional-ai-budget.md).
 
-AI can surface omissions, relate narrative evidence and present competing interpretations. These are advisory tasks that rigid formulas handle poorly.
+## Aislamiento
 
-## Why deterministic calculation still matters
-
-Money, scenarios, consistency checks, severity gates and hashes must be reproducible. The model never changes a price and never approves.
-
-## Truth and limitations
-
-Read [`docs/build-week/14-implementation-truth-table.md`](docs/build-week/14-implementation-truth-table.md). The real provider is implemented but not live-tested here. Decisions and timeline are session-only in the demo. PDF ingestion and browser E2E screenshots are not implemented. This is not legal advice, a digital signature or a production audit system.
-
-## Branch safety
-
-This work belongs only to `feature/build-week-ai-review-loop`. Do not merge or deploy without an explicit review.
+Todo este trabajo pertenece exclusivamente a `feature/build-week-ai-review-loop`. No se ha fusionado, desplegado ni conectado a Netlify.
