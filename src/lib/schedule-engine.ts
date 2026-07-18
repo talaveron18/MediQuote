@@ -778,7 +778,9 @@ export function calculateServiceBlock(params: {
   let overtimeHours = 0;
   if (plantillaSeleccionada < minStaff) {
     for (const w of weeklyBreakdown) {
-      const perPro = w.hours / plantillaSeleccionada;
+      // Segunda barrera defensiva: aunque la plantilla se normaliza arriba,
+      // este cálculo nunca debe poder propagar Infinity/NaN al presupuesto.
+      const perPro = w.hours / Math.max(1, plantillaSeleccionada);
       if (perPro > laborRules.maxWeeklyHours) overtimeHours += perPro - laborRules.maxWeeklyHours;
     }
   }
