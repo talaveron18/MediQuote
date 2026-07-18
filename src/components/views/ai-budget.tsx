@@ -105,16 +105,22 @@ export default function AiBudget() {
     let budgetPatch = reply.patch.budget ?? {};
     if (budgetPatch.serviceAutonomousCommunity) {
       const community = budgetPatch.serviceAutonomousCommunity;
-      const province = getProvincesForCommunity(community)[0];
-      const municipality = getMunicipalitiesForProvince(community, province)[0];
+      const province = budgetPatch.serviceProvince || getProvincesForCommunity(community)[0];
+      const municipalities = getMunicipalitiesForProvince(community, province);
+      const municipality = budgetPatch.serviceMunicipality
+        ? municipalities.find((item) => item.name.toLocaleLowerCase('es') === budgetPatch.serviceMunicipality?.toLocaleLowerCase('es'))
+        : undefined;
       if (municipality) {
         const location = buildServiceLocation(municipality);
         budgetPatch = { ...budgetPatch, serviceLocationId: location.id, serviceProvince: province, serviceMunicipality: municipality.name };
+      } else {
+        // Nunca se inventa un municipio: queda vacío hasta que el usuario lo confirme.
+        budgetPatch = { ...budgetPatch, serviceLocationId: '', serviceProvince: province, serviceMunicipality: '' };
       }
     }
     const mergedBudget = mergeWithoutOverwriting(store.budgetForm, budgetPatch, budgetLocks);
     store.setBudgetForm(mergedBudget);
-    lastBudgetAi.current = Object.fromEntries(Object.keys(budgetPatch).map((key) => [key, mergedBudget[key as keyof BudgetInput]])) as Partial<BudgetInput>;
+    lastBudgetAi.current = { ...lastBudgetAi.current, ...Object.fromEntries(Object.keys(budgetPatch).map((key) => [key, mergedBudget[key as keyof BudgetInput]])) } as Partial<BudgetInput>;
 
     const current = store.serviceBlocks[0] ?? { ...emptyBlock };
     const blockLocks = findManualChanges(current, lastBlockAi.current);
@@ -122,12 +128,17 @@ export default function AiBudget() {
     if (blockPatch.professionalCategory) {
       const requested = blockPatch.professionalCategory.toLowerCase();
       const category = store.categories.find((item) => item.name.toLowerCase().includes(requested.split('/')[0]) || requested.includes(item.name.toLowerCase()));
-      blockPatch = { ...blockPatch, professionalCategory: category?.id ?? '' };
+      if (category?.id) blockPatch = { ...blockPatch, professionalCategory: category.id };
+      else {
+        const rest = { ...blockPatch };
+        delete rest.professionalCategory;
+        blockPatch = rest;
+      }
     }
     const mergedBlock = mergeWithoutOverwriting(current, blockPatch, blockLocks);
     if (store.serviceBlocks.length) store.updateServiceBlock(0, mergedBlock);
     else store.addServiceBlock(mergedBlock);
-    lastBlockAi.current = Object.fromEntries(Object.keys(blockPatch).map((key) => [key, mergedBlock[key as keyof ServiceBlockInput]])) as Partial<ServiceBlockInput>;
+    lastBlockAi.current = { ...lastBlockAi.current, ...Object.fromEntries(Object.keys(blockPatch).map((key) => [key, mergedBlock[key as keyof ServiceBlockInput]])) } as Partial<ServiceBlockInput>;
   }, [store]);
 
   const send = useCallback(async () => {
