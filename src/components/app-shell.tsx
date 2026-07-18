@@ -17,9 +17,9 @@ const DEV_ROLE_SWITCH = process.env.NEXT_PUBLIC_DEV_ROLE_SWITCH === 'true' && pr
 const navItems: { view: AppView; label: string; icon: React.ReactNode; roles?: UserRole[] }[] = [
   { view: 'dashboard', label: 'Presupuestos', icon: <LayoutDashboard className="w-4 h-4" /> },
   { view: 'budget-new', label: 'Nuevo Presupuesto', icon: <FilePlus className="w-4 h-4" /> },
+  { view: 'ai-budget', label: 'Presupuesto con IA', icon: <Sparkles className="w-4 h-4" /> },
   { view: 'clients', label: 'Clientes', icon: <Users className="w-4 h-4" /> },
   { view: 'communications', label: 'Buzón interno', icon: <Mail className="w-4 h-4" /> },
-  { view: 'ai-review', label: 'IA y validación', icon: <Sparkles className="w-4 h-4" /> },
   { view: 'cost-audit', label: 'Auditoría de costes', icon: <Activity className="w-4 h-4" />, roles: ['admin', 'maestro'] },
   { view: 'admin', label: 'Administración', icon: <Settings className="w-4 h-4" />, roles: ['admin', 'maestro'] },
 ];
@@ -46,6 +46,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const handleNav = async (view: AppView) => {
     if (view === 'budget-new') {
       newBudget();
+    } else if (view === 'ai-budget') {
+      useAppStore.getState().resetBudgetForm();
+      setView('ai-budget');
     } else {
       setView(view);
     }
