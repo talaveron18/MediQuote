@@ -39,6 +39,13 @@ const CATEGORY_PATTERNS: Array<[RegExp, string]> = [
   [/\b(fisioterapeuta)s?\b/i, 'Fisioterapeuta'],
 ];
 
+const PROVINCE_COMMUNITY: Record<string, string> = {
+  Madrid: 'Madrid', 'Ávila': 'Castilla y León', Burgos: 'Castilla y León', León: 'Castilla y León',
+  Palencia: 'Castilla y León', Salamanca: 'Castilla y León', Segovia: 'Castilla y León', Soria: 'Castilla y León',
+  Valladolid: 'Castilla y León', Zamora: 'Castilla y León', Albacete: 'Castilla-La Mancha',
+  'Ciudad Real': 'Castilla-La Mancha', Cuenca: 'Castilla-La Mancha', Guadalajara: 'Castilla-La Mancha', Toledo: 'Castilla-La Mancha',
+};
+
 export function looksNormative(text: string): boolean {
   return /\b(boe|convenio|laboral|fiscal|iva|cotizaci[oó]n|seguridad social|contrataci[oó]n|facturaci[oó]n|prevenci[oó]n|protecci[oó]n de datos|normativa|ley|decreto|inspecci[oó]n|sepe|hacienda)\b/i.test(text)
     && /\b(qu[eé]|cu[aá]l|c[oó]mo|puedo|debo|aplica|obligaci[oó]n|plazo|tipo|norma)\b/i.test(text);
@@ -89,11 +96,22 @@ export function extractBudgetPatch(text: string): AiBudgetPatch {
   if (/castilla[- ]la mancha|\bclm\b/i.test(text)) budget.serviceAutonomousCommunity = 'Castilla-La Mancha';
   else if (/castilla y le[oó]n|\bcyl\b/i.test(text)) budget.serviceAutonomousCommunity = 'Castilla y León';
   else if (/\bmadrid\b/i.test(text)) budget.serviceAutonomousCommunity = 'Madrid';
+  for (const [province, community] of Object.entries(PROVINCE_COMMUNITY)) {
+    const normalized = province.replace('Á', '[ÁAáa]').replace('ó', '[óo]');
+    if (new RegExp(`\\b${normalized}\\b`, 'i').test(text)) {
+      budget.serviceAutonomousCommunity = community;
+      budget.serviceProvince = province;
+      // Si se nombra la capital provincial, puede resolverse como municipio exacto.
+      budget.serviceMunicipality = province;
+      break;
+    }
+  }
   const questions: string[] = [];
   if (!block.professionalCategory) questions.push('¿Qué categoría profesional necesita?');
   if (!block.dateRangeStart || !block.dateRangeEnd) questions.push('¿Entre qué fechas se prestará el servicio?');
   if (!block.hoursPerDay) questions.push('¿Cuántas horas dura cada turno?');
   if (!budget.serviceAutonomousCommunity) questions.push('¿En qué comunidad, provincia y municipio se prestará?');
+  else if (!budget.serviceProvince || !budget.serviceMunicipality) questions.push('¿En qué provincia y municipio concreto se prestará?');
   return {
     budget,
     block,
