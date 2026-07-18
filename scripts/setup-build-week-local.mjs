@@ -23,6 +23,7 @@ function run(args, env) {
     cwd: root,
     env,
     stdio: 'inherit',
+    shell: process.platform === 'win32',
   });
 }
 
