@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { db } from '../src/lib/db';
 import { generateTemporaryPassword } from '../src/lib/password';
 import bcrypt from 'bcryptjs';
