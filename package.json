@@ -17,6 +17,7 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "seed": "tsx scripts/seed.ts",
+    "demo:reset-maestro": "tsx scripts/reset-build-week-access.ts",
     "setup": "prisma generate && prisma db push && tsx scripts/seed.ts",
     "test": "vitest run",
     "eval:ai": "vitest run src/lib/ai-budget.test.ts",
