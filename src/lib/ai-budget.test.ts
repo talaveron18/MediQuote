@@ -42,4 +42,25 @@ describe('AI budget boundary', () => {
   it('keeps the mandatory professional disclaimer text', () => expect(LEGAL_DISCLAIMER).toContain('profesional cualificado'));
   it('keeps the external source warning', () => expect(EXTERNAL_SOURCE_DISCLAIMER).toContain('fuentes externas'));
   it('recognises a tax question', () => expect(looksNormative('¿Qué IVA aplica a esta factura?')).toBe(true));
+  it('creates one block per category and shift', () => {
+    const result = extractBudgetPatch('Necesito 8 enfermeros, 2 médicos y 2 fisios en turno de mañana y tarde en Toledo durante septiembre de 2026');
+    expect(result.blocks).toHaveLength(6);
+    expect(result.blocks?.filter((block) => block.professionalCategory === 'Enfermero/a')).toEqual([
+      expect.objectContaining({ puestosSimultaneos: 8, shiftType: 'morning' }),
+      expect.objectContaining({ puestosSimultaneos: 8, shiftType: 'afternoon' }),
+    ]);
+    expect(result.blocks?.filter((block) => block.professionalCategory === 'Médico/a')).toHaveLength(2);
+    expect(result.blocks?.filter((block) => block.professionalCategory === 'Fisioterapeuta')).toHaveLength(2);
+  });
+  it('summarises every generated service block', () => {
+    const result = extractBudgetPatch('8 enfermeros y 2 médicos de mañana y tarde en Madrid en septiembre de 2026');
+    expect(result.summary).toContain('4 bloque(s)');
+    expect(result.summary).toContain('8 × Enfermero/a');
+    expect(result.summary).toContain('2 × Médico/a');
+  });
+  it('asks only the next missing operational question', () => {
+    const result = extractBudgetPatch('2 médicos');
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0]).toContain('comunidad');
+  });
 });
