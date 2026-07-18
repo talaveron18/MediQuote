@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "verify:release": "npm test && npm run lint && npm run build && npm audit --omit=dev --audit-level=high",
     "desktop:run": "electron .",
-    "desktop:dist": "electron-builder --win nsis"
+    "desktop:dist": "electron-builder --win nsis",
+    "setup:local": "node scripts/setup-build-week-local.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
