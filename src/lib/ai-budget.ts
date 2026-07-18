@@ -5,7 +5,10 @@ export const EXTERNAL_SOURCE_DISCLAIMER = 'Información consultada en fuentes ex
 
 export type AiBudgetPatch = {
   budget?: Partial<BudgetInput>;
+  /** Compatibilidad con integraciones anteriores: primer bloque detectado. */
   block?: Partial<ServiceBlockInput>;
+  /** Lista completa de servicios/turnos solicitados. */
+  blocks?: Partial<ServiceBlockInput>[];
   summary: string;
   questions: string[];
 };
@@ -32,12 +35,19 @@ const MONTHS: Record<string, number> = {
   julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
 };
 
-const CATEGORY_PATTERNS: Array<[RegExp, string]> = [
-  [/\b(m[eé]dic[oa]|facultativ[oa])s?\b/i, 'Médico/a'],
-  [/\b(enfermer[oa]|due)s?\b/i, 'Enfermero/a'],
-  [/\b(auxiliar(?:es)?(?:\s+de\s+enfermer[ií]a)?|tcae)s?\b/i, 'TCAE'],
-  [/\b(fisioterapeuta)s?\b/i, 'Fisioterapeuta'],
-];
+const CATEGORY_DEFINITIONS = [
+  { nouns: 'm[eé]dic[oa]s?|facultativ[oa]s?', category: 'Médico/a' },
+  { nouns: 'enfermer[oa]s?|dues?', category: 'Enfermero/a' },
+  { nouns: 'auxiliares?(?:\\s+de\\s+enfermer[ií]a)?|tcaes?', category: 'TCAE' },
+  { nouns: 'fisioterapeutas?|fisios?', category: 'Fisioterapeuta' },
+] as const;
+
+const NUMBER_WORDS: Record<string, number> = {
+  un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
+  seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11,
+  doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16,
+  dieciséis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20,
+};
 
 const PROVINCE_COMMUNITY: Record<string, string> = {
   Madrid: 'Madrid', 'Ávila': 'Castilla y León', Burgos: 'Castilla y León', León: 'Castilla y León',
@@ -61,64 +71,122 @@ function extractDateRange(text: string): Pick<ServiceBlockInput, 'dateRangeStart
   const mentioned = Object.entries(MONTHS).filter(([name]) => new RegExp(`\\b${name}\\b`, 'i').test(text));
   if (!mentioned.length) return {};
   const months = mentioned.map(([, value]) => value).sort((a, b) => a - b);
-  const first = months[0];
-  const last = months[months.length - 1];
   return {
-    dateRangeStart: isoDate(year, first, 1),
-    dateRangeEnd: isoDate(year, last + 1, 0),
+    dateRangeStart: isoDate(year, months[0], 1),
+    dateRangeEnd: isoDate(year, months[months.length - 1] + 1, 0),
   };
 }
 
+function quantityFrom(raw?: string): number {
+  if (!raw) return 1;
+  const normalized = raw.toLocaleLowerCase('es-ES');
+  return Math.max(1, Number(raw) || NUMBER_WORDS[normalized] || 1);
+}
+
+function extractServices(text: string): Array<{ category: string; quantity: number }> {
+  const services: Array<{ category: string; quantity: number }> = [];
+  const quantity = '(\\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte)';
+  for (const definition of CATEGORY_DEFINITIONS) {
+    const expression = new RegExp(`\\b(?:${quantity}\\s+)?(?:${definition.nouns})\\b`, 'gi');
+    for (const match of text.matchAll(expression)) {
+      services.push({ category: definition.category, quantity: quantityFrom(match[1]) });
+    }
+  }
+  return services;
+}
+
+function extractTurns(text: string): Array<NonNullable<ServiceBlockInput['shiftType']>> {
+  if (/\b24\s*h(?:oras?)?\b/i.test(text)) return ['24h'];
+  const turns: Array<NonNullable<ServiceBlockInput['shiftType']>> = [];
+  if (/\bma[ñn]ana\b/i.test(text)) turns.push('morning');
+  if (/\btarde\b/i.test(text)) turns.push('afternoon');
+  if (/\bnocturn[oa]|\bnoche\b/i.test(text)) turns.push('night');
+  return turns;
+}
+
+const TURN_LABELS: Record<string, string> = {
+  morning: 'mañana',
+  afternoon: 'tarde',
+  night: 'noche',
+  '24h': '24 horas',
+  custom: 'personalizado',
+};
+
 export function extractBudgetPatch(text: string): AiBudgetPatch {
-  const block: Partial<ServiceBlockInput> = {};
   const budget: Partial<BudgetInput> = {};
-  for (const [pattern, category] of CATEGORY_PATTERNS) {
-    if (pattern.test(text)) { block.professionalCategory = category; block.serviceName = `Servicio de ${category}`; break; }
-  }
-  if (/\blunes\s+a\s+viernes\b|\bl\s*[-–]\s*v\b/i.test(text)) block.daysOfWeek = [1, 2, 3, 4, 5];
+  const common: Partial<ServiceBlockInput> = {};
+
+  if (/\blunes\s+a\s+viernes\b|\bl\s*[-–]\s*v\b/i.test(text)) common.daysOfWeek = [1, 2, 3, 4, 5];
   else {
-    const days: Array<[RegExp, number]> = [[/lunes/i,1],[/martes/i,2],[/mi[eé]rcoles/i,3],[/jueves/i,4],[/viernes/i,5],[/s[aá]bado/i,6],[/domingo/i,0]];
-    const found = days.filter(([p]) => p.test(text)).map(([, d]) => d);
-    if (found.length) block.daysOfWeek = found;
+    const days: Array<[RegExp, number]> = [[/lunes/i, 1], [/martes/i, 2], [/mi[eé]rcoles/i, 3], [/jueves/i, 4], [/viernes/i, 5], [/s[aá]bado/i, 6], [/domingo/i, 0]];
+    const found = days.filter(([pattern]) => pattern.test(text)).map(([, day]) => day);
+    if (found.length) common.daysOfWeek = found;
   }
+
   const hours = text.match(/\b(\d{1,2}(?:[.,]\d+)?)\s*h(?:oras?)?\b/i);
-  if (hours) block.hoursPerDay = Number(hours[1].replace(',', '.'));
-  if (/\b24\s*h/i.test(text)) block.shiftType = '24h';
-  else if (/\bnocturn[oa]|\bnoche\b/i.test(text)) block.shiftType = 'night';
-  else if (/\btarde\b/i.test(text)) block.shiftType = 'afternoon';
-  else if (/\bma[ñn]ana\b/i.test(text)) block.shiftType = 'morning';
-  const professionals = text.match(/\b(\d+)\s+(?:profesionales?|m[eé]dicos?|enfermer[oa]s?|tcae)\b/i);
-  if (professionals) block.puestosSimultaneos = Math.max(1, Number(professionals[1]));
-  if (/\bindefinid[oa]\b/i.test(text)) block.contractType = 'indefinido';
-  else if (/\bfijo\s+discontinuo\b/i.test(text)) block.contractType = 'fijo_discontinuo';
-  else if (/\btemporal\b/i.test(text)) block.contractType = 'temporal';
-  Object.assign(block, extractDateRange(text));
+  if (hours && !/\b24\s*h/i.test(hours[0])) common.hoursPerDay = Number(hours[1].replace(',', '.'));
+  if (/\bindefinid[oa]\b/i.test(text)) common.contractType = 'indefinido';
+  else if (/\bfijo\s+discontinuo\b/i.test(text)) common.contractType = 'fijo_discontinuo';
+  else if (/\btemporal\b/i.test(text)) common.contractType = 'temporal';
+  Object.assign(common, extractDateRange(text));
+
+  const services = extractServices(text);
+  const turns = extractTurns(text);
+  let blocks: Partial<ServiceBlockInput>[] = services.flatMap((service) => {
+    const requestedTurns = turns.length ? turns : [undefined];
+    return requestedTurns.map((turn) => ({
+      ...common,
+      professionalCategory: service.category,
+      serviceName: `Servicio de ${service.category}${turn ? ` · ${TURN_LABELS[turn]}` : ''}`,
+      puestosSimultaneos: service.quantity,
+      ...(turn ? { shiftType: turn } : {}),
+    }));
+  });
+
+  if (!blocks.length && Object.keys(common).length) blocks = [{ ...common }];
+  if (blocks.length === 1 && services.length === 1 && services[0].quantity === 1) {
+    const genericProfessionals = text.match(/\b(\d+)\s+profesionales?\b/i);
+    if (genericProfessionals) blocks[0].puestosSimultaneos = Math.max(1, Number(genericProfessionals[1]));
+  }
+
   if (/castilla[- ]la mancha|\bclm\b/i.test(text)) budget.serviceAutonomousCommunity = 'Castilla-La Mancha';
   else if (/castilla y le[oó]n|\bcyl\b/i.test(text)) budget.serviceAutonomousCommunity = 'Castilla y León';
   else if (/\bmadrid\b/i.test(text)) budget.serviceAutonomousCommunity = 'Madrid';
+
   for (const [province, community] of Object.entries(PROVINCE_COMMUNITY)) {
-    const normalized = province.replace('Á', '[ÁAáa]').replace('ó', '[óo]');
+    const normalized = province
+      .replace(/[ÁáA]/g, '[ÁáA]')
+      .replace(/[ÉéE]/g, '[ÉéE]')
+      .replace(/[ÓóO]/g, '[ÓóO]');
     if (new RegExp(`\\b${normalized}\\b`, 'i').test(text)) {
       budget.serviceAutonomousCommunity = community;
       budget.serviceProvince = province;
-      // Si se nombra la capital provincial, puede resolverse como municipio exacto.
       budget.serviceMunicipality = province;
       break;
     }
   }
+
   const questions: string[] = [];
-  if (!block.professionalCategory) questions.push('¿Qué categoría profesional necesita?');
-  if (!block.dateRangeStart || !block.dateRangeEnd) questions.push('¿Entre qué fechas se prestará el servicio?');
-  if (!block.hoursPerDay) questions.push('¿Cuántas horas dura cada turno?');
-  if (!budget.serviceAutonomousCommunity) questions.push('¿En qué comunidad, provincia y municipio se prestará?');
+  if (!services.length) questions.push('¿Qué categorías profesionales y cuántas personas necesita?');
+  else if (!budget.serviceAutonomousCommunity) questions.push('¿En qué comunidad, provincia y municipio se prestará el servicio?');
   else if (!budget.serviceProvince || !budget.serviceMunicipality) questions.push('¿En qué provincia y municipio concreto se prestará?');
+  else if (!common.dateRangeStart || !common.dateRangeEnd) questions.push('¿Entre qué fechas se prestará el servicio?');
+  else if (!turns.length && !common.hoursPerDay) questions.push('¿Qué turno y duración diaria tendrá cada servicio?');
+
+  const lines = blocks
+    .filter((block) => block.professionalCategory)
+    .map((block) => `• ${block.puestosSimultaneos ?? 1} × ${block.professionalCategory} — ${TURN_LABELS[String(block.shiftType)] || 'turno por confirmar'}`);
+
   return {
     budget,
-    block,
-    summary: Object.keys(block).length || Object.keys(budget).length
-      ? 'He preparado los datos operativos identificados. Revísalos en el formulario; cualquier cambio manual tendrá prioridad.'
-      : 'Todavía no hay datos suficientes para preparar el servicio.',
-    questions: questions.slice(0, 2),
+    block: blocks[0],
+    blocks,
+    summary: lines.length
+      ? `He preparado ${lines.length} bloque(s) de servicio:\n${lines.join('\n')}\nRevísalos en el formulario; cualquier cambio manual tendrá prioridad.`
+      : Object.keys(common).length || Object.keys(budget).length
+        ? 'He conservado los datos operativos identificados, pero falta concretar los profesionales.'
+        : 'Todavía no hay datos suficientes para preparar el servicio.',
+    questions: questions.slice(0, 1),
   };
 }
 
