@@ -1,4 +1,4 @@
-import type { BudgetSnapshot, ConsistencyCheck, ConsistencyIssue, ContractDraft } from './types';
+import type { BudgetSnapshot, ConsistencyCheck, ConsistencyIssue, ContractDraft, OperationalAnnex } from './types';
 
 export function buildContractDraft(snapshot: BudgetSnapshot, intentionalDemoMismatch = false): ContractDraft {
   const price = intentionalDemoMismatch ? Math.max(0, snapshot.priceExVat - 360) : snapshot.priceExVat;
@@ -35,4 +35,15 @@ export function checkContractConsistency(snapshot: BudgetSnapshot, contract: Con
     });
   }
   return { consistent: issues.every((issue) => issue.severity !== 'critical'), issues, checkedAt: new Date().toISOString() };
+}
+
+export function checkArtifactConsistency(snapshot: BudgetSnapshot, contract: ContractDraft, annex: OperationalAnnex): ConsistencyCheck {
+  const contractCheck = checkContractConsistency(snapshot, contract);
+  const issues = [...contractCheck.issues];
+  const annexText = annex.sections.map((section) => section.text).join(' ');
+  if (!annexText.includes(snapshot.municipality) || !annexText.includes(String(snapshot.professionals))) {
+    issues.push({ field: 'anexo_cobertura', budgetValue: `${snapshot.professionals} profesional(es) en ${snapshot.municipality}`, contractValue: annexText, severity: 'critical', message: 'El anexo operativo no conserva la ubicación o plantilla presupuestada.' });
+  }
+  if (annex.pendingFields.length > 0) issues.push({ field: 'anexo_pendiente', budgetValue: 'Expediente completo', contractValue: annex.pendingFields.join('; '), severity: 'warning', message: 'El anexo conserva datos operativos pendientes.' });
+  return { consistent: !issues.some((issue) => issue.severity === 'critical'), issues, checkedAt: new Date().toISOString() };
 }
