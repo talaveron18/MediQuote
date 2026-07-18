@@ -38,7 +38,7 @@ npm run build
 - La revisión es orientativa y no sustituye a gestoría ni asesoramiento profesional.
 - Sin clave de búsqueda, una consulta normativa se rechaza de forma explícita; no se simula.
 - La aprobación final sigue siendo humana.
-- El indicador visual «G» es temporal hasta incorporar el recurso oficial de Gasito.
+- El asistente utiliza el recurso oficial de Gasito aportado por GASI.
 
 Detalles: [`docs/build-week/24-functional-ai-budget.md`](docs/build-week/24-functional-ai-budget.md).
 
