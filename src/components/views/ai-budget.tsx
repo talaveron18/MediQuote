@@ -96,9 +96,9 @@ export default function AiBudget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'auto' | 'budget' | 'normative'>('auto');
-  const [messages, setMessages] = useState<Message[]>([{ id: 1, role: 'assistant', text: 'Describe el servicio en lenguaje normal. Prepararé los campos operativos del formulario; el precio lo calculará únicamente el motor de MediQuote.' }]);
+  const [messages, setMessages] = useState<Message[]>([{ id: 1, role: 'assistant', text: 'Empecemos por el cliente. Selecciónalo arriba y después describe todos los profesionales, cantidades, turnos, fechas y lugar del servicio.' }]);
   const lastBudgetAi = useRef<Partial<BudgetInput>>({});
-  const lastBlockAi = useRef<Partial<ServiceBlockInput>>({});
+  const lastBlocksAi = useRef<Partial<ServiceBlockInput>[]>([]);
   const nextId = useRef(2);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -129,28 +129,52 @@ export default function AiBudget() {
     store.setBudgetForm(mergedBudget);
     lastBudgetAi.current = { ...lastBudgetAi.current, ...Object.fromEntries(Object.keys(budgetPatch).map((key) => [key, mergedBudget[key as keyof BudgetInput]])) } as Partial<BudgetInput>;
 
-    const current = store.serviceBlocks[0] ?? { ...emptyBlock };
-    const blockLocks = findManualChanges(current, lastBlockAi.current);
-    let blockPatch = reply.patch.block ?? {};
-    if (blockPatch.professionalCategory) {
-      const requested = blockPatch.professionalCategory.toLowerCase();
-      const category = store.categories.find((item) => item.name.toLowerCase().includes(requested.split('/')[0]) || requested.includes(item.name.toLowerCase()));
-      if (category?.id) blockPatch = { ...blockPatch, professionalCategory: category.id };
-      else {
-        const rest = { ...blockPatch };
-        delete rest.professionalCategory;
-        blockPatch = rest;
-      }
+    const requestedBlocks = reply.patch.blocks?.length
+      ? reply.patch.blocks
+      : reply.patch.block
+        ? [reply.patch.block]
+        : [];
+
+    if (requestedBlocks.length) {
+      const mergedBlocks = requestedBlocks.map((requestedBlock, index) => {
+        let blockPatch = { ...requestedBlock };
+        if (blockPatch.professionalCategory) {
+          const requested = blockPatch.professionalCategory.toLowerCase();
+          const category = store.categories.find((item) => {
+            const name = item.name.toLowerCase();
+            return name.includes(requested.split('/')[0]) || requested.includes(name.split('/')[0]);
+          });
+          if (category?.id) blockPatch.professionalCategory = category.id;
+          else delete blockPatch.professionalCategory;
+        }
+
+        const current = store.serviceBlocks[index] ?? { ...emptyBlock };
+        const previousAi = lastBlocksAi.current[index] ?? {};
+        const blockLocks = findManualChanges(current, previousAi);
+        return mergeWithoutOverwriting(current, blockPatch, blockLocks);
+      });
+
+      store.setServiceBlocks(mergedBlocks);
+      lastBlocksAi.current = mergedBlocks.map((block, index) => {
+        const requested = requestedBlocks[index];
+        return Object.fromEntries(
+          Object.keys(requested).map((key) => [key, block[key as keyof ServiceBlockInput]]),
+        ) as Partial<ServiceBlockInput>;
+      });
     }
-    const mergedBlock = mergeWithoutOverwriting(current, blockPatch, blockLocks);
-    if (store.serviceBlocks.length) store.updateServiceBlock(0, mergedBlock);
-    else store.addServiceBlock(mergedBlock);
-    lastBlockAi.current = { ...lastBlockAi.current, ...Object.fromEntries(Object.keys(blockPatch).map((key) => [key, mergedBlock[key as keyof ServiceBlockInput]])) } as Partial<ServiceBlockInput>;
   }, [store]);
 
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || loading) return;
+    if (!store.budgetForm.clientId && mode !== 'normative') {
+      setMessages((items) => [...items, {
+        id: nextId.current++,
+        role: 'assistant',
+        text: 'Antes de preparar los servicios necesito saber para qué cliente es el presupuesto. Selecciónalo en el campo «Cliente del presupuesto».',
+      }]);
+      return;
+    }
     setInput('');
     setMessages((items) => [...items, { id: nextId.current++, role: 'user', text }]);
     setLoading(true);
@@ -163,7 +187,7 @@ export default function AiBudget() {
     } catch (error) {
       setMessages((items) => [...items, { id: nextId.current++, role: 'assistant', text: error instanceof Error ? error.message : 'No se pudo procesar la consulta.' }]);
     } finally { setLoading(false); }
-  }, [applyPatch, input, loading, mode]);
+  }, [applyPatch, input, loading, mode, store.budgetForm.clientId]);
 
   const copyMessage = useCallback(async (message: Message) => {
     const suffix = message.external ? `\n\n${LEGAL_DISCLAIMER}\n\n${EXTERNAL_SOURCE_DISCLAIMER}` : '';
@@ -247,6 +271,28 @@ export default function AiBudget() {
               </Button>
             </div>
 
+            <div className={`shrink-0 border-b px-4 py-3 ${store.budgetForm.clientId ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+              <label htmlFor="ai-client-select" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-700">
+                1. Cliente del presupuesto *
+              </label>
+              <select
+                id="ai-client-select"
+                value={store.budgetForm.clientId}
+                onChange={(event) => store.setBudgetForm({ clientId: event.target.value })}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+              >
+                <option value="">Selecciona primero el cliente…</option>
+                {store.clients.map((client) => (
+                  <option key={client.id} value={client.id ?? ''}>
+                    {client.businessName}{client.cif ? ` · ${client.cif}` : ''}
+                  </option>
+                ))}
+              </select>
+              {!store.budgetForm.clientId && (
+                <p className="mt-1.5 text-xs text-amber-800">La IA no creará bloques hasta que se identifique el cliente.</p>
+              )}
+            </div>
+
             <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-4 py-5">
               <div className="space-y-5">
                 {messages.map((message) => (
@@ -321,7 +367,7 @@ export default function AiBudget() {
                       void send();
                     }
                   }}
-                  placeholder="Describe el servicio con fechas, lugar, profesional y turnos…"
+                  placeholder={store.budgetForm.clientId ? 'Ej.: 8 enfermeros, 2 médicos y 2 fisios, mañana y tarde, de septiembre a noviembre en Toledo…' : 'Selecciona primero el cliente del presupuesto…'}
                   rows={4}
                   className="min-h-[104px] resize-none text-[15px] leading-6"
                   autoFocus
