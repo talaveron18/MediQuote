@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Send, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, MessageSquare, Send, ShieldCheck, X } from 'lucide-react';
 import BudgetForm from './budget-form';
 import { useAppStore, emptyBlock } from '@/store/app-store';
 import { Button } from '@/components/ui/button';
@@ -92,6 +92,7 @@ function AuditPanel({ onBack }: { onBack: () => void }) {
 export default function AiBudget() {
   const store = useAppStore();
   const [stage, setStage] = useState<'compose' | 'audit'>('compose');
+  const [assistantOpen, setAssistantOpen] = useState(true);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'auto' | 'budget' | 'normative'>('auto');
@@ -99,6 +100,11 @@ export default function AiBudget() {
   const lastBudgetAi = useRef<Partial<BudgetInput>>({});
   const lastBlockAi = useRef<Partial<ServiceBlockInput>>({});
   const nextId = useRef(2);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (assistantOpen) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [assistantOpen, loading, messages]);
 
   const applyPatch = useCallback((reply: AiBudgetReply) => {
     if (!reply.patch) return;
@@ -165,36 +171,173 @@ export default function AiBudget() {
   }, []);
 
   const auditReady = useMemo(() => !!store.budgetTotals, [store.budgetTotals]);
+  const lastAssistantMessage = useMemo(
+    () => [...messages].reverse().find((message) => message.role === 'assistant'),
+    [messages],
+  );
   if (stage === 'audit') return <AuditPanel onBack={() => setStage('compose')} />;
   return (
-    <div className="mx-auto max-w-[1600px] space-y-3">
-      <div className="flex items-center justify-between">
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Flujo adicional · el presupuesto clásico permanece disponible</p><h1 className="text-2xl font-semibold">Presupuesto con IA</h1></div>
-        {auditReady && <Button variant="outline" onClick={() => setStage('audit')}>Abrir revisión</Button>}
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Flujo adicional · el presupuesto clásico permanece disponible</p>
+          <h1 className="text-2xl font-semibold">Presupuesto con IA</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {auditReady && <Button variant="outline" onClick={() => setStage('audit')}>Abrir revisión</Button>}
+          <Button onClick={() => setAssistantOpen(true)} className="bg-emerald-700 hover:bg-emerald-800">
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Abrir asistente
+          </Button>
+        </div>
       </div>
-      <div className="grid min-h-[calc(100vh-9rem)] gap-4 xl:grid-cols-[minmax(330px,38%)_minmax(0,62%)]">
-        <Card className="relative flex min-h-[650px] flex-col overflow-hidden">
-          <CardHeader className="border-b pb-3"><CardTitle className="flex items-center gap-2 text-base"><Image src="/branding/gasito.png" alt="Gasito, asistente de GASI" width={36} height={36} className="h-9 w-9 rounded-full object-cover" priority />Asistente de preparación</CardTitle><p className="text-xs text-gray-500">No calcula precios ni modifica el motor.</p></CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-            <div className="flex-1 space-y-3 overflow-y-auto p-4 pb-44">
-              {messages.map((message) => <div key={message.id} className={`rounded-xl p-3 text-sm ${message.role === 'user' ? 'ml-8 bg-emerald-700 text-white' : 'mr-4 border bg-white'}`}>
-                <div className="whitespace-pre-wrap">{message.text}</div>
-                {message.sources?.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="mt-3 block rounded border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">
-                  <strong>{source.title}</strong> · {source.organization}<br />Publicación: {source.publishedAt || 'no indicada'} · Consulta: {source.consultedAt}<br />{source.relevantSection || 'Apartado no indicado'} <ExternalLink className="inline h-3 w-3" />
-                </a>)}
-                {message.role === 'assistant' && <button onClick={() => void copyMessage(message)} className="mt-2 text-[11px] underline opacity-70">Copiar respuesta</button>}
-              </div>)}
-              {loading && <div className="mr-4 rounded-xl border p-3 text-sm text-gray-500">Consultando…</div>}
+
+      <Card className="border-emerald-200 bg-emerald-50/50">
+        <CardContent className="flex items-center gap-3 p-3">
+          <Image
+            src="/branding/gasito.png"
+            alt="Gasito, asistente de GASI"
+            width={44}
+            height={44}
+            className="h-11 w-11 shrink-0 rounded-full object-cover"
+            priority
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <strong className="text-sm text-emerald-950">Gasito · preparación del presupuesto</strong>
+              <Badge variant="outline" className="hidden bg-white text-[10px] sm:inline-flex">No modifica el motor</Badge>
             </div>
-            <div className="absolute inset-x-0 bottom-0 border-t bg-white p-3">
-              <div className="mb-2 flex gap-1">{(['auto','budget','normative'] as const).map((value) => <button key={value} onClick={() => setMode(value)} className={`rounded-full px-2 py-1 text-[11px] ${mode === value ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>{value === 'auto' ? 'Automático' : value === 'budget' ? 'Preparar presupuesto' : 'Consulta normativa'}</button>)}</div>
-              <div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="Ej.: enfermera L–V, 8 h de mañana, septiembre a noviembre en Toledo" rows={2} /><Button onClick={() => void send()} disabled={loading || !input.trim()} size="icon"><Send className="h-4 w-4" /></Button></div>
-              <div className="mt-2 flex gap-2 text-[10px] leading-tight text-slate-600"><AlertTriangle className="h-3 w-3 shrink-0" /><span>{LEGAL_DISCLAIMER}</span></div>
-            </div>
-          </CardContent>
-        </Card>
-        <div className="min-w-0 overflow-hidden rounded-xl border bg-gray-50"><BudgetForm embedded onCalculated={(_result: BudgetCalculationResult) => setStage('audit')} /></div>
+            <p className="mt-0.5 line-clamp-2 text-sm leading-5 text-slate-700">
+              {lastAssistantMessage?.text || 'Describe el servicio y prepararé los datos operativos para que los revises.'}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setAssistantOpen(true)} className="shrink-0 bg-white">
+            Conversar
+          </Button>
+        </CardContent>
+      </Card>
+
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-gray-50">
+        <BudgetForm embedded onCalculated={(_result: BudgetCalculationResult) => setStage('audit')} />
       </div>
+
+      {assistantOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/25 backdrop-blur-[1px]" onMouseDown={() => setAssistantOpen(false)}>
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Asistente para preparar el presupuesto"
+            className="absolute inset-y-0 right-0 flex w-full max-w-[560px] flex-col border-l bg-white shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
+              <Image
+                src="/branding/gasito.png"
+                alt=""
+                width={44}
+                height={44}
+                className="h-11 w-11 rounded-full object-cover"
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="font-semibold text-slate-950">Asistente de preparación</h2>
+                <p className="text-xs text-slate-500">Prepara datos operativos; MediQuote mantiene el cálculo determinista.</p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setAssistantOpen(false)} aria-label="Cerrar asistente">
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-4 py-5">
+              <div className="space-y-5">
+                {messages.map((message) => (
+                  <div key={message.id} className={message.role === 'user' ? 'flex justify-end' : 'flex items-start gap-2.5'}>
+                    {message.role === 'assistant' && (
+                      <Image
+                        src="/branding/gasito.png"
+                        alt=""
+                        width={30}
+                        height={30}
+                        className="mt-1 h-7 w-7 shrink-0 rounded-full object-cover"
+                      />
+                    )}
+                    <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-[15px] leading-6 shadow-sm ${
+                      message.role === 'user'
+                        ? 'rounded-br-md bg-emerald-700 text-white'
+                        : 'rounded-bl-md border border-slate-200 bg-white text-slate-800'
+                    }`}>
+                      <div className="whitespace-pre-wrap break-words">{message.text}</div>
+                      {message.sources?.map((source) => (
+                        <a
+                          key={source.url}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 block rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-950"
+                        >
+                          <strong>{source.title}</strong> · {source.organization}<br />
+                          Publicación: {source.publishedAt || 'no indicada'} · Consulta: {source.consultedAt}<br />
+                          {source.relevantSection || 'Apartado no indicado'} <ExternalLink className="inline h-3 w-3" />
+                        </a>
+                      ))}
+                      {message.role === 'assistant' && (
+                        <button onClick={() => void copyMessage(message)} className="mt-2 text-xs font-medium text-emerald-700 hover:underline">
+                          Copiar respuesta
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {loading && (
+                  <div className="flex items-start gap-2.5">
+                    <Image src="/branding/gasito.png" alt="" width={30} height={30} className="mt-1 h-7 w-7 rounded-full object-cover" />
+                    <div className="rounded-2xl rounded-bl-md border bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">Consultando…</div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            <div className="shrink-0 border-t bg-white p-4">
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {(['auto', 'budget', 'normative'] as const).map((value) => (
+                  <button
+                    key={value}
+                    onClick={() => setMode(value)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      mode === value ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {value === 'auto' ? 'Automático' : value === 'budget' ? 'Preparar presupuesto' : 'Consulta normativa'}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-end gap-2">
+                <Textarea
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      void send();
+                    }
+                  }}
+                  placeholder="Describe el servicio con fechas, lugar, profesional y turnos…"
+                  rows={4}
+                  className="min-h-[104px] resize-none text-[15px] leading-6"
+                  autoFocus
+                />
+                <Button onClick={() => void send()} disabled={loading || !input.trim()} size="icon" className="mb-1 h-10 w-10 shrink-0">
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="mt-3 flex gap-2 text-[11px] leading-4 text-slate-600">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{LEGAL_DISCLAIMER}</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
