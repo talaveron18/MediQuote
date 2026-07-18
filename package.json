@@ -20,6 +20,7 @@
     "setup": "prisma generate && prisma db push && tsx scripts/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval:ai": "node --import tsx scripts/run-ai-evals.ts",
     "verify:release": "npm test && npm run lint && npm run build && npm audit --omit=dev --audit-level=high",
     "desktop:run": "electron .",
     "desktop:dist": "electron-builder --win nsis"
