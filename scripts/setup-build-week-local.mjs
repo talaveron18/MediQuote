@@ -9,7 +9,8 @@ const envPath = resolve(root, '.env');
 const sourceSchemaPath = resolve(root, 'prisma', 'schema.prisma');
 const localSchemaPath = resolve(root, 'prisma', 'schema.local.prisma');
 const databaseUrl = 'file:../db/build-week.db';
-const runner = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const prismaCli = resolve(root, 'node_modules', 'prisma', 'build', 'index.js');
+const tsxCli = resolve(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 function upsertEnv(source, key, value) {
   const line = `${key}=${value}`;
@@ -18,12 +19,11 @@ function upsertEnv(source, key, value) {
   return `${source.trimEnd()}\n${line}\n`;
 }
 
-function run(args, env) {
-  execFileSync(runner, args, {
+function run(cliPath, args, env) {
+  execFileSync(process.execPath, [cliPath, ...args], {
     cwd: root,
     env,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
   });
 }
 
@@ -57,10 +57,10 @@ const childEnv = {
 
 try {
   console.log('\nPreparando la base local aislada de Build Week...\n');
-  run(['prisma', 'generate', '--schema', 'prisma/schema.local.prisma'], childEnv);
-  run(['prisma', 'db', 'push', '--schema', 'prisma/schema.local.prisma'], childEnv);
+  run(prismaCli, ['generate', '--schema', 'prisma/schema.local.prisma'], childEnv);
+  run(prismaCli, ['db', 'push', '--schema', 'prisma/schema.local.prisma'], childEnv);
   console.log('\nCreando los usuarios demo. Guarda las contraseñas que aparecen a continuación.\n');
-  run(['tsx', 'scripts/seed.ts'], childEnv);
+  run(tsxCli, ['scripts/seed.ts'], childEnv);
   console.log('\nPreparación terminada. Ejecuta: npm run dev\n');
 } finally {
   if (existsSync(localSchemaPath)) unlinkSync(localSchemaPath);
