@@ -10,10 +10,13 @@ describe('controles operativos de revisión', () => {
     expect(consumeReviewQuota(id, 62_000)).toBe(true);
   });
   it('reutiliza la misma foto durante cinco minutos', () => {
-    const key = snapshotCacheKey(DEMO_SNAPSHOT, 'demo');
+    const key = snapshotCacheKey(DEMO_SNAPSHOT, 'demo', 'user-a');
     const bundle = buildDemoBundle(DEMO_SNAPSHOT);
     setCachedReview(key, bundle, 1000);
     expect(getCachedReview(key, 2000)).toEqual(bundle);
     expect(getCachedReview(key, 302_000)).toBeNull();
+  });
+  it('aísla la caché entre usuarios', () => {
+    expect(snapshotCacheKey(DEMO_SNAPSHOT, 'demo', 'user-a')).not.toBe(snapshotCacheKey(DEMO_SNAPSHOT, 'demo', 'user-b'));
   });
 });
