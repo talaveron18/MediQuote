@@ -214,7 +214,14 @@ const MODALITY_LABELS: Record<CourseModality, string> = {
 
 // ─── Component ──────────────────────────────────────────────────
 
-export default function BudgetForm() {
+export interface BudgetFormProps {
+  /** Reutiliza el formulario real dentro de otro recorrido sin cambiar el flujo clásico. */
+  embedded?: boolean;
+  /** Se ejecuta únicamente después de que el motor determinista devuelve un cálculo válido. */
+  onCalculated?: (result: BudgetCalculationResult) => void;
+}
+
+export default function BudgetForm({ embedded = false, onCalculated }: BudgetFormProps = {}) {
   const store = useAppStore();
   const isAdmin = store.currentRole === 'admin' || store.currentRole === 'maestro';
   const isEditing = !!store.editingBudgetId;
@@ -649,13 +656,14 @@ export default function BudgetForm() {
       toast.success('Cálculo realizado correctamente');
       const allExpanded = new Set(store.serviceBlocks.map((_, i) => i));
       setExpandedBlocks(allExpanded);
+      onCalculated?.(totals);
     } catch (error) {
       console.error('Calculation error:', error);
       toast.error('Error al realizar el cálculo');
     } finally {
       setCalculating(false);
     }
-  }, [store]);
+  }, [store, onCalculated]);
 
   const handleSave = useCallback(async () => {
     if (!store.budgetForm.clientId) {
@@ -2050,12 +2058,12 @@ export default function BudgetForm() {
   }
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className={embedded ? 'flex min-h-full flex-col' : 'flex min-h-full flex-col'}>
       {/* ─── Scrollable Main Area ─────────────────────────────── */}
       <div className="flex-1 overflow-y-auto pb-24">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
           {/* Page title */}
-          <div className="flex items-center justify-between">
+          {!embedded && <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Button
                 variant="ghost"
@@ -2079,7 +2087,7 @@ export default function BudgetForm() {
                 {STATUS_LABELS[store.budgetForm.status] || store.budgetForm.status}
               </Badge>
             )}
-          </div>
+          </div>}
 
           {/* ─── Section 1: Budget Header ─────────────────────── */}
           <Card>
@@ -2410,9 +2418,11 @@ export default function BudgetForm() {
       </div>
 
       {/* ─── Sticky Action Bar ────────────────────────────────── */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-950 border-t shadow-lg z-50">
+      <div className={embedded
+        ? 'sticky bottom-0 border-t bg-white shadow-lg dark:bg-gray-950 z-40'
+        : 'fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-950 border-t shadow-lg z-50'}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-          <Button
+          {!embedded && <Button
             variant="outline"
             size="sm"
             onClick={handleBack}
@@ -2420,7 +2430,7 @@ export default function BudgetForm() {
           >
             <ArrowLeft className="h-4 w-4 mr-1.5" />
             Volver
-          </Button>
+          </Button>}
 
           <div className="flex items-center gap-2">
             {isEditing && (
