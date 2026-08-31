@@ -10,6 +10,7 @@ import {
 } from 'fs';
 import path from 'path';
 import { dataRoot } from '@/lib/data-paths';
+import { APP_VERSION, COST_ENGINE_VERSION } from '@/lib/costing/cost-types';
 import { resolveSqlitePath } from '@/lib/sqlite-backup';
 
 const BASE = dataRoot();
@@ -172,8 +173,8 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
     `Generado: ${now.toISOString()}`,
     `Generado por: ${userName} (${userRole})`,
     ``,
-    `APP_VERSION: ${process.env.APP_VERSION || '0.1.0'}`,
-    `CALCULATION_ENGINE_VERSION: ${process.env.CALCULATION_ENGINE_VERSION || '2.0.0'}`,
+    `APP_VERSION: ${APP_VERSION}`,
+    `CALCULATION_ENGINE_VERSION: ${COST_ENGINE_VERSION}`,
     `NODE_ENV: ${process.env.NODE_ENV || 'development'}`,
     ``,
     `Archivos incluidos: ${copiedFiles.length}`,

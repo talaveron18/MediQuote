@@ -18,6 +18,7 @@ import type {
   ServiceBlockInput,
 } from '@/lib/types';
 import type { DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types';
+import { COST_ENGINE_VERSION } from '@/lib/costing/cost-types';
 import { getConventionProfileForProvince, resolveServiceLocation } from '@/lib/service-locations';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import { getLocalHolidayCalendar, getMunicipalHolidays } from '@/lib/local-holidays';
@@ -316,7 +317,7 @@ export async function POST(request: NextRequest) {
       data: {
         userId: auth.id,
         snapshot: JSON.stringify({
-          engineVersion: '1.0.0',
+          engineVersion: COST_ENGINE_VERSION,
           calculatedAt: new Date().toISOString(),
           serviceBlocks: blocks,
           location,

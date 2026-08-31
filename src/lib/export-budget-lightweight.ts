@@ -12,6 +12,7 @@ import { db } from '@/lib/db';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { dataRoot } from '@/lib/data-paths';
+import { APP_VERSION, COST_ENGINE_VERSION } from '@/lib/costing/cost-types';
 
 const BASE = dataRoot();
 
@@ -50,8 +51,8 @@ export async function exportBudgetLightweight(
     const jsonPath = path.join(jsonDir, `${code}.json`);
 
     const jsonData = {
-      appVersion: process.env.APP_VERSION || '0.2.0',
-      calculationEngineVersion: process.env.CALCULATION_ENGINE_VERSION || '2.0.0',
+      appVersion: APP_VERSION,
+      calculationEngineVersion: COST_ENGINE_VERSION,
       exportedAt: new Date().toISOString(),
       exportedBy: user.email,
       budget: JSON.parse(JSON.stringify(budget, (_key, value) =>
@@ -75,8 +76,8 @@ export async function exportBudgetLightweight(
           userRole: user.role,
           summary: `Auto-export presupuesto ${code} (JSON + CSV)`,
           result: 'success',
-          appVersion: process.env.APP_VERSION || null,
-          engineVersion: process.env.CALCULATION_ENGINE_VERSION || null,
+          appVersion: APP_VERSION,
+          engineVersion: COST_ENGINE_VERSION,
         },
       });
     } catch (auditErr) {

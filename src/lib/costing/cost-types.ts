@@ -1,6 +1,10 @@
 import type { ShiftHourBreakdown } from '../types';
 
+/** Fuente única de la versión del motor de cálculo. */
 export const COST_ENGINE_VERSION = '1.0.0';
+
+/** Fuente única de la versión de la aplicación. */
+export const APP_VERSION = '0.2.0';
 
 export type ContractType =
   | 'indefinido'

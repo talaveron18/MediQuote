@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import { Shield, Save } from 'lucide-react';
+import { APP_VERSION, COST_ENGINE_VERSION } from '@/lib/costing/cost-types';
 
 // Branding config fields stored as AppConfig keys
 const BRANDING_KEYS = [
@@ -81,8 +82,8 @@ export default function BrandingPanel() {
     setValues((prev) => ({ ...prev, [key]: value }));
   }
 
-  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || process.env.APP_VERSION || '0.2.0';
-  const engineVersion = process.env.CALCULATION_ENGINE_VERSION || '2.0.0';
+  const appVersion = APP_VERSION;
+  const engineVersion = COST_ENGINE_VERSION;
 
   return (
     <div className="space-y-6">

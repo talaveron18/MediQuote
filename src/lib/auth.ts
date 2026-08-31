@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { verifySessionToken } from '@/lib/session';
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
+import { APP_VERSION, COST_ENGINE_VERSION } from '@/lib/costing/cost-types';
 
 export const SESSION_COOKIE = 'gasi_session';
 
@@ -233,8 +234,8 @@ export async function logAudit(params: {
         newData: params.newData ?? null,
         result: params.result ?? 'success',
         errorMessage: params.errorMessage ?? null,
-        appVersion: process.env.APP_VERSION || null,
-        engineVersion: process.env.CALCULATION_ENGINE_VERSION || null,
+        appVersion: APP_VERSION,
+        engineVersion: COST_ENGINE_VERSION,
       },
     })
   } catch {

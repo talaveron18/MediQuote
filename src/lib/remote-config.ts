@@ -3,6 +3,7 @@
 // File lives in /remote-config/gasi-config.json for folder sync (Drive/OneDrive/Dropbox).
 
 import type { SurchargeType, SurchargeKind, HolidayType } from './types';
+import { APP_VERSION, COST_ENGINE_VERSION } from '@/lib/costing/cost-types';
 
 // ─── Remote Config File Structure ────────────────────────────
 
@@ -95,8 +96,6 @@ export interface ValidationResult {
   appMinVersion?: string;
 }
 
-const CURRENT_ENGINE_VERSION = '2.0.0';
-const CURRENT_APP_VERSION = '1.0.0';
 export const REMOTE_CONFIG_PATH = 'remote-config/gasi-config.json';
 
 export function validateRemoteConfig(data: unknown): ValidationResult {
@@ -121,26 +120,26 @@ export function validateRemoteConfig(data: unknown): ValidationResult {
     errors.push('Falta _meta.version (ej: "1.0.0").');
   } else {
     // Check major version compatibility
-    const majorCurrent = parseInt(CURRENT_ENGINE_VERSION.split('.')[0], 10);
+    const majorCurrent = parseInt(COST_ENGINE_VERSION.split('.')[0], 10);
     const majorRemote = parseInt(meta.version.split('.')[0], 10);
     if (majorRemote > majorCurrent) {
-      errors.push(`Versión incompatible: archivo v${meta.version}, motor actual v${CURRENT_ENGINE_VERSION}. Actualiza la aplicación antes de importar.`);
+      errors.push(`Versión incompatible: archivo v${meta.version}, motor actual v${COST_ENGINE_VERSION}. Actualiza la aplicación antes de importar.`);
     }
   }
 
   if (meta.calculationEngineVersion) {
-    const majorEngine = parseInt(CURRENT_ENGINE_VERSION.split('.')[0], 10);
+    const majorEngine = parseInt(COST_ENGINE_VERSION.split('.')[0], 10);
     const majorRemoteEngine = parseInt(meta.calculationEngineVersion.split('.')[0], 10);
     if (majorRemoteEngine > majorEngine) {
-      errors.push(`Versión del motor de cálculo incompatible: archivo v${meta.calculationEngineVersion}, actual v${CURRENT_ENGINE_VERSION}.`);
+      errors.push(`Versión del motor de cálculo incompatible: archivo v${meta.calculationEngineVersion}, actual v${COST_ENGINE_VERSION}.`);
     }
   }
 
   if (meta.appMinVersion) {
-    const majorApp = parseInt(CURRENT_APP_VERSION.split('.')[0], 10);
+    const majorApp = parseInt(APP_VERSION.split('.')[0], 10);
     const majorMinApp = parseInt(meta.appMinVersion.split('.')[0], 10);
     if (majorMinApp > majorApp) {
-      errors.push(`Versión mínima de app requerida: v${meta.appMinVersion}. La versión actual es v${CURRENT_APP_VERSION}.`);
+      errors.push(`Versión mínima de app requerida: v${meta.appMinVersion}. La versión actual es v${APP_VERSION}.`);
     }
   }
 
@@ -307,8 +306,8 @@ export async function buildRemoteConfig(exportedBy: string): Promise<RemoteConfi
   }
 
   // Read current appConfig values for version info
-  const engineVersion = appConfig.calculationEngineVersion || CURRENT_ENGINE_VERSION;
-  const appVersion = appConfig.appMinVersion || CURRENT_APP_VERSION;
+  const engineVersion = appConfig.calculationEngineVersion || COST_ENGINE_VERSION;
+  const appVersion = appConfig.appMinVersion || APP_VERSION;
 
   const remoteCategories: RemoteCategory[] = categories.map(c => ({
     name: c.name,
