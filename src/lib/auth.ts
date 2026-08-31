@@ -135,25 +135,15 @@ export async function hashPassword(plain: string): Promise<string> {
 }
 
 /**
- * Verify a password against a bcrypt hash or plain text (migration support).
+ * Verify a password against a bcrypt hash.
+ * Solo se aceptan hashes bcrypt; cualquier valor almacenado que no
+ * empiece por $2 se rechaza (no se admiten contraseñas en texto plano).
  */
 export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
-  // If stored starts with $2, it's a bcrypt hash
-  if (stored.startsWith('$2')) {
-    return bcrypt.compare(plain, stored);
+  if (!stored.startsWith('$2')) {
+    return false;
   }
-  // Legacy plain-text comparison
-  if (plain === stored) {
-    // Auto-migrate: re-hash and save
-    try {
-      const hash = await hashPassword(plain);
-      await db.user.updateMany({ where: { password: stored }, data: { password: hash } });
-    } catch {
-      // Silent — don't break login flow
-    }
-    return true;
-  }
-  return false;
+  return bcrypt.compare(plain, stored);
 }
 
 // ─── Internal field sanitization ──────────────────────────────────
