@@ -305,9 +305,11 @@ export async function buildRemoteConfig(exportedBy: string): Promise<RemoteConfi
     (appConfig as any)[c.key] = c.value;
   }
 
-  // Read current appConfig values for version info
-  const engineVersion = appConfig.calculationEngineVersion || COST_ENGINE_VERSION;
-  const appVersion = appConfig.appMinVersion || APP_VERSION;
+  // La versión del motor y de la app son fuentes fijas del código, no
+  // configurables desde base de datos: así el desfase no puede reaparecer
+  // en instalaciones ya sembradas.
+  const engineVersion = COST_ENGINE_VERSION;
+  const appVersion = APP_VERSION;
 
   const remoteCategories: RemoteCategory[] = categories.map(c => ({
     name: c.name,
