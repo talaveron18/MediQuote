@@ -94,7 +94,7 @@ export async function POST(request: Request) {
   const type = searchParams.get('type');
 
   if (type === 'import') {
-    const auth = await requireAuth(request);
+    const auth = await requireRole(request, ['admin', 'maestro']);
     if (auth instanceof NextResponse) return auth;
 
     try {
