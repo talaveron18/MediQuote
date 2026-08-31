@@ -1,0 +1,72 @@
+{
+  "_meta": {
+    "note": "Plantilla de ejemplo. El archivo real (gasi-config.json) lo genera la app al pulsar Exportar y NO se versiona: contiene costes internos y márgenes. Copia este archivo a gasi-config.json solo para ver la estructura; sustituye todos los valores.",
+    "version": "1.0.0",
+    "exportedAt": "2026-01-01T00:00:00.000Z",
+    "exportedBy": "email@example.com",
+    "calculationEngineVersion": "1.0.0",
+    "appMinVersion": "0.3.0"
+  },
+  "categories": [
+    {
+      "name": "Categoría de ejemplo con descripción",
+      "defaultPricePerHour": 0,
+      "defaultInternalCost": 0,
+      "description": "Descripción de ejemplo",
+      "active": true
+    },
+    {
+      "name": "Categoría de ejemplo sin descripción",
+      "defaultPricePerHour": 0,
+      "defaultInternalCost": 0,
+      "active": true
+    }
+  ],
+  "surcharges": [
+    {
+      "name": "Recargo de ejemplo (fijo)",
+      "type": "desplazamiento",
+      "surchargeType": "fixed",
+      "value": 0,
+      "description": "Descripción de ejemplo",
+      "active": true
+    },
+    {
+      "name": "Recargo de ejemplo (porcentaje)",
+      "type": "dificil_cobertura",
+      "surchargeType": "percentage",
+      "value": 0,
+      "active": true
+    }
+  ],
+  "laborRules": [
+    {
+      "name": "Regla de ejemplo",
+      "maxWeeklyHours": 40,
+      "maxDailyHours": 12,
+      "minRestBetweenShiftsH": 12,
+      "maxConsecutiveDays": 6,
+      "nightStartHour": 22,
+      "nightEndHour": 6
+    }
+  ],
+  "holidays": [
+    {
+      "date": "2025-01-01",
+      "name": "Festivo de ejemplo",
+      "type": "nacional",
+      "recurring": true
+    }
+  ],
+  "appConfig": {
+    "company_name": "Empresa de ejemplo",
+    "company_cif": "X0000000X",
+    "company_address": "Dirección de ejemplo",
+    "company_phone": "000000000",
+    "company_email": "email@example.com",
+    "iva_default": "21",
+    "valid_days_default": "30",
+    "ivaPercent": "21",
+    "maxDiscountPercent": "0"
+  }
+}

@@ -56,7 +56,9 @@ backups/
 # Exports reales (presupuestos JSON, CSV, PDF)
 exports/
 
-# Configuración remota local
+# Configuración remota real (contiene costes internos y márgenes; no versionar).
+# La estructura está en remote-config/gasi-config.example.json
+remote-config/gasi-config.json
 remote-config/gasi-config.local.json
 
 # Logs
