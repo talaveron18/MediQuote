@@ -12,6 +12,13 @@ const includeBudget = {
 
 class SignatureClaimConflict extends Error {}
 
+function noStoreJson(body: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('Cache-Control', 'private, no-store');
+  headers.set('Pragma', 'no-cache');
+  return NextResponse.json(body, { ...init, headers });
+}
+
 async function findRequest(token: string) {
   if (!token || token.length > 200) return null;
   return db.budgetSignatureRequest.findUnique({
@@ -59,25 +66,25 @@ async function revokeIfDocumentChanged(signature: any): Promise<boolean> {
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token') ?? '';
   const signature = await findRequest(token);
-  if (!signature) return NextResponse.json({ error: 'Enlace no válido' }, { status: 404 });
+  if (!signature) return noStoreJson({ error: 'Enlace no válido' }, { status: 404 });
   if (signature.status === 'pending' && signature.expiresAt.getTime() < Date.now()) {
     await db.budgetSignatureRequest.updateMany({
       where: { id: signature.id, status: 'pending' },
       data: { status: 'expired' },
     });
-    return NextResponse.json({ error: 'Este enlace ha caducado' }, { status: 410 });
+    return noStoreJson({ error: 'Este enlace ha caducado' }, { status: 410 });
   }
   if (signature.status !== 'pending') {
-    return NextResponse.json({ status: signature.status, acceptedAt: signature.acceptedAt });
+    return noStoreJson({ status: signature.status, acceptedAt: signature.acceptedAt });
   }
   if (await revokeIfDocumentChanged(signature)) {
-    return NextResponse.json(
+    return noStoreJson(
       { error: 'El presupuesto ha cambiado. Solicite un enlace de firma nuevo.', status: 'revoked' },
       { status: 409 },
     );
   }
   const categories = await db.professionalCategory.findMany({ select: { id: true, name: true } });
-  return NextResponse.json({
+  return noStoreJson({
     status: signature.status,
     expiresAt: signature.expiresAt,
     recipientEmail: signature.recipientEmail,
@@ -92,29 +99,29 @@ export async function POST(request: NextRequest) {
     token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean;
   };
   const signature = await findRequest(body.token ?? '');
-  if (!signature) return NextResponse.json({ error: 'Enlace no válido' }, { status: 404 });
-  if (signature.status !== 'pending') return NextResponse.json({ error: 'Esta solicitud ya no está pendiente', status: signature.status }, { status: 409 });
+  if (!signature) return noStoreJson({ error: 'Enlace no válido' }, { status: 404 });
+  if (signature.status !== 'pending') return noStoreJson({ error: 'Esta solicitud ya no está pendiente', status: signature.status }, { status: 409 });
   if (signature.expiresAt.getTime() < Date.now()) {
     await db.budgetSignatureRequest.updateMany({
       where: { id: signature.id, status: 'pending' },
       data: { status: 'expired' },
     });
-    return NextResponse.json({ error: 'Este enlace ha caducado' }, { status: 410 });
+    return noStoreJson({ error: 'Este enlace ha caducado' }, { status: 410 });
   }
   const signerName = body.signerName?.trim() ?? '';
   const signerEmail = body.signerEmail?.trim().toLowerCase() ?? '';
-  if (signerName.length < 3 || signerName.length > 160) return NextResponse.json({ error: 'Indique el nombre completo del firmante' }, { status: 400 });
-  if (signerEmail !== signature.recipientEmail.toLowerCase()) return NextResponse.json({ error: 'El correo del firmante debe coincidir con el destinatario' }, { status: 400 });
-  if (!body.consent) return NextResponse.json({ error: 'Debe aceptar la declaración de firma' }, { status: 400 });
+  if (signerName.length < 3 || signerName.length > 160) return noStoreJson({ error: 'Indique el nombre completo del firmante' }, { status: 400 });
+  if (signerEmail !== signature.recipientEmail.toLowerCase()) return noStoreJson({ error: 'El correo del firmante debe coincidir con el destinatario' }, { status: 400 });
+  if (!body.consent) return noStoreJson({ error: 'Debe aceptar la declaración de firma' }, { status: 400 });
   if (!isValidSignaturePngDataUrl(body.signatureData)) {
-    return NextResponse.json({ error: 'La firma no es válida o es demasiado grande' }, { status: 400 });
+    return noStoreJson({ error: 'La firma no es válida o es demasiado grande' }, { status: 400 });
   }
   if (!signatureDocumentIsCurrent(signature.budget, signature.documentHash)) {
     await db.budgetSignatureRequest.updateMany({
       where: { id: signature.id, status: 'pending' },
       data: { status: 'revoked' },
     });
-    return NextResponse.json({ error: 'El presupuesto ha cambiado. Solicite un enlace de firma nuevo.' }, { status: 409 });
+    return noStoreJson({ error: 'El presupuesto ha cambiado. Solicite un enlace de firma nuevo.' }, { status: 409 });
   }
 
   const acceptedAt = new Date();
@@ -143,7 +150,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof SignatureClaimConflict) {
-      return NextResponse.json({ error: 'Esta solicitud ya ha sido procesada', status: 'accepted' }, { status: 409 });
+      return noStoreJson({ error: 'Esta solicitud ya ha sido procesada', status: 'accepted' }, { status: 409 });
     }
     throw error;
   }
@@ -173,5 +180,5 @@ export async function POST(request: NextRequest) {
     userName: signerName, userRole: 'client', summary: `${signature.budget.code} firmado por ${signerEmail}`,
     newData: JSON.stringify({ signatureRequestId: signature.id, acceptedAt, documentHash: signature.documentHash }),
   });
-  return NextResponse.json({ status: 'accepted', acceptedAt });
+  return noStoreJson({ status: 'accepted', acceptedAt });
 }
