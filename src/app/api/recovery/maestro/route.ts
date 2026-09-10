@@ -2,10 +2,10 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword, logAudit } from '@/lib/auth';
+import { bumpSessionGeneration } from '@/lib/password-recovery-store';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 
 export const runtime = 'nodejs';
-// El secreto solo existe en el entorno de producción y se rota tras cada recuperación.
 
 function sameSecret(provided: string, expected: string): boolean {
   const left = Buffer.from(provided, 'utf8');
@@ -52,11 +52,12 @@ export async function POST(request: NextRequest) {
         update: { value: secretFingerprint },
       }),
     ]);
+    await bumpSessionGeneration(maestro.id);
 
     await logAudit({
       action: 'maestro_password_recovered', entity: 'user', entityId: maestro.id,
       userId: maestro.id, userName: maestro.name, userRole: 'maestro',
-      summary: `Recuperación de emergencia utilizada para ${maestro.email}`,
+      summary: `Recuperación de emergencia utilizada para ${maestro.email}; sesiones anteriores revocadas`,
     });
 
     return NextResponse.json({ success: true, email: maestro.email, mustChangePassword: true });
