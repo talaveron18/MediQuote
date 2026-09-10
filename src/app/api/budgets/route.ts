@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
 import { exportBudgetLightweight } from '@/lib/export-budget-lightweight'
+import { claimCostingQuote } from '@/lib/single-use-quote'
+import { sealBudgetArtifactWithClient } from '@/lib/economic-artifact-store'
+import { buildPersistedBudgetSealPayload } from '@/lib/budget-seal-payload'
 import type { BudgetStatus } from '@/lib/types'
 
-// ─── Helpers ──────────────────────────────────────────────────────
+class CostingQuoteConflict extends Error {}
+class BudgetSealConflict extends Error {}
 
 function generateBudgetCode(existingCount: number): string {
   const now = new Date()
@@ -41,9 +45,7 @@ function serializeServiceBlockData(block: Record<string, any>): Record<string, a
     daysOfWeek: block.daysOfWeek ? JSON.stringify(block.daysOfWeek) : null,
     excludeSundays: block.excludeSundays ?? false,
     excludeHolidays: block.excludeHolidays ?? false,
-    holidayTypesExcluded: block.holidayTypesExcluded
-      ? JSON.stringify(block.holidayTypesExcluded)
-      : null,
+    holidayTypesExcluded: block.holidayTypesExcluded ? JSON.stringify(block.holidayTypesExcluded) : null,
     shiftType: block.shiftType,
     shiftStartTime: block.shiftStartTime ?? null,
     shiftEndTime: block.shiftEndTime ?? null,
@@ -131,10 +133,10 @@ function blocksFromCostingSnapshot(snapshot: string): Record<string, any>[] | nu
 }
 
 function locationFromCostingSnapshot(snapshot: string): {
-  serviceLocationId: string;
-  serviceAutonomousCommunity: string;
-  serviceProvince: string;
-  serviceMunicipality: string | null;
+  serviceLocationId: string
+  serviceAutonomousCommunity: string
+  serviceProvince: string
+  serviceMunicipality: string | null
 } | null {
   try {
     const parsed = JSON.parse(snapshot)
@@ -146,14 +148,16 @@ function locationFromCostingSnapshot(snapshot: string): {
       serviceProvince: String(location.province),
       serviceMunicipality: location.municipality ? String(location.municipality) : null,
     }
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
 
 function approvalTriggerFromSnapshot(snapshot: string): {
-  required: boolean;
-  discountPercent: number;
-  semaphore: string | null;
-  reason: string;
+  required: boolean
+  discountPercent: number
+  semaphore: string | null
+  reason: string
 } {
   try {
     const commercial = JSON.parse(snapshot)?.commercial
@@ -211,11 +215,6 @@ async function ensureBudgetApproval(params: {
   }
 }
 
-/**
- * Sanitize budget response for comercial users:
- * - Remove internalNotes from budget
- * - Remove internalCostPerHour, internalMargin from serviceBlocks
- */
 function sanitizeBudgetForCommercial(budget: any): any {
   const { internalNotes, serviceBlocks, ...rest } = budget
   const cleanBlocks = serviceBlocks?.map((block: any) => {
@@ -227,12 +226,46 @@ function sanitizeBudgetForCommercial(budget: any): any {
 
 function sanitizeBudgetsForRole(data: { budgets: any[] }, role: string) {
   if (role === 'admin' || role === 'maestro') return data
-  return {
-    budgets: data.budgets.map(sanitizeBudgetForCommercial),
-  }
+  return { budgets: data.budgets.map(sanitizeBudgetForCommercial) }
 }
 
-// ─── GET ──────────────────────────────────────────────────────────
+async function sealPersistedBudget(
+  tx: any,
+  budgetId: string,
+  userId: string,
+  quoteSnapshot: string,
+  createdAt = new Date(),
+) {
+  const persisted = await tx.budget.findUnique({
+    where: { id: budgetId },
+    include: {
+      client: true,
+      serviceBlocks: { orderBy: { sortOrder: 'asc' } },
+    },
+  })
+  if (!persisted) throw new BudgetSealConflict('Presupuesto no encontrado al sellar')
+
+  return sealBudgetArtifactWithClient(tx, {
+    budgetId,
+    createdById: userId,
+    createdAt,
+    payload: (version) => buildPersistedBudgetSealPayload({
+      budget: persisted,
+      quoteSnapshot,
+      version,
+      emittedAt: createdAt,
+    }),
+  })
+}
+
+async function latestUsedQuoteSnapshot(client: any, budgetId: string): Promise<string | null> {
+  const quote = await client.costingQuote.findFirst({
+    where: { budgetId, usedAt: { not: null } },
+    orderBy: { usedAt: 'desc' },
+    select: { snapshot: true },
+  })
+  return quote?.snapshot ?? null
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -243,17 +276,9 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const clientId = searchParams.get('clientId')
     const search = searchParams.get('search')
-
     const where: Record<string, unknown> = {}
-
-    if (status) {
-      where.status = status
-    }
-
-    if (clientId) {
-      where.clientId = clientId
-    }
-
+    if (status) where.status = status
+    if (clientId) where.clientId = clientId
     if (search) {
       where.OR = [
         { code: { contains: search } },
@@ -266,423 +291,300 @@ export async function GET(request: NextRequest) {
       where,
       include: {
         serviceBlocks: { orderBy: { sortOrder: 'asc' } },
-        client: {
-          select: { businessName: true, cif: true },
-        },
-        createdBy: {
-          select: { name: true },
-        },
-        _count: {
-          select: { serviceBlocks: true },
-        },
+        client: { select: { businessName: true, cif: true } },
+        createdBy: { select: { name: true } },
+        _count: { select: { serviceBlocks: true } },
       },
       orderBy: { createdAt: 'desc' },
     })
-
-    const result = { budgets: budgets.map(deserializeBudget) }
-    return NextResponse.json(sanitizeBudgetsForRole(result, auth.role))
+    return NextResponse.json(sanitizeBudgetsForRole({ budgets: budgets.map(deserializeBudget) }, auth.role))
   } catch (error) {
     console.error('[GET /api/budgets] Error:', error)
-    return NextResponse.json(
-      { error: 'Error al obtener presupuestos' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'Error al obtener presupuestos' }, { status: 500 })
   }
 }
-
-// ─── POST ─────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request)
     if (auth instanceof NextResponse) return auth
-
     const body = await request.json()
     const {
       clientId,
       status = 'borrador' as BudgetStatus,
       validUntil,
       description,
-      subtotal = 0,
-      totalSurcharges = 0,
-      discountPercent = 0,
-      discountAmount = 0,
-      ivaPercent = 21,
-      ivaAmount = 0,
-      totalFinal = 0,
       clientNotes,
       internalNotes,
-      serviceBlocks,
       calculationToken,
     } = body
 
-    const costingQuote = await getValidCostingQuote(auth.id, calculationToken)
-    if (!costingQuote) {
+    const previewQuote = await getValidCostingQuote(auth.id, calculationToken)
+    if (!previewQuote) {
       return NextResponse.json({ error: 'La cotización económica falta, ha caducado o ya fue utilizada. Vuelve a calcular.' }, { status: 409 })
     }
-    const quotedBlocks = blocksFromCostingSnapshot(costingQuote.snapshot)
+    const quotedBlocks = blocksFromCostingSnapshot(previewQuote.snapshot)
+    const quotedLocation = locationFromCostingSnapshot(previewQuote.snapshot)
     if (!quotedBlocks?.length) {
       return NextResponse.json({ error: 'La cotización económica no contiene bloques válidos. Vuelve a calcular.' }, { status: 409 })
     }
-    const quotedLocation = locationFromCostingSnapshot(costingQuote.snapshot)
     if (!quotedLocation) {
       return NextResponse.json({ error: 'La cotización económica no contiene una zona de servicio válida. Vuelve a calcular.' }, { status: 409 })
     }
 
-    // Resolve client ID by CIF (supports old and new IDs)
     let resolvedClientId = clientId
     if (clientId && !clientId.startsWith('cmr')) {
       const client = await db.client.findFirst({ where: { cif: clientId } })
       if (client) resolvedClientId = client.id
     }
 
-    // Auto-generate sequential code for today
-    const prefix = todayPrefix()
-    const todayCount = await db.budget.count({
-      where: { code: { startsWith: prefix } },
-    })
+    const todayCount = await db.budget.count({ where: { code: { startsWith: todayPrefix() } } })
     const code = generateBudgetCode(todayCount)
-
-    // Los bloques se recuperan del snapshot del servidor. El navegador no puede
-    // cambiar horas, categoría o costes entre calcular y guardar.
     const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
-    const blocksToSave = quotedBlocks
+    const sealedAt = new Date()
 
-    // Create budget — use authenticated user's ID
-    const budget = await db.budget.create({
-      data: {
-        code,
-        clientId: resolvedClientId,
-        createdById: auth.id,
-        status,
-        validUntil: validUntil ?? null,
-        description: description ?? null,
-        subtotal: costingQuote.subtotal,
-        totalSurcharges: 0,
-        discountPercent: costingQuote.discountPercent,
-        discountAmount: costingQuote.discountAmount,
-        ivaPercent: costingQuote.ivaPercent,
-        ivaAmount: costingQuote.ivaAmount,
-        totalFinal: costingQuote.totalFinal,
-        clientNotes: clientNotes ?? null,
-        // internalNotes only settable by admin/maestro
-        internalNotes: canSeeInternal ? (internalNotes ?? null) : null,
-        ...quotedLocation,
-        serviceBlocks: blocksToSave.length
-          ? {
-              create: blocksToSave.map((block, index) => ({
-                ...serializeServiceBlockData(block),
-                sortOrder: index,
-              })) as any,
-            }
-          : undefined,
-        history: {
-          create: {
-            userId: auth.id,
-            action: 'created',
-            snapshot: costingQuote.snapshot,
+    const result = await db.$transaction(async (tx) => {
+      const costingQuote = await claimCostingQuote(tx, auth.id, calculationToken, sealedAt)
+      if (!costingQuote) throw new CostingQuoteConflict('Cotización ya consumida o caducada')
+
+      const budget = await tx.budget.create({
+        data: {
+          code,
+          clientId: resolvedClientId,
+          createdById: auth.id,
+          status,
+          validUntil: validUntil ?? null,
+          description: description ?? null,
+          subtotal: costingQuote.subtotal as number,
+          totalSurcharges: 0,
+          discountPercent: costingQuote.discountPercent as number,
+          discountAmount: costingQuote.discountAmount as number,
+          ivaPercent: costingQuote.ivaPercent as number,
+          ivaAmount: costingQuote.ivaAmount as number,
+          totalFinal: costingQuote.totalFinal as number,
+          clientNotes: clientNotes ?? null,
+          internalNotes: canSeeInternal ? (internalNotes ?? null) : null,
+          ...quotedLocation,
+          serviceBlocks: {
+            create: quotedBlocks.map((block, index) => ({
+              ...serializeServiceBlockData(block),
+              sortOrder: index,
+            })) as any,
+          },
+          history: {
+            create: { userId: auth.id, action: 'created', snapshot: costingQuote.snapshot as string },
           },
         },
-      },
-      include: {
-        serviceBlocks: true,
-      },
-    })
+        include: { serviceBlocks: true, client: true },
+      })
 
-    await db.costingQuote.update({
-      where: { id: costingQuote.id },
-      data: { usedAt: new Date(), budgetId: budget.id },
+      await tx.costingQuote.update({
+        where: { id: costingQuote.id as string },
+        data: { budgetId: budget.id },
+      })
+      const artifact = await sealPersistedBudget(tx, budget.id, auth.id, costingQuote.snapshot as string, sealedAt)
+      return { budget, artifact, quoteSnapshot: costingQuote.snapshot as string }
     })
 
     await ensureBudgetApproval({
-      budgetId: budget.id,
-      budgetCode: budget.code,
+      budgetId: result.budget.id,
+      budgetCode: result.budget.code,
       requesterId: auth.id,
       requesterRole: auth.role,
-      snapshot: costingQuote.snapshot,
+      snapshot: result.quoteSnapshot,
     })
 
-    // Auto-export: JSON + CSV + AuditLog (lightweight, no PDF)
-    exportBudgetLightweight(budget.id, {
-      id: auth.id,
-      email: auth.email,
-      name: auth.name,
-      role: auth.role,
+    exportBudgetLightweight(result.budget.id, {
+      id: auth.id, email: auth.email, name: auth.name, role: auth.role,
     }).catch(err => console.error('[POST /api/budgets] Auto-export error:', err))
 
-    // Sanitize response for comercial users
-    const result = { budget }
+    const artifactInfo = { version: result.artifact.version, artifactHash: result.artifact.artifactHash }
     if (!canSeeInternal) {
-      return NextResponse.json({
-        budget: sanitizeBudgetForCommercial(budget),
-      }, { status: 201 })
+      return NextResponse.json({ budget: sanitizeBudgetForCommercial(result.budget), immutableArtifact: artifactInfo }, { status: 201 })
     }
-    return NextResponse.json(result, { status: 201 })
+    return NextResponse.json({ budget: result.budget, immutableArtifact: artifactInfo }, { status: 201 })
   } catch (error) {
+    if (error instanceof CostingQuoteConflict) {
+      return NextResponse.json({ error: 'La cotización económica ya fue utilizada por otro guardado. Vuelve a calcular.' }, { status: 409 })
+    }
     console.error('[POST /api/budgets] Error:', error)
-    return NextResponse.json(
-      { error: 'Error al crear presupuesto' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'Error al crear presupuesto' }, { status: 500 })
   }
 }
-
-// ─── PUT ──────────────────────────────────────────────────────────
 
 export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth(request)
     if (auth instanceof NextResponse) return auth
-
     const body = await request.json()
     const { id, serviceBlocks, calculationToken, ...updateData } = body
+    if (!id) return NextResponse.json({ error: 'Se requiere el ID del presupuesto' }, { status: 400 })
 
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Se requiere el ID del presupuesto' },
-        { status: 400 },
-      )
-    }
+    const existing = await db.budget.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
 
     const updatesEconomicData = serviceBlocks !== undefined || [
       'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
       'ivaPercent', 'ivaAmount', 'totalFinal', 'serviceLocationId',
       'serviceAutonomousCommunity', 'serviceProvince', 'serviceMunicipality',
     ].some((key) => updateData[key] !== undefined)
-    const costingQuote = updatesEconomicData
-      ? await getValidCostingQuote(auth.id, calculationToken)
-      : null
-    if (updatesEconomicData && !costingQuote) {
+
+    const previewQuote = updatesEconomicData ? await getValidCostingQuote(auth.id, calculationToken) : null
+    if (updatesEconomicData && !previewQuote) {
       return NextResponse.json({ error: 'La cotización económica falta, ha caducado o ya fue utilizada. Vuelve a calcular.' }, { status: 409 })
     }
-
-    // Fetch existing budget to detect status change
-    const existing = await db.budget.findUnique({
-      where: { id },
-    })
-
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Presupuesto no encontrado' },
-        { status: 404 },
-      )
-    }
-
-    const userId = auth.id
-    const historyEntries: {
-      userId: string
-      action: string
-      oldStatus?: string | null
-      newStatus?: string | null
-      snapshot?: string | null
-    }[] = []
-
-    // Detect status change
-    if (updateData.status && updateData.status !== existing.status) {
-      historyEntries.push({
-        userId,
-        action: 'status_changed',
-        oldStatus: existing.status,
-        newStatus: updateData.status,
-      })
-    }
-
-    // Always record a modification
-    historyEntries.push({
-      userId,
-      action: 'modified',
-      snapshot: costingQuote?.snapshot ?? null,
-    })
-
-    // Prepare update payload (remove fields that shouldn't be directly set)
-    const {
-      clientId,
-      status,
-      validUntil,
-      description,
-      subtotal,
-      totalSurcharges,
-      discountPercent,
-      discountAmount,
-      ivaPercent,
-      ivaAmount,
-      totalFinal,
-      clientNotes,
-      internalNotes,
-    } = updateData
-
-    // For comercial users, strip internal fields from service block updates
-    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
-    let processedBlocks = costingQuote
-      ? blocksFromCostingSnapshot(costingQuote.snapshot)
-      : serviceBlocks
-    if (costingQuote && !processedBlocks?.length) {
+    const processedBlocks = previewQuote ? blocksFromCostingSnapshot(previewQuote.snapshot) : undefined
+    const quotedLocation = previewQuote ? locationFromCostingSnapshot(previewQuote.snapshot) : null
+    if (previewQuote && !processedBlocks?.length) {
       return NextResponse.json({ error: 'La cotización económica no contiene bloques válidos. Vuelve a calcular.' }, { status: 409 })
     }
-    const quotedLocation = costingQuote ? locationFromCostingSnapshot(costingQuote.snapshot) : null
-    if (costingQuote && !quotedLocation) {
+    if (previewQuote && !quotedLocation) {
       return NextResponse.json({ error: 'La cotización económica no contiene una zona de servicio válida. Vuelve a calcular.' }, { status: 409 })
     }
 
-    // Delete existing service blocks if new ones are provided
-    if (processedBlocks !== undefined) {
-      await db.serviceBlock.deleteMany({
-        where: { budgetId: id },
+    const historyEntries: any[] = []
+    if (updateData.status && updateData.status !== existing.status) {
+      historyEntries.push({
+        userId: auth.id, action: 'status_changed', oldStatus: existing.status, newStatus: updateData.status,
       })
     }
+    historyEntries.push({ userId: auth.id, action: 'modified', snapshot: previewQuote?.snapshot ?? null })
 
-    // Update budget
-    const updated = await db.budget.update({
-      where: { id },
-      data: {
-        ...(clientId !== undefined && { clientId }),
-        ...(status !== undefined && { status }),
-        ...(validUntil !== undefined && { validUntil: validUntil ?? null }),
-        ...(description !== undefined && { description: description ?? null }),
-        ...(costingQuote
-          ? {
-              subtotal: costingQuote.subtotal,
-              totalSurcharges: 0,
-              discountPercent: costingQuote.discountPercent,
-              discountAmount: costingQuote.discountAmount,
-              ivaPercent: costingQuote.ivaPercent,
-              ivaAmount: costingQuote.ivaAmount,
-              totalFinal: costingQuote.totalFinal,
-            }
-          : {
-              ...(subtotal !== undefined && { subtotal }),
-              ...(totalSurcharges !== undefined && { totalSurcharges }),
-              ...(discountPercent !== undefined && { discountPercent }),
-              ...(discountAmount !== undefined && { discountAmount }),
-              ...(ivaPercent !== undefined && { ivaPercent }),
-              ...(ivaAmount !== undefined && { ivaAmount }),
-              ...(totalFinal !== undefined && { totalFinal }),
-            }),
-        ...(clientNotes !== undefined && { clientNotes: clientNotes ?? null }),
-        // internalNotes only settable by admin/maestro
-        ...(canSeeInternal && internalNotes !== undefined && { internalNotes: internalNotes ?? null }),
-        ...(quotedLocation ?? {}),
-        // Recreate service blocks if provided
-        ...(processedBlocks?.length
-          ? {
-              serviceBlocks: {
-                create: processedBlocks.map((block: Record<string, any>, index: number) => ({
-                  ...serializeServiceBlockData(block),
-                  sortOrder: index,
-                })) as any,
-              },
-            }
-          : {}),
-        // Create history entries
-        history: {
-          create: historyEntries,
+    const {
+      clientId, status, validUntil, description,
+      clientNotes, internalNotes,
+    } = updateData
+    const canSeeInternal = auth.role === 'admin' || auth.role === 'maestro'
+    const sealedAt = new Date()
+
+    const result = await db.$transaction(async (tx) => {
+      const costingQuote = previewQuote
+        ? await claimCostingQuote(tx, auth.id, calculationToken, sealedAt)
+        : null
+      if (previewQuote && !costingQuote) throw new CostingQuoteConflict('Cotización ya consumida o caducada')
+
+      if (processedBlocks !== undefined) {
+        await tx.serviceBlock.deleteMany({ where: { budgetId: id } })
+      }
+
+      const updated = await tx.budget.update({
+        where: { id },
+        data: {
+          ...(clientId !== undefined && { clientId }),
+          ...(status !== undefined && { status }),
+          ...(validUntil !== undefined && { validUntil: validUntil ?? null }),
+          ...(description !== undefined && { description: description ?? null }),
+          ...(costingQuote ? {
+            subtotal: costingQuote.subtotal as number,
+            totalSurcharges: 0,
+            discountPercent: costingQuote.discountPercent as number,
+            discountAmount: costingQuote.discountAmount as number,
+            ivaPercent: costingQuote.ivaPercent as number,
+            ivaAmount: costingQuote.ivaAmount as number,
+            totalFinal: costingQuote.totalFinal as number,
+          } : {}),
+          ...(clientNotes !== undefined && { clientNotes: clientNotes ?? null }),
+          ...(canSeeInternal && internalNotes !== undefined && { internalNotes: internalNotes ?? null }),
+          ...(quotedLocation ?? {}),
+          ...(processedBlocks?.length ? {
+            serviceBlocks: {
+              create: processedBlocks.map((block, index) => ({
+                ...serializeServiceBlockData(block), sortOrder: index,
+              })) as any,
+            },
+          } : {}),
+          history: { create: historyEntries },
         },
-      },
-      include: {
-        serviceBlocks: true,
-        client: {
-          select: { businessName: true, cif: true },
+        include: {
+          serviceBlocks: { orderBy: { sortOrder: 'asc' } },
+          client: { select: { businessName: true, cif: true } },
+          createdBy: { select: { name: true } },
         },
-        createdBy: {
-          select: { name: true },
-        },
-      },
+      })
+
+      if (costingQuote) {
+        await tx.costingQuote.update({
+          where: { id: costingQuote.id as string },
+          data: { budgetId: id },
+        })
+      }
+      const quoteSnapshot = costingQuote?.snapshot as string | undefined
+        ?? await latestUsedQuoteSnapshot(tx, id)
+      if (!quoteSnapshot) throw new BudgetSealConflict('El presupuesto no conserva una cotización económica auditable')
+      const artifact = await sealPersistedBudget(tx, id, auth.id, quoteSnapshot, sealedAt)
+      return { updated, artifact, quoteSnapshot }
     })
 
-    if (costingQuote) {
-      await db.costingQuote.update({
-        where: { id: costingQuote.id },
-        data: { usedAt: new Date(), budgetId: id },
-      })
+    if (previewQuote) {
       await ensureBudgetApproval({
-        budgetId: updated.id,
-        budgetCode: updated.code,
+        budgetId: result.updated.id,
+        budgetCode: result.updated.code,
         requesterId: auth.id,
         requesterRole: auth.role,
-        snapshot: costingQuote.snapshot,
+        snapshot: result.quoteSnapshot,
       })
     }
 
-    // Auto-export: JSON + CSV + AuditLog (lightweight, no PDF)
-    exportBudgetLightweight(updated.id, {
-      id: auth.id,
-      email: auth.email,
-      name: auth.name,
-      role: auth.role,
+    exportBudgetLightweight(result.updated.id, {
+      id: auth.id, email: auth.email, name: auth.name, role: auth.role,
     }).catch(err => console.error('[PUT /api/budgets] Auto-export error:', err))
 
-    // Sanitize response for comercial users
+    const artifactInfo = { version: result.artifact.version, artifactHash: result.artifact.artifactHash }
     if (!canSeeInternal) {
-      return NextResponse.json({ budget: sanitizeBudgetForCommercial(updated) })
+      return NextResponse.json({ budget: sanitizeBudgetForCommercial(result.updated), immutableArtifact: artifactInfo })
     }
-    return NextResponse.json({ budget: updated })
+    return NextResponse.json({ budget: result.updated, immutableArtifact: artifactInfo })
   } catch (error) {
+    if (error instanceof CostingQuoteConflict) {
+      return NextResponse.json({ error: 'La cotización económica ya fue utilizada por otro guardado. Vuelve a calcular.' }, { status: 409 })
+    }
+    if (error instanceof BudgetSealConflict) {
+      return NextResponse.json({ error: error.message }, { status: 409 })
+    }
     console.error('[PUT /api/budgets] Error:', error)
-    return NextResponse.json(
-      { error: 'Error al actualizar presupuesto' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'Error al actualizar presupuesto' }, { status: 500 })
   }
 }
-
-// ─── DELETE ───────────────────────────────────────────────────────
 
 export async function DELETE(request: NextRequest) {
   try {
     const auth = await requireAuth(request)
     if (auth instanceof NextResponse) return auth
+    const id = new URL(request.url).searchParams.get('id')
+    if (!id) return NextResponse.json({ error: 'Se requiere el ID del presupuesto' }, { status: 400 })
 
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
+    const existing = await db.budget.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
+    const sealedAt = new Date()
 
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Se requiere el ID del presupuesto' },
-        { status: 400 },
-      )
-    }
-
-    const existing = await db.budget.findUnique({
-      where: { id },
-    })
-
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Presupuesto no encontrado' },
-        { status: 404 },
-      )
-    }
-
-    // Soft-delete: set status to caducado
-    await db.budget.update({
-      where: { id },
-      data: {
-        status: 'caducado',
-        history: {
-          create: {
-            userId: auth.id,
-            action: 'status_changed',
-            oldStatus: existing.status,
-            newStatus: 'caducado',
-          },
+    const artifact = await db.$transaction(async (tx) => {
+      const quoteSnapshot = await latestUsedQuoteSnapshot(tx, id)
+      if (!quoteSnapshot) throw new BudgetSealConflict('El presupuesto no conserva una cotización económica auditable')
+      await tx.budget.update({
+        where: { id },
+        data: {
+          status: 'caducado',
+          history: { create: {
+            userId: auth.id, action: 'status_changed', oldStatus: existing.status, newStatus: 'caducado',
+          } },
         },
-      },
+      })
+      return sealPersistedBudget(tx, id, auth.id, quoteSnapshot, sealedAt)
     })
 
-    // Re-export to reflect new status in JSON + CSV + AuditLog
     exportBudgetLightweight(id, {
-      id: auth.id,
-      email: auth.email,
-      name: auth.name,
-      role: auth.role,
+      id: auth.id, email: auth.email, name: auth.name, role: auth.role,
     }).catch(err => console.error('[DELETE /api/budgets] Auto-export error:', err))
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      immutableArtifact: { version: artifact.version, artifactHash: artifact.artifactHash },
+    })
   } catch (error) {
+    if (error instanceof BudgetSealConflict) {
+      return NextResponse.json({ error: error.message }, { status: 409 })
+    }
     console.error('[DELETE /api/budgets] Error:', error)
-    return NextResponse.json(
-      { error: 'Error al eliminar presupuesto' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'Error al eliminar presupuesto' }, { status: 500 })
   }
 }
