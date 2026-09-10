@@ -11,17 +11,6 @@ const RATE_EPSILON = 1e-9;
 const roundMoney = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 const roundRate = (value: number): number => Math.round((value + Number.EPSILON) * 10_000) / 10_000;
 
-export const DEFAULT_GASI_COMMERCIAL_POLICY: Readonly<CommercialPolicy> = Object.freeze({
-  gasiMarkupOnCostPercent: 40,
-  commercialFloorOnCostPercent: 12,
-  commercialBufferOnCostPercent: 8,
-  commissionAtFloorPercent: 12,
-  commissionIntermediatePercent: 13.5,
-  commissionAtListPercent: 15,
-  semaphoreTargetReturnOnCostPercent: 40,
-  semaphoreReviewReturnOnCostPercent: 30,
-});
-
 export function calculatePriceRange(
   totalInternalCost: number,
   policy: CommercialPolicy,
