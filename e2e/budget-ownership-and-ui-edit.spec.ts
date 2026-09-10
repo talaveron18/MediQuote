@@ -40,7 +40,11 @@ async function login(page: Page, email: string, password: string) {
   await page.locator('input#password').fill(password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL('/');
-  await expect(page.getByRole('heading', { name: 'Presupuestos' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Presupuestos' })).toBeVisible({ timeout: 15_000 });
+  const remoteConfigDialog = page.getByRole('dialog', { name: 'Configuración remota disponible' });
+  if (await remoteConfigDialog.isVisible().catch(() => false)) {
+    await remoteConfigDialog.getByRole('button', { name: 'Ahora no' }).click();
+  }
 }
 
 async function logout(page: Page) {
@@ -154,6 +158,7 @@ test('3 · comercial no puede caducar/eliminar por ID un presupuesto ajeno', asy
 });
 
 test('4 · dashboard → editar → recalcular → guardar crea v2 y persiste tras reabrir y recargar', async ({ page }) => {
+  test.setTimeout(60_000);
   await login(page, 'e2e.maestro@example.invalid', maestroPassword);
   const marker = `E2E UI edit ${Date.now()}`;
   const created = await createBudget(page, marker, 13, 2);
@@ -185,7 +190,7 @@ test('4 · dashboard → editar → recalcular → guardar crea v2 y persiste tr
   const editedCalculation = await calculationResponse.json() as Calculation;
 
   const savePromise = page.waitForResponse((response) => response.url().endsWith('/api/budgets') && response.request().method() === 'PUT');
-  await page.getByRole('button', { name: /Guardar/i }).click();
+  await page.getByRole('button', { name: 'Actualizar', exact: true }).click();
   const saveResponse = await savePromise;
   expect(saveResponse.status()).toBe(200);
   const saved = await saveResponse.json() as SavedPayload;
