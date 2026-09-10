@@ -70,7 +70,7 @@ test('credenciales inválidas no autentican y muestran un error genérico', asyn
   await fillLogin(page, 'no-existe@example.invalid', 'Credencial-Invalida-2026!');
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByText('Credenciales incorrectas')).toBeVisible();
+  await expect(page.getByText('Credenciales incorrectas', { exact: true })).toBeVisible();
 });
 
 test('doble clic rápido en login produce una única solicitud de autenticación', async ({ page }) => {
