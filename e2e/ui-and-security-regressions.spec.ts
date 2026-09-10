@@ -58,7 +58,7 @@ async function createBudget(page: Page) {
 
 test('los controles visuales permiten añadir y quitar bloques sin borrar el bloque restante', async ({ page }) => {
   await login(page);
-  await page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
   await expect(page.getByText('Bloque 1', { exact: false })).toBeVisible();
 
