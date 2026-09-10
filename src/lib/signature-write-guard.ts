@@ -6,7 +6,7 @@ export function signatureDocumentIsCurrent(budget: unknown, expectedHash: string
 
 export type PendingSignatureClaimClient = {
   budgetSignatureRequest: {
-    updateMany(args: unknown): Promise<{ count: number }>
+    updateMany(args: any): Promise<{ count: number }>
   }
 }
 
