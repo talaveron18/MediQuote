@@ -20,7 +20,9 @@ async function openNewBudget(page: Page) {
 
 async function addBlock(page: Page, label: string) {
   await page.getByRole('button', { name: /Añadir bloque/i }).click();
-  await page.getByRole('button', { name: label, exact: true }).click();
+  const option = page.locator('button').filter({ hasText: label });
+  await expect(option).toHaveCount(1);
+  await option.click();
 }
 
 test('UI permite añadir varios tipos de bloque y mantiene su orden visual', async ({ page }) => {
