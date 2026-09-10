@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { hashSignatureToken, SIGNATURE_CONSENT } from '@/lib/budget-signature';
 import { claimPendingSignature, signatureDocumentIsCurrent } from '@/lib/signature-write-guard';
 import { logAudit } from '@/lib/auth';
+import { isValidSignaturePngDataUrl } from '@/lib/signature-image';
 
 const includeBudget = {
   client: true,
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
   if (signerName.length < 3 || signerName.length > 160) return NextResponse.json({ error: 'Indique el nombre completo del firmante' }, { status: 400 });
   if (signerEmail !== signature.recipientEmail.toLowerCase()) return NextResponse.json({ error: 'El correo del firmante debe coincidir con el destinatario' }, { status: 400 });
   if (!body.consent) return NextResponse.json({ error: 'Debe aceptar la declaración de firma' }, { status: 400 });
-  if (!body.signatureData?.startsWith('data:image/png;base64,') || body.signatureData.length > 700_000) {
+  if (!isValidSignaturePngDataUrl(body.signatureData)) {
     return NextResponse.json({ error: 'La firma no es válida o es demasiado grande' }, { status: 400 });
   }
   if (!signatureDocumentIsCurrent(signature.budget, signature.documentHash)) {
