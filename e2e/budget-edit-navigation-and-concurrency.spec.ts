@@ -69,10 +69,13 @@ test('1 · back/forward reabre el mismo presupuesto sin perder identidad ni dato
   const marker = `E2E history ${Date.now()}`;
   const created = await createBudget(page, marker);
   await openEdit(page, created.budget.code);
+  await expect(page).toHaveURL(new RegExp(`view=budget-edit.*budgetId=${created.budget.id}`));
   await expect(page.locator('#budget-desc')).toHaveValue(marker);
   await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('heading', { name: 'Presupuestos' })).toBeVisible();
   await page.goForward();
+  await expect(page).toHaveURL(new RegExp(`view=budget-edit.*budgetId=${created.budget.id}`));
   await expect(page.getByRole('heading', { name: 'Editar presupuesto' })).toBeVisible();
   await expect(page.locator('#budget-desc')).toHaveValue(marker);
   await expect(page.locator('#svc-name-0')).toHaveValue('Material edit navigation E2E');
@@ -83,6 +86,7 @@ test('2 · refresh dentro de edición reconstruye el presupuesto desde persisten
   const marker = `E2E refresh edit ${Date.now()}`;
   const created = await createBudget(page, marker);
   await openEdit(page, created.budget.code);
+  await expect(page).toHaveURL(new RegExp(`view=budget-edit.*budgetId=${created.budget.id}`));
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Editar presupuesto' })).toBeVisible();
   await expect(page.locator('#budget-desc')).toHaveValue(marker);
@@ -105,7 +109,7 @@ test('3 · doble clic en Actualizar no puede consumir dos veces la misma cotizac
   page.on('response', response => {
     if (response.url().endsWith('/api/budgets') && response.request().method() === 'PUT') putStatuses.push(response.status());
   });
-  await page.getByRole('button', { name: 'Actualizar', exact: true }).dblclick();
+  await page.getByRole('button', { name: 'Actualizar', exact: true }).dblclick({ force: true });
   await expect(page.getByRole('heading', { name: 'Presupuestos' })).toBeVisible();
   await page.waitForTimeout(400);
   expect(putStatuses.filter(s => s === 200)).toHaveLength(1);
@@ -128,7 +132,9 @@ test('4 · modificar un campo después de calcular invalida el resultado y bloqu
   await expect(page.getByText(/Recalcular necesario/i)).toBeVisible();
   let putSeen = false;
   page.on('request', request => { if (request.url().endsWith('/api/budgets') && request.method() === 'PUT') putSeen = true; });
-  await page.getByRole('button', { name: 'Actualizar', exact: true }).click();
+  // The success toast from Calculate can visually overlap the footer for a moment;
+  // force dispatches the click so this regression tests stale-result blocking rather than toast timing.
+  await page.getByRole('button', { name: 'Actualizar', exact: true }).click({ force: true });
   await page.waitForTimeout(300);
   expect(putSeen).toBe(false);
   const exact = await api<{ budgets: SavedBudget[] }>(page, `/api/budgets?id=${encodeURIComponent(created.budget.id)}`);
