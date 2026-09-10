@@ -1,0 +1,89 @@
+name: Automation QA
+
+on:
+  push:
+    branches:
+      - 'automation/mediquote-production-*'
+
+jobs:
+  isolated-qa:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mediquote_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mediquote_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mediquote_e2e
+      MEDIQUOTE_E2E: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+      E2E_BASE_URL: http://127.0.0.1:3000
+
+    steps:
+      - name: Checkout automation branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Generate ephemeral session secret
+        run: echo "SESSION_SECRET=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+
+      - name: Install application dependencies
+        run: npm install --silent
+
+      - name: Install browser test runner in ephemeral workspace
+        run: npm install --no-save --silent @playwright/test@1.55.0
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Create isolated database schema
+        run: npx prisma db push --skip-generate
+
+      - name: Seed only synthetic E2E records
+        run: npx tsx scripts/seed-e2e.ts
+
+      - name: TypeScript check
+        run: npx tsc --noEmit --pretty false
+
+      - name: Unit and regression tests
+        run: npm test
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start isolated MediQuote server
+        run: |
+          npm run dev > /tmp/mediquote-e2e.log 2>&1 &
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/mediquote-e2e.log
+          exit 1
+
+      - name: Browser E2E
+        run: npx playwright test
+
+      - name: Upload browser evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediquote-e2e-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
