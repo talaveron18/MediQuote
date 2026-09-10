@@ -4,28 +4,60 @@ export type PasswordRecoveryDeliveryInput = {
   expiresAt: Date
 }
 
-/**
- * Provider-neutral delivery adapter. Production must configure an authenticated
- * HTTPS webhook owned by the selected transactional mail/SMTP integration.
- * No provider or credentials are hard-coded in MediQuote.
- */
-export async function deliverPasswordRecoveryLink(input: PasswordRecoveryDeliveryInput): Promise<void> {
-  const webhookUrl = process.env.PASSWORD_RESET_DELIVERY_WEBHOOK_URL?.trim()
-  const bearerToken = process.env.PASSWORD_RESET_DELIVERY_BEARER_TOKEN?.trim()
+type DeliveryConfigInput = {
+  webhookUrl?: string | null
+  bearerToken?: string | null
+  production?: boolean
+}
+
+export function validatePasswordRecoveryDeliveryConfig(input: DeliveryConfigInput) {
+  const production = input.production ?? process.env.NODE_ENV === 'production'
+  const webhookUrl = input.webhookUrl?.trim() ?? ''
+  const bearerToken = input.bearerToken?.trim() ?? ''
 
   if (!webhookUrl) {
     throw new Error('PASSWORD_RESET_DELIVERY_WEBHOOK_URL no configurado')
   }
-  const url = new URL(webhookUrl)
-  if (url.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
-    throw new Error('El webhook de recuperación debe usar HTTPS en producción')
+
+  let url: URL
+  try {
+    url = new URL(webhookUrl)
+  } catch {
+    throw new Error('PASSWORD_RESET_DELIVERY_WEBHOOK_URL no es una URL válida')
   }
 
-  const response = await fetch(url, {
+  if (url.username || url.password) {
+    throw new Error('El webhook de recuperación no puede incluir credenciales en la URL')
+  }
+  if (production && url.protocol !== 'https:') {
+    throw new Error('El webhook de recuperación debe usar HTTPS en producción')
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('El webhook de recuperación debe usar HTTP o HTTPS')
+  }
+  if (production && !bearerToken) {
+    throw new Error('PASSWORD_RESET_DELIVERY_BEARER_TOKEN es obligatorio en producción')
+  }
+
+  return { url, bearerToken: bearerToken || null }
+}
+
+/**
+ * Provider-neutral delivery adapter. Production requires an authenticated
+ * HTTPS webhook owned by the selected transactional mail/SMTP integration.
+ * No provider or credentials are hard-coded in MediQuote.
+ */
+export async function deliverPasswordRecoveryLink(input: PasswordRecoveryDeliveryInput): Promise<void> {
+  const config = validatePasswordRecoveryDeliveryConfig({
+    webhookUrl: process.env.PASSWORD_RESET_DELIVERY_WEBHOOK_URL,
+    bearerToken: process.env.PASSWORD_RESET_DELIVERY_BEARER_TOKEN,
+  })
+
+  const response = await fetch(config.url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(bearerToken ? { authorization: `Bearer ${bearerToken}` } : {}),
+      ...(config.bearerToken ? { authorization: `Bearer ${config.bearerToken}` } : {}),
     },
     body: JSON.stringify({
       type: 'password_recovery',
