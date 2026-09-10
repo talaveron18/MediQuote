@@ -9,7 +9,7 @@ async function openNewBudget(page: Page) {
   await page.locator('input#password').fill(maestroPassword);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL('/');
-  await page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
   await expect(page.getByTestId('budget-block-controls')).toBeVisible();
 }
