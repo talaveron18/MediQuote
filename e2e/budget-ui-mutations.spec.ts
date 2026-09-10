@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
+const maestroPassword = process.env.E2E_MAESTRO_PASSWORD!;
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -29,7 +29,6 @@ test('UI permite añadir varios tipos de bloque y mantiene su orden visual', asy
   await openNewBudget(page);
   await addBlock(page, 'Material');
   await addBlock(page, 'Servicio fijo');
-
   await expect(page.getByText('Bloque 1', { exact: false })).toBeVisible();
   await expect(page.getByText('Bloque 2', { exact: false })).toBeVisible();
   await expect(page.getByText('Bloque 3', { exact: false })).toBeVisible();
@@ -41,9 +40,7 @@ test('UI elimina un bloque intermedio y renumera la colección sin dejar un bloq
   await addBlock(page, 'Material');
   await addBlock(page, 'Servicio fijo');
   await expect(page.locator('button.text-red-500')).toHaveCount(3);
-
   await page.locator('button.text-red-500').nth(1).click();
-
   await expect(page.locator('button.text-red-500')).toHaveCount(2);
   await expect(page.getByText('Bloque 1', { exact: false })).toBeVisible();
   await expect(page.getByText('Bloque 2', { exact: false })).toBeVisible();
@@ -55,13 +52,11 @@ test('colapsar y reabrir un bloque conserva las ediciones locales del usuario', 
   await openNewBudget(page);
   await page.locator('#svc-name-0').fill('Cobertura UCI sintética');
   await page.locator('#hours-per-day-0').fill('12');
-
   const firstCard = page.getByText('Bloque 1', { exact: false }).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
   const controls = firstCard.locator('button');
   await controls.first().click();
   await expect(page.locator('#svc-name-0')).toHaveCount(0);
   await controls.first().click();
-
   await expect(page.locator('#svc-name-0')).toHaveValue('Cobertura UCI sintética');
   await expect(page.locator('#hours-per-day-0')).toHaveValue('12');
 });
@@ -71,10 +66,11 @@ test('recargar un presupuesto nuevo no guarda silenciosamente mutaciones no conf
   await addBlock(page, 'Material');
   await page.locator('#svc-name-1').fill('Material temporal no guardado');
   await expect(page.locator('button.text-red-500')).toHaveCount(2);
-
   await page.reload();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true })).toBeVisible();
+  await expect(page.locator('input[value="Material temporal no guardado"]')).toHaveCount(0);
+  await page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
   await expect(page.locator('button.text-red-500')).toHaveCount(1);
   await expect(page.locator('#svc-name-0')).toHaveValue('');
-  await expect(page.locator('input[value="Material temporal no guardado"]')).toHaveCount(0);
 });
