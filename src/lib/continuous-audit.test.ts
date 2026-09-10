@@ -36,9 +36,8 @@ describe('auditoría continua', () => {
     const value = calculateAuditDeviation({
       estimatedCost: 1000,
       actualCost: 1000,
-      estimatedBreakdown: { salary: 500, socialSecurity: 300 },
+      estimatedBreakdown: { salary: 500, socialSecurity: 300, overhead: 50 },
       actualBreakdown: { salary: 500, socialSecurity: 300 },
-      internalBreakdown: { overhead: 50 },
     });
 
     expect(value.analysis.find((line) => line.key === 'salary')?.status).toBe('match');
