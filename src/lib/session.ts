@@ -2,18 +2,20 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
 
-const TOKEN_VERSION = 'v1';
+const TOKEN_VERSION = 'v2';
 const MINIMUM_SECRET_BYTES = 32;
 const DEVELOPMENT_SECRET = 'mediquote-development-session-secret-do-not-use-in-production';
 
 type SessionPayload = {
   sub: string;
+  gen: number;
   iat: number;
   exp: number;
 };
 
 export type VerifiedSession = {
   userId: string;
+  generation: number;
   issuedAt: number;
   expiresAt: number;
 };
@@ -35,12 +37,17 @@ function signature(value: string): string {
 
 export function createSessionToken(
   userId: string,
+  generation = 1,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): string {
   if (!userId.trim()) throw new Error('No se puede crear una sesión sin usuario.');
+  if (!Number.isSafeInteger(generation) || generation < 1) {
+    throw new Error('La generación de sesión debe ser un entero positivo.');
+  }
 
   const payload: SessionPayload = {
     sub: userId,
+    gen: generation,
     iat: nowSeconds,
     exp: nowSeconds + SESSION_MAX_AGE_SECONDS,
   };
@@ -76,6 +83,8 @@ export function verifySessionToken(
     if (
       typeof payload.sub !== 'string'
       || !payload.sub
+      || !Number.isSafeInteger(payload.gen)
+      || payload.gen! < 1
       || !Number.isInteger(payload.iat)
       || !Number.isInteger(payload.exp)
       || payload.iat! > nowSeconds + 60
@@ -85,6 +94,7 @@ export function verifySessionToken(
 
     return {
       userId: payload.sub,
+      generation: payload.gen!,
       issuedAt: payload.iat!,
       expiresAt: payload.exp!,
     };
