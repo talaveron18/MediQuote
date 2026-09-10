@@ -229,6 +229,14 @@ function sanitizeBudgetsForRole(data: { budgets: any[] }, role: string) {
   return { budgets: data.budgets.map(sanitizeBudgetForCommercial) }
 }
 
+function canAccessAllBudgets(role: string): boolean {
+  return role === 'admin' || role === 'maestro'
+}
+
+function canAccessBudget(auth: { id: string; role: string }, budget: { createdById: string }): boolean {
+  return canAccessAllBudgets(auth.role) || budget.createdById === auth.id
+}
+
 async function sealPersistedBudget(
   tx: any,
   budgetId: string,
@@ -273,10 +281,13 @@ export async function GET(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
 
     const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
     const status = searchParams.get('status')
     const clientId = searchParams.get('clientId')
     const search = searchParams.get('search')
     const where: Record<string, unknown> = {}
+    if (!canAccessAllBudgets(auth.role)) where.createdById = auth.id
+    if (id) where.id = id
     if (status) where.status = status
     if (clientId) where.clientId = clientId
     if (search) {
@@ -297,6 +308,9 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     })
+    if (id && budgets.length === 0) {
+      return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
+    }
     return NextResponse.json(sanitizeBudgetsForRole({ budgets: budgets.map(deserializeBudget) }, auth.role))
   } catch (error) {
     console.error('[GET /api/budgets] Error:', error)
@@ -421,7 +435,9 @@ export async function PUT(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'Se requiere el ID del presupuesto' }, { status: 400 })
 
     const existing = await db.budget.findUnique({ where: { id } })
-    if (!existing) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
+    if (!existing || !canAccessBudget(auth, existing)) {
+      return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
+    }
 
     const updatesEconomicData = serviceBlocks !== undefined || [
       'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
@@ -554,7 +570,9 @@ export async function DELETE(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'Se requiere el ID del presupuesto' }, { status: 400 })
 
     const existing = await db.budget.findUnique({ where: { id } })
-    if (!existing) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
+    if (!existing || !canAccessBudget(auth, existing)) {
+      return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
+    }
     const sealedAt = new Date()
 
     const artifact = await db.$transaction(async (tx) => {
