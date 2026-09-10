@@ -64,6 +64,24 @@ async function main() {
     },
   });
 
+  const syntheticCategories = [
+    { id: 'e2e-category-nursing', name: 'E2E Enfermería sintética', defaultPricePerHour: 37, defaultInternalCost: 23 },
+    { id: 'e2e-category-medicine', name: 'E2E Medicina sintética', defaultPricePerHour: 61, defaultInternalCost: 41 },
+  ];
+  for (const category of syntheticCategories) {
+    await db.professionalCategory.upsert({
+      where: { name: category.name },
+      update: { active: true, defaultPricePerHour: category.defaultPricePerHour, defaultInternalCost: category.defaultInternalCost },
+      create: { ...category, active: true, description: 'Fixture sintético aislado; no representa tarifas reales de GASI.' },
+    });
+  }
+
+  await db.laborRule.upsert({
+    where: { name: 'E2E Regla laboral sintética' },
+    update: { maxWeeklyHours: 40, maxDailyHours: 12, minRestBetweenShiftsH: 12, maxConsecutiveDays: 6, nightStartHour: 22, nightEndHour: 6 },
+    create: { name: 'E2E Regla laboral sintética', maxWeeklyHours: 40, maxDailyHours: 12, minRestBetweenShiftsH: 12, maxConsecutiveDays: 6, nightStartHour: 22, nightEndHour: 6 },
+  });
+
   for (const [key, value] of Object.entries(syntheticEconomics)) {
     await db.appConfig.upsert({ where: { key }, update: { value }, create: { key, value } });
   }
