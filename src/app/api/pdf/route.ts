@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    if (!budget) {
+    if (!budget || (auth.role === 'comercial' && budget.createdById !== auth.id)) {
       return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 });
     }
 
