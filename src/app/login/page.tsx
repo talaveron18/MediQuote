@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -52,7 +53,6 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center pb-2">
-          {/* GASI Logo — main visual */}
           <div className="flex justify-center mb-3">
             <Image
               src="/branding/gasi-logo.png"
@@ -68,7 +68,6 @@ export default function LoginPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {/* License text */}
           <p className="text-center text-xs text-gray-500 mb-1">
             Bajo licencia habilitada de MediQuote Pro
           </p>
@@ -90,7 +89,12 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="password">Contraseña</Label>
+                <Link href="/recuperar-password" className="text-xs text-emerald-700 hover:underline">
+                  ¿Olvidaste tu contraseña?
+                </Link>
+              </div>
               <div className="relative">
                 <Input
                   id="password"
@@ -137,7 +141,6 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* MediQuote Pro logo — discreet */}
           <div className="flex justify-center mt-5">
             <Image
               src="/branding/mediquote-pro-logo.png"
@@ -150,11 +153,9 @@ export default function LoginPage() {
         </CardContent>
       </Card>
 
-      {/* Footer */}
       <p className="mt-6 text-xs text-gray-400 text-center">
         © 2026 Fernando Javier Suárez Talaverón. MediQuote Pro. Todos los derechos reservados.
       </p>
     </div>
   );
 }
-
