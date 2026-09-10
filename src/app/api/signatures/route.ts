@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logAudit, requireAuth } from '@/lib/auth';
 import { hashBudgetForSignature, hashSignatureToken, SIGNATURE_CONSENT } from '@/lib/budget-signature';
+import { buildTrustedPublicUrl } from '@/lib/public-origin';
 
 const includeBudget = {
   client: true,
@@ -57,7 +58,11 @@ export async function POST(request: NextRequest) {
     budgetId: budget.id, createdById: auth.id, tokenHash: hashSignatureToken(token), status: 'pending',
     recipientEmail, documentHash: hashBudgetForSignature(budget), expiresAt,
   } });
-  const signingUrl = `${request.nextUrl.origin}/firmar/${token}`;
+  const signingUrl = buildTrustedPublicUrl({
+    path: `/firmar/${token}`,
+    requestOrigin: request.nextUrl.origin,
+    configuredOrigin: process.env.MEDIQUOTE_PUBLIC_ORIGIN,
+  }).toString();
   const subject = `Presupuesto ${budget.code} de GASI para revisión y firma`;
   const emailBody = `Buenos días,\n\nPuede revisar y aceptar electrónicamente el presupuesto ${budget.code} de GASI mediante este enlace seguro:\n\n${signingUrl}\n\nEl enlace es personal y caduca el ${expiresAt.toLocaleDateString('es-ES')}.\n\nUn saludo.`;
   await db.budget.update({ where: { id: budget.id }, data: { status: 'enviado', history: { create: { userId: auth.id, action: 'signature_requested', oldStatus: budget.status, newStatus: 'enviado', notes: `Enviado para firma a ${recipientEmail}` } } } });
