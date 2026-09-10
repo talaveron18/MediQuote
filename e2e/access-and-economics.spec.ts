@@ -3,6 +3,42 @@ import { expect, test } from '@playwright/test';
 const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
 const commercialPassword = process.env.E2E_COMMERCIAL_PASSWORD ?? 'E2E-Comercial-Only-2026!';
 
+type BrowserApiResult = {
+  status: number;
+  ok: boolean;
+  body: unknown;
+};
+
+async function browserApi(
+  page: import('@playwright/test').Page,
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: unknown } = {},
+): Promise<BrowserApiResult> {
+  return page.evaluate(
+    async ({ requestPath, method, requestBody }) => {
+      const response = await fetch(requestPath, {
+        method,
+        credentials: 'same-origin',
+        headers: requestBody === undefined ? undefined : { 'Content-Type': 'application/json' },
+        body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+      });
+
+      let body: unknown = null;
+      const text = await response.text();
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = text;
+        }
+      }
+
+      return { status: response.status, ok: response.ok, body };
+    },
+    { requestPath: path, method: options.method ?? 'GET', requestBody: options.body },
+  );
+}
+
 async function waitForLoginHydration(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('login-form')).toHaveAttribute('data-hydrated', 'true');
 }
@@ -85,47 +121,46 @@ test('comercial no ve ni puede abrir la configuración económica interna', asyn
 
 test('las validaciones del presupuesto muestran feedback visible al usuario', async ({ page }) => {
   await login(page, 'e2e.maestro@example.invalid', maestroPassword);
-  await page.getByRole('button', { name: 'Nuevo Presupuesto' }).click();
+  await page.getByRole('button', { name: 'Nuevo Presupuesto' }).last().click();
   await page.getByRole('button', { name: 'Calcular' }).click();
   await expect(page.getByText('Bloque 1: selecciona categoría profesional')).toBeVisible();
 });
 
 test('el fixture aislado expone varias categorías sintéticas sin confundirlas con tarifas reales', async ({ page }) => {
   await login(page, 'e2e.maestro@example.invalid', maestroPassword);
-  const response = await page.request.get('/api/config?type=categories');
-  expect(response.ok()).toBeTruthy();
-  const categories = await response.json();
-  const names = categories.map((category: { name: string }) => category.name);
+  const response = await browserApi(page, '/api/config?type=categories');
+  expect(response.ok).toBeTruthy();
+  const categories = response.body as Array<{ name: string }>;
+  const names = categories.map((category) => category.name);
   expect(names).toContain('E2E Enfermería sintética');
   expect(names).toContain('E2E Medicina sintética');
 });
 
 test('cálculos inválidos fallan cerrados antes de crear un presupuesto', async ({ page }) => {
   await login(page, 'e2e.maestro@example.invalid', maestroPassword);
-  const empty = await page.request.post('/api/calculations', { data: { blocks: [] } });
-  expect(empty.status()).toBe(400);
-  const emptyBody = await empty.json();
-  expect(emptyBody.error).toContain('al menos un bloque');
+  const empty = await browserApi(page, '/api/calculations', { method: 'POST', body: { blocks: [] } });
+  expect(empty.status).toBe(400);
+  expect((empty.body as { error: string }).error).toContain('al menos un bloque');
 
-  const invalidLocation = await page.request.post('/api/calculations', {
-    data: {
+  const invalidLocation = await browserApi(page, '/api/calculations', {
+    method: 'POST',
+    body: {
       blocks: [{ blockType: 'material', serviceName: 'Sintético', professionalCategory: '', dateMode: 'range', shiftType: 'morning', hoursPerDay: 8, unitType: 'unidad', quantity: 1, pricePerHour: 10, fixedPrice: 10 }],
       location: { cc: 'Territorio inexistente', province: 'Provincia inexistente' },
     },
   });
-  expect(invalidLocation.status()).toBe(400);
-  const locationBody = await invalidLocation.json();
-  expect(locationBody.error).toContain('zona territorial válida');
+  expect(invalidLocation.status).toBe(400);
+  expect((invalidLocation.body as { error: string }).error).toContain('zona territorial válida');
 });
 
 test('comercial no puede leer appConfig ni usuarios y las categorías no filtran costes internos', async ({ page }) => {
   await login(page, 'e2e.comercial@example.invalid', commercialPassword);
-  expect((await page.request.get('/api/config?type=appConfig')).status()).toBe(403);
-  expect((await page.request.get('/api/config?type=users')).status()).toBe(403);
+  expect((await browserApi(page, '/api/config?type=appConfig')).status).toBe(403);
+  expect((await browserApi(page, '/api/config?type=users')).status).toBe(403);
 
-  const categoriesResponse = await page.request.get('/api/config?type=categories');
-  expect(categoriesResponse.ok()).toBeTruthy();
-  const categories = await categoriesResponse.json();
+  const categoriesResponse = await browserApi(page, '/api/config?type=categories');
+  expect(categoriesResponse.ok).toBeTruthy();
+  const categories = categoriesResponse.body as Array<Record<string, unknown>>;
   for (const category of categories) {
     expect(category).not.toHaveProperty('defaultInternalCost');
   }
