@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { DEFAULT_SERVICE_LOCATION_ID, getServiceLocation } from '@/lib/service-locations';
+import { cloneServiceBlockAt, moveServiceBlock } from '@/lib/service-block-operations';
 import type { AppView, UserRole, BudgetInput, ServiceBlockInput, ClientDTO, BlockCalculationResult, BudgetCalculationResult, CategoryDTO, SurchargeConfigDTO, LaborRuleDTO, HolidayInfo, BlockType } from '@/lib/types';
 
 interface AppState {
@@ -34,6 +35,8 @@ interface AppState {
   updateServiceBlock: (index: number, b: Partial<ServiceBlockInput>) => void;
   addServiceBlock: (b: ServiceBlockInput) => void;
   removeServiceBlock: (index: number) => void;
+  cloneServiceBlock: (index: number) => void;
+  moveServiceBlock: (index: number, direction: -1 | 1) => void;
   setBlockResults: (r: BlockCalculationResult[]) => void;
   setBudgetTotals: (t: BudgetCalculationResult | null) => void;
   resetBudgetForm: () => void;
@@ -263,6 +266,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     serviceBlocks: s.serviceBlocks.filter((_, i) => i !== index),
     budgetTotals: null,
   })),
+  cloneServiceBlock: (index) => set((s) => {
+    const serviceBlocks = cloneServiceBlockAt(s.serviceBlocks, index);
+    if (serviceBlocks === s.serviceBlocks) return s;
+    return { serviceBlocks, blockResults: [], budgetTotals: null };
+  }),
+  moveServiceBlock: (index, direction) => set((s) => {
+    const serviceBlocks = moveServiceBlock(s.serviceBlocks, index, direction);
+    if (serviceBlocks === s.serviceBlocks) return s;
+    return { serviceBlocks, blockResults: [], budgetTotals: null };
+  }),
   setBlockResults: (r) => set({ blockResults: r }),
   setBudgetTotals: (t) => set({ budgetTotals: t }),
   resetBudgetForm: () => set({
