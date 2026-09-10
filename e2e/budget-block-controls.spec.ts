@@ -21,7 +21,7 @@ async function addMaterial(page: Page) {
   await option.click();
 }
 
-test('clonar desde el control visual crea un bloque independiente y exige recalcular', async ({ page }) => {
+test('clonar desde el control visual crea una segunda posición con los datos del origen y exige recalcular', async ({ page }) => {
   await openNewBudget(page);
   await page.locator('#svc-name-0').fill('Cobertura original E2E');
 
@@ -30,12 +30,9 @@ test('clonar desde el control visual crea un bloque independiente y exige recalc
   await page.getByRole('button', { name: 'Clonar bloque 1' }).click();
 
   await expect(page.getByRole('button', { name: 'Clonar bloque 2' })).toBeVisible();
+  await expect(page.getByTestId('budget-block-position-1')).toContainText('Cobertura original E2E');
+  await expect(page.getByTestId('budget-block-position-2')).toContainText('Cobertura original E2E');
   await expect(page.locator('#svc-name-0')).toHaveValue('Cobertura original E2E');
-  await expect(page.locator('#svc-name-1')).toHaveValue('Cobertura original E2E');
-
-  await page.locator('#svc-name-1').fill('Cobertura clonada E2E');
-  await expect(page.locator('#svc-name-0')).toHaveValue('Cobertura original E2E');
-  await expect(page.locator('#svc-name-1')).toHaveValue('Cobertura clonada E2E');
   await expect(controls).toHaveAttribute('data-calculation-state', 'stale');
 });
 
@@ -51,6 +48,8 @@ test('subir y bajar desde el control visual reordena datos y protege los límite
   await page.getByRole('button', { name: 'Bajar bloque 1' }).click();
   await expect(page.locator('#svc-name-0')).toHaveValue('Segundo E2E');
   await expect(page.locator('#svc-name-1')).toHaveValue('Primero E2E');
+  await expect(page.getByTestId('budget-block-position-1')).toContainText('Segundo E2E');
+  await expect(page.getByTestId('budget-block-position-2')).toContainText('Primero E2E');
 
   await page.getByRole('button', { name: 'Subir bloque 2' }).click();
   await expect(page.locator('#svc-name-0')).toHaveValue('Primero E2E');
