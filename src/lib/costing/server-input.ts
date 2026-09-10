@@ -1,6 +1,6 @@
 import type { BlockCalculationResult, HolidayInfo, ServiceBlockInput, SurchargeKind, SurchargeType } from '../types';
 import { adaptBlockResultToCostHours } from './cost-hours-adapter';
-import { DEFAULT_GASI_COMMERCIAL_POLICY } from './commercial-policy';
+import { readInternalEconomicConfiguration } from './internal-economic-config';
 import type {
   CostSourceRef,
   CostingInput,
@@ -209,6 +209,13 @@ export function buildCostingInputFromDatabase(params: {
     });
   }
 
+  const internalEconomic = block.contractType
+    ? readInternalEconomicConfiguration(config.appConfig, block.contractType)
+    : null;
+  if (internalEconomic?.status === 'pending_configuration') {
+    issues.push(...internalEconomic.issues);
+  }
+
   const hours = adaptBlockResultToCostHours(schedule);
   const averageShiftHours = hours.shifts > 0 ? hours.coverageHours / hours.shifts : 8;
   const positions = Math.max(1, Number(block.puestosSimultaneos ?? 1));
@@ -334,7 +341,9 @@ export function buildCostingInputFromDatabase(params: {
     }
   }
 
-  if (issues.length > 0) return { status: 'pending_configuration', issues };
+  if (issues.length > 0 || !internalEconomic || internalEconomic.status !== 'ready') {
+    return { status: 'pending_configuration', issues };
+  }
 
   const annualGross = productiveHourlyGross! * annualProductiveHours;
   const monthlyEquivalent = annualGross / 14;
@@ -381,15 +390,15 @@ export function buildCostingInputFromDatabase(params: {
         contractType: block.contractType!,
         laborContracts: isMercantile ? 0 : Math.max(1, schedule.plantillaSeleccionada),
         managementFeePerLaborContract: managementFee!,
-        terminationProvisionPercent: block.contractType === 'temporal' ? 3.29 : 0,
+        terminationProvisionPercent: internalEconomic.value.terminationProvisionPercent,
         otherFixedContractCosts: 0,
       },
       overhead: {
-        percentageOnExpandedLabor: finite(config.appConfig.costing_overhead_percent) ?? 15,
+        percentageOnExpandedLabor: internalEconomic.value.overheadPercent,
         fixedAmount: 0,
       },
       directCosts: [],
-      commercialPolicy: { ...DEFAULT_GASI_COMMERCIAL_POLICY },
+      commercialPolicy: { ...internalEconomic.value.commercialPolicy },
     },
   };
 }
