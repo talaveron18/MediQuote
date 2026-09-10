@@ -65,14 +65,15 @@ function configFor(profileId: keyof typeof CONVENTION_PROFILES, extra: Record<st
   const legalParameterSources = Object.fromEntries([...sourceKeys].map((key) => [key, {
     id: profile.legalRecordKey, label: profile.label, status: 'verified' as const,
   }]));
+  const appConfig: Record<string, string> = {
+    costing_province: 'Madrid',
+    costing_management_fee_per_contract: '11.5',
+    ...syntheticInternalEconomics,
+  };
   return {
     legalParameters,
     legalParameterSources,
-    appConfig: {
-      costing_province: 'Madrid',
-      costing_management_fee_per_contract: '11.5',
-      ...syntheticInternalEconomics,
-    },
+    appConfig,
     surcharges: [
       { id: 'night', name: 'Nocturnidad genérica', type: 'nocturnidad', surchargeType: 'percentage', value: 99 },
       { id: 'sunday', name: 'Domingo genérico', type: 'domingo', surchargeType: 'percentage', value: 99 },
@@ -157,7 +158,7 @@ describe('Adaptador territorial al motor económico', () => {
       SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
       PLUS_FESTIVO_ESPECIAL_MADRID: 38,
     });
-    for (const key of Object.keys(syntheticInternalEconomics)) delete config.appConfig[key as keyof typeof config.appConfig];
+    for (const key of Object.keys(syntheticInternalEconomics)) delete config.appConfig[key];
 
     const built = buildCostingInputFromDatabase({
       block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
