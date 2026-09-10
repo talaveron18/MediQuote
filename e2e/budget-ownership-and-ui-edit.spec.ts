@@ -40,11 +40,8 @@ async function login(page: Page, email: string, password: string) {
   await page.locator('input#password').fill(password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL('/');
-  await expect(page.getByRole('heading', { name: 'Presupuestos' })).toBeVisible({ timeout: 15_000 });
-  const remoteConfigDialog = page.getByRole('dialog', { name: 'Configuración remota disponible' });
-  if (await remoteConfigDialog.isVisible().catch(() => false)) {
-    await remoteConfigDialog.getByRole('button', { name: 'Ahora no' }).click();
-  }
+  const sessionProbe = await api<{ budgets: SavedBudget[] }>(page, '/api/budgets?search=__e2e_session_probe__');
+  expect(sessionProbe.status).toBe(200);
 }
 
 async function logout(page: Page) {
