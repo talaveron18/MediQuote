@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const maestroPassword = process.env.E2E_MAESTRO_PASSWORD!;
+const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
 
 async function login(page: Page) {
   await page.goto('/login');
