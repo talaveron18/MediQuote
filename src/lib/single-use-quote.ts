@@ -3,13 +3,13 @@ export type CostingQuoteLike = {
   userId: string
   usedAt: Date | null
   expiresAt: Date
-  [key: string]: unknown
+  [key: string]: any
 }
 
-export type CostingQuoteClaimClient<TQuote extends CostingQuoteLike = CostingQuoteLike> = {
+export type CostingQuoteClaimClient = {
   costingQuote: {
-    updateMany(args: unknown): Promise<{ count: number }>
-    findUnique(args: unknown): Promise<TQuote | null>
+    updateMany(args: any): Promise<{ count: number }>
+    findUnique(args: any): Promise<any>
   }
 }
 
@@ -20,12 +20,12 @@ export type CostingQuoteClaimClient<TQuote extends CostingQuoteLike = CostingQuo
  * change usedAt from NULL. A caller must execute this inside the same database
  * transaction as the budget write so a later failure rolls the claim back.
  */
-export async function claimCostingQuote<TQuote extends CostingQuoteLike>(
-  client: CostingQuoteClaimClient<TQuote>,
+export async function claimCostingQuote(
+  client: CostingQuoteClaimClient,
   userId: string,
   token: unknown,
   now = new Date(),
-): Promise<TQuote | null> {
+): Promise<CostingQuoteLike | null> {
   if (typeof token !== 'string' || !token) return null
 
   const claimed = await client.costingQuote.updateMany({
@@ -39,7 +39,7 @@ export async function claimCostingQuote<TQuote extends CostingQuoteLike>(
   })
   if (claimed.count !== 1) return null
 
-  const quote = await client.costingQuote.findUnique({ where: { id: token } })
+  const quote = await client.costingQuote.findUnique({ where: { id: token } }) as CostingQuoteLike | null
   if (!quote || quote.userId !== userId || quote.usedAt === null || quote.expiresAt <= now) return null
   return quote
 }
