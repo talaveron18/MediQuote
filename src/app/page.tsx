@@ -9,9 +9,77 @@ import Clients from '@/components/views/clients';
 import Admin from '@/components/views/admin';
 import Communications from '@/components/views/communications';
 import CostAudit from '@/components/views/cost-audit';
+import type { AppView } from '@/lib/types';
+
+const URL_VIEWS = new Set<AppView>([
+  'dashboard',
+  'budget-new',
+  'budget-edit',
+  'clients',
+  'communications',
+  'cost-audit',
+  'admin',
+  'history',
+]);
+
+function stateFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const rawView = params.get('view') as AppView | null;
+  const requestedView = rawView && URL_VIEWS.has(rawView) ? rawView : 'dashboard';
+  const budgetId = params.get('budgetId');
+
+  if (requestedView === 'budget-edit' && !budgetId) {
+    return { currentView: 'dashboard' as AppView, editingBudgetId: null };
+  }
+
+  return {
+    currentView: requestedView,
+    editingBudgetId: requestedView === 'budget-edit' ? budgetId : null,
+  };
+}
+
+function locationForState(view: AppView, editingBudgetId: string | null) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('view');
+  url.searchParams.delete('budgetId');
+
+  if (view !== 'dashboard') url.searchParams.set('view', view);
+  if (view === 'budget-edit' && editingBudgetId) url.searchParams.set('budgetId', editingBudgetId);
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 export default function Home() {
   const { currentView, currentRole, setClients, setCategories, setSurcharges, setLaborRule, setHolidays, setAppConfig, setCurrentUser, setRole } = useAppStore();
+
+  // Keep the workspace state addressable so refresh and browser Back/Forward
+  // reconstruct the same screen instead of silently dropping an in-progress edit.
+  useEffect(() => {
+    let applyingHistory = false;
+
+    const applyLocation = () => {
+      applyingHistory = true;
+      useAppStore.setState(stateFromLocation());
+      applyingHistory = false;
+    };
+
+    applyLocation();
+
+    const unsubscribe = useAppStore.subscribe((state, previous) => {
+      if (applyingHistory) return;
+      if (state.currentView === previous.currentView && state.editingBudgetId === previous.editingBudgetId) return;
+
+      const nextLocation = locationForState(state.currentView, state.editingBudgetId);
+      const currentLocation = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextLocation !== currentLocation) window.history.pushState(null, '', nextLocation);
+    });
+
+    window.addEventListener('popstate', applyLocation);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('popstate', applyLocation);
+    };
+  }, []);
 
   // Auth check on mount
   useEffect(() => {
