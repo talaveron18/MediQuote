@@ -95,9 +95,14 @@ jobs:
             test-results/
           if-no-files-found: ignore
 
-      - name: Enforce QA gate
+      - name: Enforce TypeScript gate
         if: always()
-        run: |
-          test '${{ steps.typecheck.outcome }}' = 'success'
-          test '${{ steps.unit_tests.outcome }}' = 'success'
-          test '${{ steps.browser_e2e.outcome }}' = 'success'
+        run: test '${{ steps.typecheck.outcome }}' = 'success'
+
+      - name: Enforce unit/regression gate
+        if: always()
+        run: test '${{ steps.unit_tests.outcome }}' = 'success'
+
+      - name: Enforce browser gate
+        if: always()
+        run: test '${{ steps.browser_e2e.outcome }}' = 'success'
