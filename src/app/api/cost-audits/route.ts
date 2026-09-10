@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logAudit, requireRole } from '@/lib/auth';
-import { calculateAuditDeviation, estimatedBreakdownFromSnapshot, type AuditBreakdown } from '@/lib/continuous-audit';
+import {
+  calculateAuditDeviation,
+  estimatedBreakdownFromSnapshot,
+  GESTORIA_COMPONENT_LABELS,
+  type AuditBreakdown,
+  type GestoriaBreakdown,
+  type GestoriaComponentKey,
+} from '@/lib/continuous-audit';
 
 const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
+const GESTORIA_KEYS = new Set<GestoriaComponentKey>(
+  Object.keys(GESTORIA_COMPONENT_LABELS) as GestoriaComponentKey[],
+);
 
-function cleanBreakdown(value: unknown): AuditBreakdown {
+function cleanBreakdown(value: unknown): GestoriaBreakdown {
   if (!value || typeof value !== 'object') return {};
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .filter(([, item]) => item !== '' && Number.isFinite(Number(item)))
-    .map(([key, item]) => [key, Number(item)])) as AuditBreakdown;
+    .filter(([key, item]) => GESTORIA_KEYS.has(key as GestoriaComponentKey)
+      && item !== ''
+      && Number.isFinite(Number(item))
+      && Number(item) >= 0)
+    .map(([key, item]) => [key, Number(item)])) as GestoriaBreakdown;
 }
 
 export async function GET(request: NextRequest) {
@@ -52,7 +65,7 @@ export async function POST(request: NextRequest) {
   };
   const actualCost = Number(body.actualCost);
   if (!body.budgetId || !Number.isFinite(actualCost) || actualCost < 0) {
-    return NextResponse.json({ error: 'Presupuesto y coste real válido son obligatorios' }, { status: 400 });
+    return NextResponse.json({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
   }
   const budget = await db.budget.findUnique({ where: { id: body.budgetId }, select: { id: true, code: true } });
   if (!budget) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 });
@@ -67,7 +80,10 @@ export async function POST(request: NextRequest) {
   }
   const actualBreakdown = cleanBreakdown(body.actualBreakdown);
   const deviation = calculateAuditDeviation({
-    estimatedCost: estimated.total, actualCost, estimatedBreakdown: estimated.breakdown, actualBreakdown,
+    estimatedCost: estimated.gestoriaTotal,
+    actualCost,
+    estimatedBreakdown: estimated.breakdown,
+    actualBreakdown,
   });
   let documentData: Buffer | undefined;
   if (body.documentBase64) {
@@ -79,11 +95,14 @@ export async function POST(request: NextRequest) {
   const audit = await db.costAudit.create({
     data: {
       budgetId: budget.id, createdById: auth.id,
-      estimatedCost: estimated.total, actualCost,
+      // estimatedCost represents only the part that can legitimately be reconciled with gestoría.
+      // The complete internal snapshot remains frozen in estimatedBreakdown and the CostingQuote snapshot.
+      estimatedCost: estimated.gestoriaTotal,
+      actualCost,
       deviationAmount: deviation.deviationAmount, deviationPercent: deviation.deviationPercent,
       estimatedBreakdown: JSON.stringify(estimated.breakdown),
       actualBreakdown: JSON.stringify(actualBreakdown),
-      analysis: JSON.stringify(deviation.analysis),
+      analysis: JSON.stringify({ reconciliation: deviation.analysis, internal: deviation.internalAnalysis }),
       notes: body.notes?.trim() || null,
       documentName: documentData ? (body.documentName?.slice(0, 240) || 'justificante') : null,
       documentType: documentData ? (body.documentType?.slice(0, 120) || 'application/octet-stream') : null,
@@ -93,7 +112,7 @@ export async function POST(request: NextRequest) {
   await logAudit({
     action: 'continuous_cost_audit_created', entity: 'budget', entityId: budget.id,
     userId: auth.id, userName: auth.name, userRole: auth.role,
-    summary: `${budget.code}: coste estimado ${estimated.total}, real ${actualCost}, desviación ${deviation.deviationPercent}%`,
+    summary: `${budget.code}: coste conciliable previsto ${estimated.gestoriaTotal}, gestoría ${actualCost}, desviación ${deviation.deviationPercent}%`,
   });
   return NextResponse.json({ audit: { ...audit, documentData: undefined, hasDocument: Boolean(documentData) } }, { status: 201 });
 }
