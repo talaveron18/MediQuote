@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "MediQuote Pro — Presupuestos Sanitarios",
@@ -22,6 +23,7 @@ export default function RootLayout({
       >
         {children}
         <Toaster />
+        <SonnerToaster />
       </body>
     </html>
   );
