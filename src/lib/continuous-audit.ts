@@ -51,7 +51,9 @@ export function estimatedBreakdownFromSnapshot(snapshot: string): {
   if (!internal || !Number.isFinite(Number(internal.totalInternalCost))) {
     throw new Error('La cotización no contiene un coste interno auditable');
   }
-  const blocks = Array.isArray(internal.laborBlocks) ? internal.laborBlocks : [internal];
+
+  const hasLaborBlocks = Array.isArray(internal.laborBlocks);
+  const blocks = hasLaborBlocks ? internal.laborBlocks : [internal];
   const sum = (reader: (block: any) => number) => round(blocks.reduce(
     (total: number, block: any) => total + Number(reader(block) || 0), 0,
   ));
@@ -66,11 +68,16 @@ export function estimatedBreakdownFromSnapshot(snapshot: string): {
       + Number(block?.otherContractCosts || 0)),
   };
 
-  const directCostTotal = Number(internal.directCostTotal ?? internal.totalDirectCosts ?? 0);
-  const directCostOverhead = Number(internal.directCostOverhead || 0);
+  // New aggregate snapshots keep labor blocks and top-level direct costs separately.
+  // Legacy/single-block snapshots keep totalDirectCosts on the block itself. Never add
+  // both representations of the same value or the audit will silently double count it.
+  const directCosts = hasLaborBlocks
+    ? Number(internal.directCostTotal || 0)
+    : sum((block) => block?.totalDirectCosts);
+  const directCostOverhead = hasLaborBlocks ? Number(internal.directCostOverhead || 0) : 0;
   const internalBreakdown: InternalBreakdown = {
     overhead: round(sum((block) => block?.overhead) + directCostOverhead),
-    directCosts: round(sum((block) => block?.totalDirectCosts) + directCostTotal),
+    directCosts: round(directCosts),
     commercialCommission: round(Number(parsed?.commercial?.commissionAmount || 0)),
     gasiBenefit: round(Number(parsed?.commercial?.finalGasiBenefit || 0)),
   };
@@ -94,7 +101,7 @@ export function calculateAuditDeviation(params: {
   estimatedCost: number;
   actualCost: number;
   estimatedBreakdown: AuditBreakdown;
-  actualBreakdown?: AuditBreakdown;
+  actualBreakdown?: GestoriaBreakdown;
 }) {
   const deviationAmount = round(params.actualCost - params.estimatedCost);
   const deviationPercent = params.estimatedCost > 0
