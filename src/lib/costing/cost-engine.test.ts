@@ -6,9 +6,20 @@ import {
   calculateClosingPriceFromDiscount,
   calculateCommercialResult,
   calculatePriceRange,
-  DEFAULT_GASI_COMMERCIAL_POLICY,
 } from './commercial-policy';
-import type { CostingInput } from './cost-types';
+import type { CommercialPolicy, CostingInput } from './cost-types';
+
+// Synthetic values used only to exercise formulas. They are not GASI defaults.
+const TEST_COMMERCIAL_POLICY: Readonly<CommercialPolicy> = Object.freeze({
+  gasiMarkupOnCostPercent: 40,
+  commercialFloorOnCostPercent: 12,
+  commercialBufferOnCostPercent: 8,
+  commissionAtFloorPercent: 12,
+  commissionIntermediatePercent: 13.5,
+  commissionAtListPercent: 15,
+  semaphoreTargetReturnOnCostPercent: 40,
+  semaphoreReviewReturnOnCostPercent: 30,
+});
 
 function baseInput(overrides: Partial<CostingInput> = {}): CostingInput {
   const verifiedSource = {
@@ -97,7 +108,7 @@ function baseInput(overrides: Partial<CostingInput> = {}): CostingInput {
     directCosts: [
       { id: 'travel', name: 'Desplazamiento', amount: 100, category: 'travel' },
     ],
-    commercialPolicy: { ...DEFAULT_GASI_COMMERCIAL_POLICY },
+    commercialPolicy: { ...TEST_COMMERCIAL_POLICY },
     calculatedAt: '2026-07-14T20:00:00.000Z',
   };
 
@@ -206,7 +217,7 @@ describe('Cost engine — complete unavoidable cost', () => {
   });
 });
 
-describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
+describe('Commercial policy — synthetic formula fixture', () => {
   it('constructs the ordinary floor at cost × 1.52 and the list price at cost × 1.60', () => {
     const result = calculateCosting(baseInput());
     expect(result.status).toBe('calculated');
@@ -217,7 +228,7 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
     expect(result.commercial.closingPriceExVat).toBe(3_983.23);
   });
 
-  it('uses 12% commission at the floor and measures GASI return after commission', () => {
+  it('uses the synthetic floor commission and measures GASI return after commission', () => {
     const first = calculateCosting(baseInput());
     expect(first.status).toBe('calculated');
     if (first.status !== 'calculated') return;
@@ -239,7 +250,7 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
     expect(result.commercial.commercialBufferConsumedPercentOfCost).toBeCloseTo(8, 2);
   });
 
-  it('uses 15% commission when the commercial closes at the initial list price', () => {
+  it('uses the synthetic list commission at the initial list price', () => {
     const result = calculateCosting(baseInput());
     expect(result.status).toBe('calculated');
     if (result.status !== 'calculated') return;
@@ -249,7 +260,7 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
     expect(result.commercial.clientDiscountAmount).toBe(0);
   });
 
-  it('uses 13.5% in the intermediate negotiation band', () => {
+  it('uses the synthetic intermediate commission in the negotiation band', () => {
     const first = calculateCosting(baseInput());
     expect(first.status).toBe('calculated');
     if (first.status !== 'calculated') return;
@@ -268,7 +279,7 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
 
   it('maps the full negotiable discount to the exact floor despite cent rounding', () => {
     const totalInternalCost = 1_000.16;
-    const policy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
+    const policy = { ...TEST_COMMERCIAL_POLICY };
     const range = calculatePriceRange(totalInternalCost, policy);
     const closingPriceExVat = calculateClosingPriceFromDiscount({
       totalInternalCost,
@@ -287,10 +298,10 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
   });
 
   it.each([1, 2.5, 4.99])(
-    'keeps a %s% client discount in the intermediate commission tier',
+    'keeps a %s%% client discount in the intermediate commission tier',
     (requestedDiscountPercent) => {
       const totalInternalCost = 1_000.16;
-      const policy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
+      const policy = { ...TEST_COMMERCIAL_POLICY };
       const closingPriceExVat = calculateClosingPriceFromDiscount({
         totalInternalCost,
         requestedDiscountPercent,
@@ -307,7 +318,7 @@ describe('Commercial policy — 40% GASI + 12% commercial + 8% buffer', () => {
     },
   );
 
-  it('blocks a service closing price below the 40% + 12% ordinary floor', () => {
+  it('blocks a service closing price below the synthetic ordinary floor', () => {
     const result = calculateCosting(baseInput({ closingPriceExVat: 3_000 }));
 
     expect(result.status).toBe('blocked_closing_price');
