@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { verifySessionToken } from '@/lib/session';
+import { getSessionGeneration } from '@/lib/password-recovery-store';
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
 export const SESSION_COOKIE = 'gasi_session';
@@ -25,8 +26,6 @@ function passwordChangeRequired(): NextResponse {
 async function protectMutation(request: Request): Promise<NextResponse | null> {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) return null;
   if (new URL(request.url).pathname === '/api/backup') return null;
-  // Netlify Database/PostgreSQL se protege en la plataforma. La copia SQLite
-  // previa a escritura solo corresponde al modo local heredado.
   if (process.env.NETLIFY || !process.env.DATABASE_URL?.startsWith('file:')) return null;
   try {
     await ensureDailyAutomaticBackup();
@@ -39,9 +38,6 @@ async function protectMutation(request: Request): Promise<NextResponse | null> {
   }
 }
 
-/**
- * Reads session cookie and returns user from DB or null.
- */
 export async function getCurrentUser(request: Request): Promise<AuthUser | null> {
   const cookieHeader = request.headers.get('cookie');
   if (!cookieHeader) return null;
@@ -57,6 +53,9 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
   const session = verifySessionToken(token);
   if (!session) return null;
 
+  const currentGeneration = await getSessionGeneration(session.userId);
+  if (session.generation !== currentGeneration) return null;
+
   const user = await db.user.findUnique({ where: { id: session.userId } });
   if (!user || !user.active) return null;
 
@@ -70,9 +69,6 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
   };
 }
 
-/**
- * Returns 401 if not logged in.
- */
 export async function requireAuth(
   request: Request
 ): Promise<AuthUser | NextResponse> {
@@ -86,10 +82,6 @@ export async function requireAuth(
   return user;
 }
 
-/**
- * Returns 403 if user role not in allowedRoles.
- * maestro always has access.
- */
 export async function requireRole(
   request: Request,
   allowedRoles: string[]
@@ -99,7 +91,6 @@ export async function requireRole(
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
   if (user.mustChangePassword) return passwordChangeRequired();
-  // maestro has access to everything
   if (user.role !== 'maestro' && !allowedRoles.includes(user.role)) {
     return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
   }
@@ -108,9 +99,6 @@ export async function requireRole(
   return user;
 }
 
-/**
- * Returns 403 if user is not maestro.
- */
 export async function requireMaestro(
   request: Request
 ): Promise<AuthUser | NextResponse> {
@@ -127,36 +115,24 @@ export async function requireMaestro(
   return user;
 }
 
-/**
- * Hash a password with bcrypt.
- */
 export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, 12);
 }
 
-/**
- * Verify a password against a bcrypt hash or plain text (migration support).
- */
 export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
-  // If stored starts with $2, it's a bcrypt hash
   if (stored.startsWith('$2')) {
     return bcrypt.compare(plain, stored);
   }
-  // Legacy plain-text comparison
   if (plain === stored) {
-    // Auto-migrate: re-hash and save
     try {
       const hash = await hashPassword(plain);
       await db.user.updateMany({ where: { password: stored }, data: { password: hash } });
     } catch {
-      // Silent — don't break login flow
     }
     return true;
   }
   return false;
 }
-
-// ─── Internal field sanitization ──────────────────────────────────
 
 const INTERNAL_FIELDS = [
   'internalCostPerHour',
@@ -190,10 +166,6 @@ const INTERNAL_FIELDS = [
   'createdById',
 ]
 
-/**
- * Strip internal financial fields from data for non-admin/non-maestro roles.
- * maestro and admin see everything. comercial/gestor/readonly get stripped.
- */
 export function sanitizeForRole<T>(data: T, role: string): T {
   if (role === 'maestro' || role === 'admin') return data
   if (Array.isArray(data)) {
@@ -214,11 +186,9 @@ export function sanitizeForRole<T>(data: T, role: string): T {
   return data
 }
 
-// ─── Audit Log Helper ──────────────────────────────────────────
-
 export async function logAudit(params: {
   action: string;
-  entity?: string;
+  entity: string;
   entityId?: string;
   userId?: string;
   userName?: string;
@@ -227,28 +197,23 @@ export async function logAudit(params: {
   oldData?: string;
   newData?: string;
   result?: string;
-  errorMessage?: string;
-}): Promise<void> {
+}) {
   try {
     await db.auditLog.create({
       data: {
         action: params.action,
-        entity: params.entity ?? null,
-        entityId: params.entityId ?? null,
-        userId: params.userId ?? null,
-        userName: params.userName ?? null,
-        userRole: params.userRole ?? null,
-        summary: params.summary ?? null,
-        oldData: params.oldData ?? null,
-        newData: params.newData ?? null,
-        result: params.result ?? 'success',
-        errorMessage: params.errorMessage ?? null,
-        appVersion: process.env.APP_VERSION || null,
-        engineVersion: process.env.CALCULATION_ENGINE_VERSION || null,
+        entity: params.entity,
+        entityId: params.entityId,
+        userId: params.userId,
+        userName: params.userName,
+        userRole: params.userRole,
+        summary: params.summary,
+        oldData: params.oldData,
+        newData: params.newData,
+        result: params.result || 'success',
       },
-    })
-  } catch {
-    // Audit should never break the main flow
+    });
+  } catch (error) {
+    console.error('[audit] No se pudo registrar:', error);
   }
 }
-
