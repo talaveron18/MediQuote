@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 
 export default function LoginPage() {
@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const submittingRef = useRef(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     const savedEmail = window.localStorage.getItem('gasi_remembered_email');
@@ -44,10 +45,10 @@ export default function LoginPage() {
         else window.localStorage.removeItem('gasi_remembered_email');
         window.location.href = data.user?.mustChangePassword ? '/cambiar-password' : '/';
       } else {
-        toast.error('Credenciales incorrectas');
+        toast({ title: 'Credenciales incorrectas', variant: 'destructive' });
       }
     } catch {
-      toast.error('Credenciales incorrectas');
+      toast({ title: 'Credenciales incorrectas', variant: 'destructive' });
     } finally {
       submittingRef.current = false;
       setLoading(false);
