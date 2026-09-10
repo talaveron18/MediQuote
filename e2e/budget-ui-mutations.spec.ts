@@ -13,7 +13,7 @@ async function login(page: Page) {
 
 async function openNewBudget(page: Page) {
   await login(page);
-  await page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
   await expect(page.getByText('Bloque 1', { exact: false })).toBeVisible();
 }
@@ -67,9 +67,9 @@ test('recargar un presupuesto nuevo no guarda silenciosamente mutaciones no conf
   await page.locator('#svc-name-1').fill('Material temporal no guardado');
   await expect(page.locator('button.text-red-500')).toHaveCount(2);
   await page.reload();
-  await expect(page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).first()).toBeVisible();
   await expect(page.locator('input[value="Material temporal no guardado"]')).toHaveCount(0);
-  await page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
   await expect(page.locator('button.text-red-500')).toHaveCount(1);
   await expect(page.locator('#svc-name-0')).toHaveValue('');
