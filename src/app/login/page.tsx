@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     const savedEmail = window.localStorage.getItem('gasi_remembered_email');
@@ -25,7 +26,8 @@ export default function LoginPage() {
   }, []);
 
   async function handleLogin() {
-    if (loading) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
 
     try {
@@ -47,6 +49,7 @@ export default function LoginPage() {
     } catch {
       toast.error('Credenciales incorrectas');
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   }
