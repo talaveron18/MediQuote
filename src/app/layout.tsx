@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
+import { BudgetAddMenuFocusGuard } from "@/components/budget-add-menu-focus-guard";
 
 export const metadata: Metadata = {
   title: "MediQuote Pro — Presupuestos Sanitarios",
@@ -21,6 +22,7 @@ export default function RootLayout({
       <body
         className="antialiased bg-background text-foreground"
       >
+        <BudgetAddMenuFocusGuard />
         {children}
         <Toaster />
         <SonnerToaster />
