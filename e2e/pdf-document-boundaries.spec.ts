@@ -1,11 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const maestroPassword = process.env.E2E_MAESTRO_PASSWORD;
-if (!maestroPassword) {
-  throw new Error('E2E_MAESTRO_PASSWORD es obligatoria para ejecutar esta suite aislada');
-}
+const maestroPassword = (() => {
+  const value = process.env.E2E_MAESTRO_PASSWORD;
+  if (!value) throw new Error('E2E_MAESTRO_PASSWORD es obligatoria para ejecutar esta suite aislada');
+  return value;
+})();
 
 type ApiResult<T = unknown> = { status: number; body: T };
+type BrowserResponse = { status: number; headers: Record<string, string>; text: string; json: unknown | null };
 type Calculation = { totals: { calculationToken: string; totalFinal: number } };
 type SavedPayload = { budget: { id: string; code: string; totalFinal: number } };
 
@@ -28,6 +30,23 @@ async function api<T = unknown>(
     }
     return { status: response.status, body };
   }, { requestPath: path, method: options.method ?? 'GET', requestBody: options.body }) as Promise<ApiResult<T>>;
+}
+
+async function browserGet(page: Page, path: string): Promise<BrowserResponse> {
+  return page.evaluate(async (requestPath) => {
+    const response = await fetch(requestPath, { credentials: 'same-origin', cache: 'no-store' });
+    const text = await response.text();
+    let json: unknown | null = null;
+    if (text) {
+      try { json = JSON.parse(text); } catch { json = null; }
+    }
+    return {
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      text,
+      json,
+    };
+  }, path);
 }
 
 async function login(page: Page) {
@@ -82,14 +101,14 @@ test('1 · documento cliente se entrega no-cache, inline y con protección MIME'
   await login(page);
   const budget = await createBudget(page, `E2E PDF headers ${Date.now()}`);
 
-  const response = await page.request.get(`/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
-  expect(response.status()).toBe(200);
-  expect(response.headers()['cache-control']).toContain('no-store');
-  expect(response.headers()['cache-control']).toContain('private');
-  expect(response.headers()['x-content-type-options']).toBe('nosniff');
-  expect(response.headers()['content-type']).toContain('text/html');
-  expect(response.headers()['content-disposition']).toContain('inline');
-  expect(response.headers()['content-disposition']).toContain(budget.code);
+  const response = await browserGet(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
+  expect(response.status).toBe(200);
+  expect(response.headers['cache-control']).toContain('no-store');
+  expect(response.headers['cache-control']).toContain('private');
+  expect(response.headers['x-content-type-options']).toBe('nosniff');
+  expect(response.headers['content-type']).toContain('text/html');
+  expect(response.headers['content-disposition']).toContain('inline');
+  expect(response.headers['content-disposition']).toContain(budget.code);
 });
 
 test('2 · texto controlado por usuario queda escapado en el documento y no se convierte en script', async ({ page }) => {
@@ -100,9 +119,9 @@ test('2 · texto controlado por usuario queda escapado en el documento y no se c
   const payload = `${script}${image}`;
   const budget = await createBudget(page, payload, `<b>${marker}</b>`);
 
-  const response = await page.request.get(`/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
-  expect(response.status()).toBe(200);
-  const html = await response.text();
+  const response = await browserGet(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
+  expect(response.status).toBe(200);
+  const html = response.text;
 
   expect(html).not.toContain(script);
   expect(html).not.toContain(image);
@@ -116,18 +135,18 @@ test('3 · documento cliente y comercial mantienen fronteras distintas de conten
   await login(page);
   const budget = await createBudget(page, `E2E PDF modes ${Date.now()}`);
 
-  const clientResponse = await page.request.get(`/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
-  expect(clientResponse.status()).toBe(200);
-  const clientHtml = await clientResponse.text();
+  const clientResponse = await browserGet(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
+  expect(clientResponse.status).toBe(200);
+  const clientHtml = clientResponse.text;
   expect(clientHtml).toContain('Enviar al cliente para firma');
   expect(clientHtml).not.toContain('DOCUMENTO COMERCIAL — USO INTERNO');
   expect(clientHtml).not.toContain('Comisión estimada del comercial');
   expect(clientHtml).not.toContain('internalCostPerHour');
   expect(clientHtml).not.toContain('internalMargin');
 
-  const commercialResponse = await page.request.get(`/api/pdf?id=${encodeURIComponent(budget.id)}&mode=commercial`);
-  expect(commercialResponse.status()).toBe(200);
-  const commercialHtml = await commercialResponse.text();
+  const commercialResponse = await browserGet(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=commercial`);
+  expect(commercialResponse.status).toBe(200);
+  const commercialHtml = commercialResponse.text;
   expect(commercialHtml).toContain('DOCUMENTO COMERCIAL — USO INTERNO');
   expect(commercialHtml).toContain('Comisión estimada del comercial');
   expect(commercialHtml).not.toContain('Enviar al cliente para firma');
@@ -139,13 +158,13 @@ test('4 · modos inválidos y presupuestos inexistentes fallan cerrados sin gene
   await login(page);
   const budget = await createBudget(page, `E2E PDF invalid ${Date.now()}`);
 
-  const invalidMode = await page.request.get(`/api/pdf?id=${encodeURIComponent(budget.id)}&mode=interno-secreto`);
-  expect(invalidMode.status()).toBe(400);
-  expect(await invalidMode.json()).toEqual({ error: 'Modo de documento no válido' });
-  expect(invalidMode.headers()['content-type']).toContain('application/json');
+  const invalidMode = await browserGet(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=interno-secreto`);
+  expect(invalidMode.status).toBe(400);
+  expect(invalidMode.json).toEqual({ error: 'Modo de documento no válido' });
+  expect(invalidMode.headers['content-type']).toContain('application/json');
 
-  const missing = await page.request.get('/api/pdf?id=budget-does-not-exist-e2e&mode=client');
-  expect(missing.status()).toBe(404);
-  expect(await missing.json()).toEqual({ error: 'Presupuesto no encontrado' });
-  expect(missing.headers()['content-type']).toContain('application/json');
+  const missing = await browserGet(page, '/api/pdf?id=budget-does-not-exist-e2e&mode=client');
+  expect(missing.status).toBe(404);
+  expect(missing.json).toEqual({ error: 'Presupuesto no encontrado' });
+  expect(missing.headers['content-type']).toContain('application/json');
 });
