@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
+const maestroPassword = process.env.E2E_MAESTRO_PASSWORD;
+if (!maestroPassword) {
+  throw new Error('E2E_MAESTRO_PASSWORD es obligatoria para ejecutar esta suite aislada');
+}
 
 type ApiResult<T = unknown> = { status: number; body: T };
 type Calculation = { totals: { calculationToken: string; totalFinal: number } };
@@ -92,18 +95,21 @@ test('1 · documento cliente se entrega no-cache, inline y con protección MIME'
 test('2 · texto controlado por usuario queda escapado en el documento y no se convierte en script', async ({ page }) => {
   await login(page);
   const marker = `xss-${Date.now()}`;
-  const payload = `<script>window.${marker}=true</script><img src=x onerror=alert(1)>`;
+  const script = `<script>window.${marker}=true</script>`;
+  const image = '<img src=x onerror=alert(1)>';
+  const payload = `${script}${image}`;
   const budget = await createBudget(page, payload, `<b>${marker}</b>`);
 
   const response = await page.request.get(`/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
   expect(response.status()).toBe(200);
   const html = await response.text();
 
-  expect(html).not.toContain(payload);
+  expect(html).not.toContain(script);
+  expect(html).not.toContain(image);
   expect(html).not.toContain(`<b>${marker}</b>`);
-  expect(html).toContain('&lt;script&gt;');
+  expect(html).toContain(`&lt;script&gt;window.${marker}=true&lt;/script&gt;`);
+  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
   expect(html).toContain(`&lt;b&gt;${marker}&lt;/b&gt;`);
-  expect(html).not.toContain('onerror=alert(1)');
 });
 
 test('3 · documento cliente y comercial mantienen fronteras distintas de contenido y acción', async ({ page }) => {
