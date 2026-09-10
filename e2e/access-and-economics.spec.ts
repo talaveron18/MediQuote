@@ -89,3 +89,44 @@ test('las validaciones del presupuesto muestran feedback visible al usuario', as
   await page.getByRole('button', { name: 'Calcular' }).click();
   await expect(page.getByText('Bloque 1: selecciona categoría profesional')).toBeVisible();
 });
+
+test('el fixture aislado expone varias categorías sintéticas sin confundirlas con tarifas reales', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const response = await page.request.get('/api/config?type=categories');
+  expect(response.ok()).toBeTruthy();
+  const categories = await response.json();
+  const names = categories.map((category: { name: string }) => category.name);
+  expect(names).toContain('E2E Enfermería sintética');
+  expect(names).toContain('E2E Medicina sintética');
+});
+
+test('cálculos inválidos fallan cerrados antes de crear un presupuesto', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const empty = await page.request.post('/api/calculations', { data: { blocks: [] } });
+  expect(empty.status()).toBe(400);
+  const emptyBody = await empty.json();
+  expect(emptyBody.error).toContain('al menos un bloque');
+
+  const invalidLocation = await page.request.post('/api/calculations', {
+    data: {
+      blocks: [{ blockType: 'material', serviceName: 'Sintético', professionalCategory: '', dateMode: 'range', shiftType: 'morning', hoursPerDay: 8, unitType: 'unidad', quantity: 1, pricePerHour: 10, fixedPrice: 10 }],
+      location: { cc: 'Territorio inexistente', province: 'Provincia inexistente' },
+    },
+  });
+  expect(invalidLocation.status()).toBe(400);
+  const locationBody = await invalidLocation.json();
+  expect(locationBody.error).toContain('zona territorial válida');
+});
+
+test('comercial no puede leer appConfig ni usuarios y las categorías no filtran costes internos', async ({ page }) => {
+  await login(page, 'e2e.comercial@example.invalid', commercialPassword);
+  expect((await page.request.get('/api/config?type=appConfig')).status()).toBe(403);
+  expect((await page.request.get('/api/config?type=users')).status()).toBe(403);
+
+  const categoriesResponse = await page.request.get('/api/config?type=categories');
+  expect(categoriesResponse.ok()).toBeTruthy();
+  const categories = await categoriesResponse.json();
+  for (const category of categories) {
+    expect(category).not.toHaveProperty('defaultInternalCost');
+  }
+});
