@@ -103,6 +103,21 @@ async function requestSignature(page: Page, budgetId: string, email = 'cliente@e
   return { ...result.body, token };
 }
 
+const validSignatureData = 'data:image/png;base64,iVBORw0KGgo=';
+
+async function acceptSignature(page: Page, token: string, email = 'cliente@example.invalid') {
+  return api<{ status: string; acceptedAt?: string; error?: string }>(page, '/api/public/signature', {
+    method: 'POST',
+    body: {
+      token,
+      signerName: 'Cliente E2E',
+      signerEmail: email,
+      signatureData: validSignatureData,
+      consent: true,
+    },
+  });
+}
+
 test('1 · endpoints privados de firma y certificado exigen sesión antes de enumerar recursos', async ({ page }) => {
   await page.goto('/login');
   const listing = await api<{ error: string }>(page, '/api/signatures?budgetId=presupuesto-inexistente');
@@ -170,4 +185,92 @@ test('4 · editar el presupuesto después de emitir firma invalida el enlace por
   const secondRead = await api<{ status: string }>(page, `/api/public/signature?token=${encodeURIComponent(signature.token)}`);
   expect(secondRead.status).toBe(200);
   expect(secondRead.body.status).toBe('revoked');
+});
+
+test('5 · comercial no puede descargar documento cliente ni comercial de un presupuesto ajeno', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const budget = await createBudget(page, 'E2E RBAC PDF ajeno');
+  await logout(page);
+  await login(page, 'e2e.comercial@example.invalid', commercialPassword);
+
+  const clientPdf = await api<{ error: string }>(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=client`);
+  const commercialPdf = await api<{ error: string }>(page, `/api/pdf?id=${encodeURIComponent(budget.id)}&mode=commercial`);
+  expect(clientPdf.status).toBe(404);
+  expect(commercialPdf.status).toBe(404);
+  expect(clientPdf.body.error).toMatch(/no encontrado/i);
+  expect(commercialPdf.body.error).toMatch(/no encontrado/i);
+});
+
+test('6 · doble firma concurrente acepta exactamente una solicitud y rechaza la otra', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const budget = await createBudget(page, 'E2E doble firma concurrente');
+  const signature = await requestSignature(page, budget.id);
+
+  const responses = await page.evaluate(async ({ token, signatureData }) => {
+    const body = JSON.stringify({
+      token,
+      signerName: 'Cliente E2E',
+      signerEmail: 'cliente@example.invalid',
+      signatureData,
+      consent: true,
+    });
+    const submit = async () => {
+      const response = await fetch('/api/public/signature', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    return Promise.all([submit(), submit()]);
+  }, { token: signature.token, signatureData: validSignatureData });
+
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+  expect(responses.filter((response) => response.status === 200)).toHaveLength(1);
+  expect(responses.filter((response) => response.status === 409)).toHaveLength(1);
+});
+
+test('7 · datos de firma inválidos no consumen el enlace pendiente', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const budget = await createBudget(page, 'E2E validación firma');
+  const signature = await requestSignature(page, budget.id);
+
+  const wrongEmail = await api<{ error: string }>(page, '/api/public/signature', {
+    method: 'POST', body: {
+      token: signature.token, signerName: 'Cliente E2E', signerEmail: 'otro@example.invalid',
+      signatureData: validSignatureData, consent: true,
+    },
+  });
+  const noConsent = await api<{ error: string }>(page, '/api/public/signature', {
+    method: 'POST', body: {
+      token: signature.token, signerName: 'Cliente E2E', signerEmail: 'cliente@example.invalid',
+      signatureData: validSignatureData, consent: false,
+    },
+  });
+  const badImage = await api<{ error: string }>(page, '/api/public/signature', {
+    method: 'POST', body: {
+      token: signature.token, signerName: 'Cliente E2E', signerEmail: 'cliente@example.invalid',
+      signatureData: 'not-an-image', consent: true,
+    },
+  });
+  expect(wrongEmail.status).toBe(400);
+  expect(noConsent.status).toBe(400);
+  expect(badImage.status).toBe(400);
+
+  const stillPending = await api<{ status: string }>(page, `/api/public/signature?token=${encodeURIComponent(signature.token)}`);
+  expect(stillPending.status).toBe(200);
+  expect(stillPending.body.status).toBe('pending');
+});
+
+test('8 · comercial ajeno no puede abrir el certificado de una aceptación creada por maestro', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const budget = await createBudget(page, 'E2E RBAC certificado ajeno');
+  const signature = await requestSignature(page, budget.id);
+  const accepted = await acceptSignature(page, signature.token);
+  expect(accepted.status).toBe(200);
+  expect(accepted.body.status).toBe('accepted');
+
+  await logout(page);
+  await login(page, 'e2e.comercial@example.invalid', commercialPassword);
+  const certificate = await api<{ error: string }>(page, `/api/signatures?certificate=${encodeURIComponent(signature.id)}`);
+  expect(certificate.status).toBe(404);
+  expect(certificate.body.error).toMatch(/no encontrado/i);
 });
