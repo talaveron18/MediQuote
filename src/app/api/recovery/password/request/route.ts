@@ -7,6 +7,7 @@ import {
 import { recordPasswordRecoveryAttempt } from '@/lib/password-recovery-rate-limit'
 import { deliverPasswordRecoveryLink } from '@/lib/password-recovery-delivery'
 import { normalizeRecoveryIdentifier } from '@/lib/password-recovery'
+import { buildTrustedPublicUrl } from '@/lib/public-origin'
 
 export const runtime = 'nodejs'
 
@@ -52,7 +53,11 @@ export async function POST(request: NextRequest) {
     if (!issued) return genericResponse()
 
     issuedRawToken = issued.rawToken
-    const resetUrl = new URL('/restablecer-password', request.nextUrl.origin)
+    const resetUrl = buildTrustedPublicUrl({
+      path: '/restablecer-password',
+      requestOrigin: request.nextUrl.origin,
+      configuredOrigin: process.env.MEDIQUOTE_PUBLIC_ORIGIN,
+    })
     resetUrl.searchParams.set('token', issued.rawToken)
 
     try {
