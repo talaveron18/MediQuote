@@ -32,17 +32,18 @@ describe('auditoría continua', () => {
     expect(value.gestoriaBreakdown).not.toHaveProperty('commercialCommission');
   });
 
-  it('marca verde conceptual solo cuando motor y gestoría son idénticos', () => {
+  it('marca verde conceptual solo cuando motor y gestoría son idénticos en conceptos conciliables', () => {
     const value = calculateAuditDeviation({
       estimatedCost: 1000,
       actualCost: 1000,
-      estimatedBreakdown: { salary: 500, socialSecurity: 300, overhead: 50 },
-      actualBreakdown: { salary: 500, socialSecurity: 300, overhead: 999 },
+      estimatedBreakdown: { salary: 500, socialSecurity: 300 },
+      actualBreakdown: { salary: 500, socialSecurity: 300 },
+      internalBreakdown: { overhead: 50 },
     });
 
     expect(value.analysis.find((line) => line.key === 'salary')?.status).toBe('match');
     expect(value.analysis.find((line) => line.key === 'socialSecurity')?.status).toBe('match');
-    expect(value.analysis.some((line) => line.key === 'overhead')).toBe(false);
+    expect(value.analysis.some((line) => String(line.key) === 'overhead')).toBe(false);
     expect(value.internalAnalysis.find((line) => line.key === 'overhead')).toEqual(expect.objectContaining({
       amount: 50,
       status: 'internal',
