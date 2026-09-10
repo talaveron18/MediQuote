@@ -36,8 +36,8 @@ export default function BudgetBlockControls() {
       <div className="space-y-2">
         {serviceBlocks.map((block, index) => (
           <div key={`${block.id ?? 'draft'}-${index}`} className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 px-2 py-2">
-            <span className="min-w-0 flex-1 truncate text-xs text-gray-700">
-              Bloque {index + 1}{block.serviceName ? ` · ${block.serviceName}` : ''}
+            <span className="min-w-0 flex-1 truncate text-xs text-gray-700" data-testid={`budget-block-position-${index + 1}`}>
+              Posición {index + 1}{block.serviceName ? ` · ${block.serviceName}` : ''}
             </span>
             <Button
               type="button"
