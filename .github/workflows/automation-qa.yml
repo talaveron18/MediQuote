@@ -69,12 +69,18 @@ jobs:
         continue-on-error: true
         run: npm test
 
+      - name: Build production application for browser QA
+        id: production_build
+        continue-on-error: true
+        run: npm run build
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Start isolated MediQuote server
+      - name: Start isolated production-mode MediQuote server
+        if: steps.production_build.outcome == 'success'
         run: |
-          npm run dev > /tmp/mediquote-e2e.log 2>&1 &
+          npm start > /tmp/mediquote-e2e.log 2>&1 &
           for i in {1..60}; do
             if curl -fsS http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
             sleep 1
@@ -84,6 +90,7 @@ jobs:
 
       - name: Browser E2E
         id: browser_e2e
+        if: steps.production_build.outcome == 'success'
         continue-on-error: true
         run: npx playwright test
 
@@ -105,6 +112,10 @@ jobs:
       - name: Enforce unit/regression gate
         if: always()
         run: test '${{ steps.unit_tests.outcome }}' = 'success'
+
+      - name: Enforce production build gate
+        if: always()
+        run: test '${{ steps.production_build.outcome }}' = 'success'
 
       - name: Enforce browser gate
         if: always()
