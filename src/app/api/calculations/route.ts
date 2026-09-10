@@ -8,8 +8,8 @@ import {
   calculateCommercialResult,
   calculateMaximumClientDiscountPercent,
   calculatePriceRange,
-  DEFAULT_GASI_COMMERCIAL_POLICY,
 } from '@/lib/costing/commercial-policy';
+import { readInternalEconomicConfiguration } from '@/lib/costing/internal-economic-config';
 import { buildCostingInputFromDatabase } from '@/lib/costing/server-input';
 import { generateHolidaysForYear } from '@/lib/spanish-holidays';
 import type {
@@ -116,15 +116,11 @@ export async function POST(request: NextRequest) {
       holidays.push(...generateHolidaysForYear(year, location));
       holidays.push(...getMunicipalHolidays(location.municipalityIneCode, year));
     }
-    // La versión territorial generada se añade después de la base global y
-    // prevalece por fecha (p. ej., Jueves Santo autonómico frente al seed nacional).
     const applicableHolidays = filterHolidaysForLocation(holidays, location);
     const deduplicatedHolidays = [...new Map(
       applicableHolidays.map((holiday) => [holiday.date, holiday]),
     ).values()];
 
-    // El calendario se ejecuta una sola vez. Se fuerza precio cero para que el
-    // módulo operativo no construya ningún precio de venta heredado.
     const scheduleResults: BlockCalculationResult[] = blocks.map((block) => calculateServiceBlock({
       block: { ...block, pricePerHour: 0, fixedPrice: 0 },
       holidays: deduplicatedHolidays,
@@ -159,6 +155,15 @@ export async function POST(request: NextRequest) {
     for (const row of appConfigRows) appConfig[row.key] = row.value;
 
     const issues: DataIssue[] = [];
+    const requiresTemporaryProvision = blocks.some((block) => block.contractType === 'temporal');
+    const economicConfig = readInternalEconomicConfiguration(
+      appConfig,
+      requiresTemporaryProvision ? 'temporal' : 'indefinido',
+    );
+    if (economicConfig.status === 'pending_configuration') {
+      issues.push(...economicConfig.issues);
+    }
+
     const localCalendar = getLocalHolidayCalendar(location.municipalityIneCode);
     for (const year of years) {
       if (year !== 2026 || !localCalendar || localCalendar.status !== 'verified') {
@@ -225,21 +230,24 @@ export async function POST(request: NextRequest) {
       blockInternalCosts[index] = costing.internalCost.totalInternalCost;
     }
 
-    if (issues.length > 0) {
+    if (issues.length > 0 || economicConfig.status !== 'ready') {
+      const pendingIssues = economicConfig.status === 'pending_configuration'
+        ? [...issues]
+        : issues;
       const pending = {
         blocks: scheduleResults,
         totals: null,
         commercial: {
           status: 'pending_configuration' as const,
           requiresAuthorization: true,
-          pendingFields: [...new Set(issues.map((issue) => issue.field))],
+          pendingFields: [...new Set(pendingIssues.map((issue) => issue.field))],
         },
-        issues,
+        issues: pendingIssues,
       };
       return NextResponse.json(sanitizeForRole(pending, auth.role));
     }
 
-    const overheadPercent = Number(appConfig.costing_overhead_percent ?? 15);
+    const overheadPercent = economicConfig.value.overheadPercent;
     const overheadFactor = 1 + overheadPercent / 100;
     for (const [index, block] of blocks.entries()) {
       if (simpleTypes.has(block.blockType ?? '')) {
@@ -251,7 +259,7 @@ export async function POST(request: NextRequest) {
       internalBreakdowns.reduce((sum, breakdown) => sum + breakdown.totalInternalCost, 0)
       + directCostWithOverhead,
     );
-    const commercialPolicy = { ...DEFAULT_GASI_COMMERCIAL_POLICY };
+    const commercialPolicy = { ...economicConfig.value.commercialPolicy };
     const range = calculatePriceRange(totalInternalCost, commercialPolicy);
     const requestedDiscount = Math.max(0, Number(body.discountPercent ?? 0));
     const closingPrice = calculateClosingPriceFromDiscount({
@@ -322,7 +330,8 @@ export async function POST(request: NextRequest) {
           location,
           schedules: result.blocks,
           internalCost: result.internalCost,
-          commercialPolicy: DEFAULT_GASI_COMMERCIAL_POLICY,
+          internalEconomicConfiguration: economicConfig.value,
+          commercialPolicy,
           commercial,
         }),
         subtotal: result.totals.subtotal,
