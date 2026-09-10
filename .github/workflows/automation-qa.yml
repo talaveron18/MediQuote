@@ -57,9 +57,13 @@ jobs:
         run: npx tsx scripts/seed-e2e.ts
 
       - name: TypeScript check
-        run: npx tsc --noEmit --pretty false
+        id: typecheck
+        continue-on-error: true
+        run: npx tsc --noEmit --pretty false 2>&1 | tee typecheck.log
 
       - name: Unit and regression tests
+        id: unit_tests
+        continue-on-error: true
         run: npm test
 
       - name: Install Chromium
@@ -76,14 +80,24 @@ jobs:
           exit 1
 
       - name: Browser E2E
+        id: browser_e2e
+        continue-on-error: true
         run: npx playwright test
 
-      - name: Upload browser evidence on failure
-        if: failure()
+      - name: Upload QA evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mediquote-e2e-evidence
+          name: mediquote-isolated-qa-evidence
           path: |
+            typecheck.log
             playwright-report/
             test-results/
           if-no-files-found: ignore
+
+      - name: Enforce QA gate
+        if: always()
+        run: |
+          test '${{ steps.typecheck.outcome }}' = 'success'
+          test '${{ steps.unit_tests.outcome }}' = 'success'
+          test '${{ steps.browser_e2e.outcome }}' = 'success'
