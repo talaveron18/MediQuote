@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,14 +16,16 @@ export default function LoginPage() {
   const [rememberEmail, setRememberEmail] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     const savedEmail = window.localStorage.getItem('gasi_remembered_email');
     if (savedEmail) setEmail(savedEmail);
+    formRef.current?.setAttribute('data-hydrated', 'true');
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleLogin() {
+    if (loading) return;
     setLoading(true);
 
     try {
@@ -75,7 +77,16 @@ export default function LoginPage() {
             Uso interno autorizado para GASI
           </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            ref={formRef}
+            data-testid="login-form"
+            data-hydrated="false"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleLogin();
+            }}
+            className="space-y-4"
+          >
             <div className="space-y-2">
               <Label htmlFor="email">Correo electrónico</Label>
               <Input
@@ -126,7 +137,8 @@ export default function LoginPage() {
               Recordar usuario en este equipo
             </label>
             <Button
-              type="submit"
+              type="button"
+              onClick={() => void handleLogin()}
               className="w-full bg-emerald-600 hover:bg-emerald-700"
               disabled={loading}
             >
