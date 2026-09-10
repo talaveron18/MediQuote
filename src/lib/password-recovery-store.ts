@@ -39,11 +39,31 @@ function parseStoredReset(value: string): StoredReset | null {
   }
 }
 
+async function invalidatePreviousRecoveries(userId: string, now: Date): Promise<void> {
+  const rows = await db.appConfig.findMany({
+    where: { key: { startsWith: RESET_PREFIX } },
+    select: { key: true, value: true },
+  })
+
+  for (const row of rows) {
+    const stored = parseStoredReset(row.value)
+    if (!stored || stored.userId !== userId || stored.usedAt) continue
+    const invalidated: StoredReset = { ...stored, usedAt: now.toISOString() }
+    await db.appConfig.updateMany({
+      where: { key: row.key, value: row.value },
+      data: { value: JSON.stringify(invalidated) },
+    })
+  }
+}
+
 export async function createStoredPasswordRecovery(email: string, now = new Date()) {
   const normalized = normalizeRecoveryIdentifier(email)
   const user = await db.user.findUnique({ where: { email: normalized }, select: { id: true, active: true } })
   // The caller must always return the same generic response whether this is null or not.
   if (!user?.active) return null
+
+  // A later request must invalidate every earlier unused token for the same user.
+  await invalidatePreviousRecoveries(user.id, now)
 
   const token = createPasswordRecoveryToken(now)
   const stored: StoredReset = {
