@@ -1,90 +1,95 @@
-# Contrato de entrada de costes reales desde gestoría
+# Contrato de auditoría de costes con gestoría
 
 ## Objetivo
-Definir exactamente qué datos debe entregar la gestoría para que MediQuote pueda comparar coste estimado y coste real sin inventar salarios, cotizaciones, pluses ni reglas económicas.
+Definir qué información necesita MediQuote para auditar un presupuesto ya guardado frente a la documentación posterior de gestoría.
 
-## Principio
-MediQuote no debe inferir un coste real a partir de una cifra global si el desglose existe. Cada dato importado debe conservar periodo, categoría/profesional, territorio, tipo de contrato, fuente documental y unidad.
+La gestoría **no alimenta ni gobierna el motor económico interno de MediQuote**. MediQuote calcula una estimación para presupuestar antes de disponer de la liquidación real. Cuando llega la documentación de gestoría, esta se considera la referencia correcta para los conceptos laborales/externos que conoce y se compara contra la fotografía original del presupuesto.
 
-## Identificación obligatoria
-- `source_document_id`: referencia interna al documento origen.
-- `source_document_name`: nombre del documento de gestoría.
-- `source_document_date`: fecha de emisión.
-- `period_start` / `period_end`: periodo liquidado.
-- `professional_category`: categoría profesional normalizada.
-- `province` y, cuando afecte al convenio, `municipality`.
-- `contract_type`: indefinido, temporal, fijo_discontinuo o mercantil_autonomo.
-- `labor_contracts`: número de contratos incluidos.
+## Flujo funcional
+1. MediQuote genera un presupuesto y conserva su `CostingQuote.snapshot` inmutable.
+2. El presupuesto se guarda y puede seguir su flujo comercial.
+3. Desde el presupuesto se inicia una auditoría.
+4. Se adjunta el documento de gestoría correspondiente.
+5. Se introducen o extraen de forma verificable los importes que realmente constan en ese documento.
+6. MediQuote compara concepto por concepto la fotografía original con gestoría.
+7. La auditoría queda asociada al presupuesto y conserva ambos lados de la comparación.
 
-## Costes salariales
-Solicitar por separado, cuando sean aplicables:
-- salario base bruto ordinario;
-- pagas extraordinarias, indicando si están prorrateadas o separadas;
-- complementos fijos de convenio;
-- nocturnidad;
-- domingos;
-- festivos, diferenciando si la liquidación territorial distingue nacional/autonómico/provincial/municipal;
-- horas extraordinarias;
-- otros conceptos salariales, con nombre e importe.
+## Principio de autoridad
+Para los conceptos que corresponden a gestoría:
 
-Cada línea debe indicar importe y unidad (`EUR_periodo`, `EUR_hora`, `EUR_turno`, porcentaje u otra unidad explícita).
+`valor gestoría = referencia real`
 
-## Cotizaciones empresariales
-Solicitar importes reales y, si la gestoría los facilita, bases y porcentajes para:
-- contingencias comunes;
-- desempleo;
-- FOGASA;
-- formación profesional;
-- MEI;
+Una diferencia no se corrige automáticamente ni se utiliza para cambiar silenciosamente parámetros de MediQuote. Se registra para localizar qué estimación difirió de la realidad.
+
+## Identificación mínima del documento
+Conservar, cuando esté disponible:
+- identificador interno del documento;
+- nombre original;
+- fecha de emisión;
+- periodo al que corresponde;
+- presupuesto/servicio al que se vincula;
+- fecha/hora de incorporación;
+- usuario que lo incorporó;
+- archivo original o evidencia equivalente.
+
+No es requisito que la gestoría entregue un formato técnico diseñado para MediQuote. El sistema debe poder trabajar con el documento que la gestoría entregue y con el desglose verificable que contenga.
+
+## Conceptos conciliables con gestoría
+MediQuote debe poder enfrentar, cuando el documento los proporcione con suficiente detalle:
+- salario y pagas extraordinarias;
+- pluses/complementos;
+- Seguridad Social a cargo de la empresa;
 - accidentes de trabajo/enfermedad profesional;
-- otras cotizaciones empresariales.
+- costes de contratación, gestión y finalización que realmente facture o liquide la gestoría.
 
-No completar porcentajes ausentes con valores históricos o de otro CNAE/territorio.
+Pueden añadirse otros conceptos conciliables únicamente cuando exista una fuente documentada que permita afirmar que gestoría conoce ese importe. No inventar ni reconstruir un desglose inexistente.
 
-## Costes de contratación y gestión
-Solicitar por separado:
-- coste de alta/contrato o tarifa de gestoría atribuible al contrato;
-- costes de extinción/finiquito si existen en el periodo;
-- provisiones efectivamente contabilizadas, si la gestoría las usa;
-- otros costes administrativos directamente atribuibles.
+## Estado por concepto
+Cada línea conciliable debe tener uno de estos estados:
+- `match`: MediQuote y gestoría coinciden exactamente después del redondeo monetario aplicado por el sistema. Visualmente verde.
+- `mismatch`: los importes difieren. Visualmente rojo y mostrando ambos valores y la diferencia.
+- `not_provided`: el documento no permite obtener ese concepto de forma fiable. No se pinta verde ni rojo; queda pendiente/no conciliado.
 
-## Costes directos no salariales
-Cuando estén asociados al servicio, la entrada debe admitir líneas separadas para desplazamiento, kilometraje, peajes, parking, dietas, alojamiento, material, EPI, uniforme, equipamiento, vehículo, seguro específico, vigilancia de salud, selección/reclutamiento y otros.
+El objetivo operativo es que todos los conceptos disponibles terminen en `match`.
 
-## Campos de conciliación
-- `actual_total_labor_cost`
-- `actual_total_employer_contributions`
-- `actual_total_contract_cost`
-- `actual_total_direct_costs`
-- `actual_total_cost`
-
-La suma de las líneas debe cuadrar con `actual_total_cost`. Si no cuadra, la importación queda en estado `pending_reconciliation` y no alimenta una desviación definitiva.
-
-## Vinculación con MediQuote
-La estructura se mapea a `CostAudit.actualBreakdown` y `actualCost`. La comparación se realiza contra el `CostingQuote.snapshot`/`CostSnapshot` que estaba vigente al presupuestar, no contra una configuración recalculada posteriormente.
-
-## Datos que NO debe inventar MediQuote
-- salario bruto productivo;
-- horas productivas anuales;
-- porcentajes de cotización;
-- AT/EP;
-- pluses de convenio;
-- coste de gestoría por contrato;
-- provisiones de extinción;
+## Costes internos GASI: sección separada
+Los siguientes conceptos **no deben compararse con gestoría** porque son decisiones o imputaciones internas de GASI:
 - overhead;
-- markup, suelo comercial, buffer o comisión.
+- comisión comercial;
+- porcentaje/resultado imputado a GASI;
+- otros costes o reglas internas aprobados por la empresa.
 
-Si falta cualquiera de esos datos y es necesario para el cálculo, el motor debe conservar `pending_configuration`.
+Deben aparecer en una sección independiente de la auditoría para reconstruir la economía completa del presupuesto, pero su estado de conciliación es `no aplica`.
+
+Los valores internos proceden de la configuración económica de MediQuote vigente cuando se generó el presupuesto. Nunca deben sustituirse por valores actuales al abrir una auditoría histórica.
+
+## Totales
+La auditoría debe distinguir como mínimo:
+- **coste conciliable previsto por MediQuote**: suma de conceptos que legítimamente pueden enfrentarse a gestoría;
+- **coste confirmado por gestoría**;
+- **diferencia conciliable**;
+- **costes/resultados internos GASI**, mostrados aparte;
+- **precio del presupuesto y resultado económico**, reconstruidos desde la fotografía original cuando corresponda.
+
+No sumar dos veces overhead, costes directos, comisión o beneficio si ya forman parte de otro agregado del snapshot. Los totales económicos deben derivarse de las magnitudes canónicas del `CostSnapshot`, no de sumar indiscriminadamente las filas de presentación.
 
 ## Validaciones mínimas
-1. Importes finitos y >= 0 salvo ajustes/regularizaciones explícitamente marcados.
-2. Periodo válido y no invertido.
-3. Documento fuente obligatorio.
-4. Territorio obligatorio para costes dependientes de convenio.
-5. Tipo de contrato obligatorio para cotización laboral.
-6. Suma de componentes = total dentro de tolerancia de redondeo de 0,02 EUR.
-7. No mezclar varias categorías/territorios en una única línea agregada si impide reconciliación.
-8. Conservar evidencia documental; nunca copiar credenciales o datos innecesarios de trabajadores.
+1. Presupuesto existente y con snapshot económico sellado.
+2. Documento de gestoría asociado al presupuesto correcto.
+3. Importes finitos y no negativos salvo ajustes explícitamente documentados.
+4. Solo se aceptan claves conciliables en `actualBreakdown`; claves internas enviadas como si fueran gestoría se ignoran/rechazan.
+5. No declarar coincidencia cuando falta el dato de gestoría.
+6. Mantener el archivo de gestoría y la comparación asociados a la auditoría creada.
+7. No recalcular la fotografía original con configuraciones actuales.
+8. No modificar automáticamente salarios, porcentajes, margen, comisión, overhead ni otras reglas a partir de una desviación.
 
-## Salida para auditoría
-Para cada presupuesto/servicio debe poder responderse: qué se estimó, con qué versión del motor, qué coste real comunicó la gestoría, qué documento lo respalda, qué componente explica la desviación y en qué fecha se incorporó.
+## Relación con el modelo actual
+- `CostingQuote.snapshot`: fotografía económica original usada por MediQuote.
+- `CostAudit.estimatedCost`: parte conciliable prevista, no el coste interno total de GASI.
+- `CostAudit.actualCost`: total confirmado por gestoría para esa parte conciliable.
+- `CostAudit.estimatedBreakdown`: conserva el desglose original necesario para mostrar tanto conciliables como internos.
+- `CostAudit.actualBreakdown`: contiene únicamente conceptos procedentes de gestoría.
+- `CostAudit.analysis`: conserva la comparación por concepto y la sección interna separada.
+
+## Regla de no invención
+Este contrato no fija salarios, cotizaciones, costes hora, overhead, comisión, margen, porcentaje GASI ni tolerancias económicas nuevas. Esos valores solo pueden proceder de la configuración aprobada, de documentación vigente o de una decisión expresa de Fernando.
