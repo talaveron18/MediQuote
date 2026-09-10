@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { AppView, UserRole } from '@/lib/types';
 import ComercialImportDialog from '@/components/comercial-import-dialog';
+import BudgetBlockControls from '@/components/budget-block-controls';
 
 const DEV_ROLE_SWITCH = process.env.NEXT_PUBLIC_DEV_ROLE_SWITCH === 'true' && process.env.NODE_ENV === 'development';
 
@@ -211,6 +212,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0">
+        <BudgetBlockControls />
         {children}
       </main>
     </div>
