@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, SESSION_COOKIE, getCurrentUser, logAudit } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
+import { bumpSessionGeneration, getSessionGeneration } from '@/lib/password-recovery-store';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 
@@ -9,7 +10,6 @@ export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
 
-  // ── Change password ──────────────────────────────────────
   if (action === 'change-password') {
     const auth = await getCurrentUser(request);
     if (!auth) {
@@ -39,14 +39,9 @@ export async function POST(request: NextRequest) {
       const valid = await verifyPassword(currentPassword, user.password);
       if (!valid) {
         await logAudit({
-          action: 'password_change_failed',
-          entity: 'user',
-          entityId: auth.id,
-          userId: auth.id,
-          userName: auth.name,
-          userRole: auth.role,
-          summary: 'Cambio de contraseña fallido: contraseña actual incorrecta',
-          result: 'error',
+          action: 'password_change_failed', entity: 'user', entityId: auth.id,
+          userId: auth.id, userName: auth.name, userRole: auth.role,
+          summary: 'Cambio de contraseña fallido: contraseña actual incorrecta', result: 'error',
         });
         return NextResponse.json({ error: 'Contraseña actual incorrecta' }, { status: 401 });
       }
@@ -57,46 +52,39 @@ export async function POST(request: NextRequest) {
         where: { id: auth.id },
         data: { password: hashed, mustChangePassword: false },
       });
+      const newGeneration = await bumpSessionGeneration(auth.id);
 
       await logAudit({
-        action: 'password_changed',
-        entity: 'user',
-        entityId: auth.id,
-        userId: auth.id,
-        userName: auth.name,
-        userRole: auth.role,
-        summary: 'Contraseña cambiada correctamente',
+        action: 'password_changed', entity: 'user', entityId: auth.id,
+        userId: auth.id, userName: auth.name, userRole: auth.role,
+        summary: 'Contraseña cambiada correctamente; sesiones anteriores revocadas',
       });
 
-      return NextResponse.json({ success: true });
+      const response = NextResponse.json({ success: true });
+      response.cookies.set(SESSION_COOKIE, createSessionToken(auth.id, newGeneration), {
+        path: '/', sameSite: 'lax', httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+      });
+      return response;
     } catch {
       return NextResponse.json({ error: 'Error al cambiar contraseña' }, { status: 500 });
     }
   }
 
-  // ── Logout ────────────────────────────────────────────────
   if (action === 'logout') {
     const auth = await getCurrentUser(request);
     if (auth) {
       await logAudit({
-        action: 'logout',
-        entity: 'user',
-        entityId: auth.id,
-        userId: auth.id,
-        userName: auth.name,
-        userRole: auth.role,
+        action: 'logout', entity: 'user', entityId: auth.id,
+        userId: auth.id, userName: auth.name, userRole: auth.role,
         summary: `Logout: ${auth.email}`,
       }).catch(() => {});
     }
     const response = NextResponse.json({ success: true });
-    response.cookies.set(SESSION_COOKIE, '', {
-      path: '/',
-      maxAge: 0,
-    });
+    response.cookies.set(SESSION_COOKIE, '', { path: '/', maxAge: 0 });
     return response;
   }
 
-  // ── Login ─────────────────────────────────────────────────
   try {
     const body = await request.json();
     const { email, password } = body;
@@ -124,51 +112,34 @@ export async function POST(request: NextRequest) {
     const passwordValid = await verifyPassword(password, user.password);
     if (!passwordValid) {
       await logAudit({
-        action: 'login_failed',
-        entity: 'user',
-        entityId: user?.id,
-        userId: user?.id,
-        userName: user?.name || normalizedEmail,
-        userRole: user?.role || 'unknown',
-        summary: `Intento de login fallido: ${normalizedEmail}`,
+        action: 'login_failed', entity: 'user', entityId: user?.id,
+        userId: user?.id, userName: user?.name || normalizedEmail,
+        userRole: user?.role || 'unknown', summary: `Intento de login fallido: ${normalizedEmail}`,
         result: 'error',
       }).catch(() => {});
       return NextResponse.json({ error: 'Credenciales incorrectas' }, { status: 401 });
     }
 
-    // Login actualiza la base; la primera escritura del día queda precedida por backup.
     await ensureDailyAutomaticBackup();
-    await db.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    await db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    // Audit log
     await logAudit({
-      action: 'login',
-      entity: 'user',
-      entityId: user.id,
-      userId: user.id,
-      userName: user.name,
-      userRole: user.role,
+      action: 'login', entity: 'user', entityId: user.id,
+      userId: user.id, userName: user.name, userRole: user.role,
       summary: `Login: ${user.email} (${user.role})`,
     }).catch(() => {});
 
+    const generation = await getSessionGeneration(user.id);
     const response = NextResponse.json({
       success: true,
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        mustChangePassword: user.mustChangePassword,
+        id: user.id, email: user.email, name: user.name,
+        role: user.role, mustChangePassword: user.mustChangePassword,
       },
     });
 
-    response.cookies.set(SESSION_COOKIE, createSessionToken(user.id), {
-      path: '/',
-      sameSite: 'lax',
-      httpOnly: true,
+    response.cookies.set(SESSION_COOKIE, createSessionToken(user.id, generation), {
+      path: '/', sameSite: 'lax', httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
     });
 
@@ -186,7 +157,6 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
 
-  // ── Current user (me) ────────────────────────────────────
   if (action === 'me') {
     const user = await getCurrentUser(request);
     if (!user) {
@@ -194,15 +164,11 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        mustChangePassword: user.mustChangePassword,
+        id: user.id, email: user.email, name: user.name,
+        role: user.role, mustChangePassword: user.mustChangePassword,
       },
     });
   }
 
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
 }
-
