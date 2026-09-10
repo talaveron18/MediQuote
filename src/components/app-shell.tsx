@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import Image from 'next/image';
 import {
   LayoutDashboard, FilePlus, Users, Settings,
-  Menu, X, LogOut, Shield, Mail, Activity,
+  Menu, X, LogOut, Shield, Mail, Activity, BadgeEuro,
 } from 'lucide-react';
 import type { AppView, UserRole } from '@/lib/types';
 import ComercialImportDialog from '@/components/comercial-import-dialog';
@@ -68,13 +68,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      {/* Sidebar */}
       <aside
         className={`${
           sidebarOpen ? 'w-64' : 'w-16'
         } bg-white border-r border-gray-200 flex flex-col transition-all duration-200 flex-shrink-0`}
       >
-        {/* Logo / Brand */}
         <div className="h-16 flex items-center px-3 border-b border-gray-200 gap-2">
           <Image
             src="/branding/gasi-logo.png"
@@ -98,7 +96,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 py-2">
           {navItems
             .filter((item) => !item.roles || item.roles.includes(currentRole))
@@ -121,7 +118,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
 
-          {/* Remote config import for non-admin roles */}
+          {isAdmin && (
+            <a
+              href="/economia-interna"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+              title="Configuración económica interna"
+            >
+              <BadgeEuro className="w-4 h-4" />
+              {sidebarOpen && <span className="truncate">Economía interna</span>}
+            </a>
+          )}
+
           {!isAdmin && sidebarOpen && (
             <div className="mt-1">
               <Separator className="mb-1" />
@@ -135,7 +142,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <Separator />
 
-        {/* User info + logout + dev role switch */}
         <div className="p-3">
           {sidebarOpen ? (
             <div className="space-y-2">
@@ -195,7 +201,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        {/* License line — only visible when sidebar is open */}
         {sidebarOpen && (
           <div className="px-3 pb-3">
             <p className="text-[10px] text-gray-400 leading-tight">
@@ -205,7 +210,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         {children}
       </main>
