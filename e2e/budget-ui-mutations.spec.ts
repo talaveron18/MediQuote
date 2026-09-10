@@ -61,16 +61,18 @@ test('colapsar y reabrir un bloque conserva las ediciones locales del usuario', 
   await expect(page.locator('#hours-per-day-0')).toHaveValue('12');
 });
 
-test('recargar un presupuesto nuevo no guarda silenciosamente mutaciones no confirmadas', async ({ page }) => {
+test('recargar un presupuesto nuevo conserva la pantalla pero no guarda silenciosamente mutaciones no confirmadas', async ({ page }) => {
   await openNewBudget(page);
   await addBlock(page, 'Material');
   await page.locator('#svc-name-1').fill('Material temporal no guardado');
   await expect(page.locator('button.text-red-500')).toHaveCount(2);
+  await expect(page).toHaveURL(/view=budget-new/);
+
   await page.reload();
-  await expect(page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).first()).toBeVisible();
-  await expect(page.locator('input[value="Material temporal no guardado"]')).toHaveCount(0);
-  await page.getByRole('navigation').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
+
+  await expect(page).toHaveURL(/view=budget-new/);
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
+  await expect(page.locator('input[value="Material temporal no guardado"]')).toHaveCount(0);
   await expect(page.locator('button.text-red-500')).toHaveCount(1);
   await expect(page.locator('#svc-name-0')).toHaveValue('');
 });
