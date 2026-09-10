@@ -7,11 +7,12 @@ export type PublicUrlInput = {
 
 /**
  * Builds externally shared MediQuote URLs without trusting the incoming Host
- * header in production. Sensitive links (password recovery, signatures) must
- * use the explicitly configured canonical public origin.
+ * header in real production. Sensitive links (password recovery, signatures)
+ * must use the explicitly configured canonical public origin.
  */
 export function buildTrustedPublicUrl(input: PublicUrlInput): URL {
-  const production = input.production ?? process.env.NODE_ENV === 'production'
+  const production = input.production
+    ?? (process.env.NODE_ENV === 'production' && process.env.MEDIQUOTE_E2E !== '1')
   const configured = input.configuredOrigin?.trim() ?? ''
   const base = configured || (production ? '' : input.requestOrigin)
 
