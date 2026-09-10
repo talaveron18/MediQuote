@@ -15,6 +15,19 @@ const baseLegalParameters = {
   SS_ATEP_ORIENTATIVO: 1.5,
 };
 
+const syntheticInternalEconomics = {
+  costing_overhead_percent: '7.25',
+  costing_termination_provision_percent_temp: '2.5',
+  commercial_gasi_markup_on_cost_percent: '31',
+  commercial_floor_on_cost_percent: '9',
+  commercial_buffer_on_cost_percent: '6',
+  commercial_commission_floor_percent: '8',
+  commercial_commission_intermediate_percent: '9',
+  commercial_commission_list_percent: '10',
+  commercial_semaphore_green_return_on_cost_percent: '28',
+  commercial_semaphore_yellow_return_on_cost_percent: '18',
+};
+
 const block: ServiceBlockInput = {
   serviceName: 'Enfermería domingo', professionalCategory: 'nurse-id', puestosSimultaneos: 1,
   plantillaSeleccionada: 1, pricePerHour: 0, contractType: 'temporal', dateMode: 'specific',
@@ -55,7 +68,11 @@ function configFor(profileId: keyof typeof CONVENTION_PROFILES, extra: Record<st
   return {
     legalParameters,
     legalParameterSources,
-    appConfig: { costing_province: 'Madrid', costing_overhead_percent: '15', costing_management_fee_per_contract: '15' },
+    appConfig: {
+      costing_province: 'Madrid',
+      costing_management_fee_per_contract: '11.5',
+      ...syntheticInternalEconomics,
+    },
     surcharges: [
       { id: 'night', name: 'Nocturnidad genérica', type: 'nocturnidad', surchargeType: 'percentage', value: 99 },
       { id: 'sunday', name: 'Domingo genérico', type: 'domingo', surchargeType: 'percentage', value: 99 },
@@ -131,5 +148,54 @@ describe('Adaptador territorial al motor económico', () => {
       config, serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
     });
     expect(built.status).toBe('pending_configuration');
+  });
+
+  it('no inventa overhead, margen, comisión ni umbrales cuando faltan', () => {
+    const profile = CONVENTION_PROFILES.madrid;
+    const config = configFor('madrid', {
+      PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
+      SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
+      PLUS_FESTIVO_ESPECIAL_MADRID: 38,
+    });
+    for (const key of Object.keys(syntheticInternalEconomics)) delete config.appConfig[key as keyof typeof config.appConfig];
+
+    const built = buildCostingInputFromDatabase({
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config, serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
+    });
+
+    expect(built.status).toBe('pending_configuration');
+    if (built.status !== 'pending_configuration') return;
+    expect(built.issues.some((issue) => issue.field === 'appConfig.costing_overhead_percent')).toBe(true);
+    expect(built.issues.some((issue) => issue.field === 'appConfig.commercial_gasi_markup_on_cost_percent')).toBe(true);
+    expect(built.issues.some((issue) => issue.field === 'appConfig.commercial_commission_list_percent')).toBe(true);
+  });
+
+  it('transporta exactamente la configuración interna sintética al snapshot del motor', () => {
+    const profile = CONVENTION_PROFILES.madrid;
+    const built = buildCostingInputFromDatabase({
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      config: configFor('madrid', {
+        PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
+        SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
+        PLUS_FESTIVO_ESPECIAL_MADRID: 38,
+      }),
+      serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
+    });
+
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') return;
+    expect(built.input.overhead.percentageOnExpandedLabor).toBe(7.25);
+    expect(built.input.contract.terminationProvisionPercent).toBe(2.5);
+    expect(built.input.commercialPolicy).toEqual({
+      gasiMarkupOnCostPercent: 31,
+      commercialFloorOnCostPercent: 9,
+      commercialBufferOnCostPercent: 6,
+      commissionAtFloorPercent: 8,
+      commissionIntermediatePercent: 9,
+      commissionAtListPercent: 10,
+      semaphoreTargetReturnOnCostPercent: 28,
+      semaphoreReviewReturnOnCostPercent: 18,
+    });
   });
 });
