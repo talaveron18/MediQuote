@@ -15,7 +15,10 @@ function stable(value: unknown): unknown {
 export function canonicalBudgetForSignature(budget: any) {
   return stable({
     id: budget.id, code: budget.code, clientId: budget.clientId,
-    statusAtIssue: budget.status, validUntil: budget.validUntil, description: budget.description,
+    // El estado es metadato de workflow, no contenido aceptado. Al emitir un
+    // enlace MediQuote cambia borrador -> enviado; incluirlo rompería la huella
+    // sin que el documento económico hubiese cambiado.
+    validUntil: budget.validUntil, description: budget.description,
     subtotal: budget.subtotal, discountPercent: budget.discountPercent, discountAmount: budget.discountAmount,
     ivaAmount: budget.ivaAmount, totalFinal: budget.totalFinal,
     serviceLocationId: budget.serviceLocationId,
