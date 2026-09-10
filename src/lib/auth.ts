@@ -26,6 +26,8 @@ function passwordChangeRequired(): NextResponse {
 async function protectMutation(request: Request): Promise<NextResponse | null> {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) return null;
   if (new URL(request.url).pathname === '/api/backup') return null;
+  // Netlify Database/PostgreSQL se protege en la plataforma. La copia SQLite
+  // previa a escritura solo corresponde al modo local heredado.
   if (process.env.NETLIFY || !process.env.DATABASE_URL?.startsWith('file:')) return null;
   try {
     await ensureDailyAutomaticBackup();
@@ -38,6 +40,7 @@ async function protectMutation(request: Request): Promise<NextResponse | null> {
   }
 }
 
+/** Reads session cookie, validates revocation generation and returns user or null. */
 export async function getCurrentUser(request: Request): Promise<AuthUser | null> {
   const cookieHeader = request.headers.get('cookie');
   if (!cookieHeader) return null;
@@ -69,27 +72,18 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
   };
 }
 
-export async function requireAuth(
-  request: Request
-): Promise<AuthUser | NextResponse> {
+export async function requireAuth(request: Request): Promise<AuthUser | NextResponse> {
   const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (user.mustChangePassword) return passwordChangeRequired();
   const backupError = await protectMutation(request);
   if (backupError) return backupError;
   return user;
 }
 
-export async function requireRole(
-  request: Request,
-  allowedRoles: string[]
-): Promise<AuthUser | NextResponse> {
+export async function requireRole(request: Request, allowedRoles: string[]): Promise<AuthUser | NextResponse> {
   const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (user.mustChangePassword) return passwordChangeRequired();
   if (user.role !== 'maestro' && !allowedRoles.includes(user.role)) {
     return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
@@ -99,13 +93,9 @@ export async function requireRole(
   return user;
 }
 
-export async function requireMaestro(
-  request: Request
-): Promise<AuthUser | NextResponse> {
+export async function requireMaestro(request: Request): Promise<AuthUser | NextResponse> {
   const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (user.mustChangePassword) return passwordChangeRequired();
   if (user.role !== 'maestro') {
     return NextResponse.json({ error: 'Acceso denegado. Solo el titular puede acceder.' }, { status: 403 });
@@ -120,14 +110,13 @@ export async function hashPassword(plain: string): Promise<string> {
 }
 
 export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
-  if (stored.startsWith('$2')) {
-    return bcrypt.compare(plain, stored);
-  }
+  if (stored.startsWith('$2')) return bcrypt.compare(plain, stored);
   if (plain === stored) {
     try {
       const hash = await hashPassword(plain);
       await db.user.updateMany({ where: { password: stored }, data: { password: hash } });
     } catch {
+      // Silent — don't break login flow
     }
     return true;
   }
@@ -135,47 +124,20 @@ export async function verifyPassword(plain: string, stored: string): Promise<boo
 }
 
 const INTERNAL_FIELDS = [
-  'internalCostPerHour',
-  'internalMargin',
-  'margin',
-  'profit',
-  'commission',
-  'costeInterno',
-  'precioMaximo',
-  'precioRecomendado',
-  'precioCatalogo',
-  'precioTrabajo',
-  'defaultInternalCost',
-  'internalCost',
-  'internalCostTotal',
-  'totalInternalCost',
-  'costSnapshot',
-  'snapshot',
-  'salary',
-  'employerContributions',
-  'occupationalRisk',
-  'netBeforeCommission',
-  'commissionAmount',
-  'commissionRatePercent',
-  'finalGasiBenefit',
-  'gasiReturnOnCostPercent',
-  'finalMarginOnSalePercent',
-  'password',
-  'mustChangePassword',
-  'lastLoginAt',
-  'createdById',
+  'internalCostPerHour','internalMargin','margin','profit','commission','costeInterno',
+  'precioMaximo','precioRecomendado','precioCatalogo','precioTrabajo','defaultInternalCost',
+  'internalCost','internalCostTotal','totalInternalCost','costSnapshot','snapshot','salary',
+  'employerContributions','occupationalRisk','netBeforeCommission','commissionAmount',
+  'commissionRatePercent','finalGasiBenefit','gasiReturnOnCostPercent','finalMarginOnSalePercent',
+  'password','mustChangePassword','lastLoginAt','createdById',
 ]
 
 export function sanitizeForRole<T>(data: T, role: string): T {
   if (role === 'maestro' || role === 'admin') return data
-  if (Array.isArray(data)) {
-    return data.map((item) => sanitizeForRole(item, role)) as T
-  }
+  if (Array.isArray(data)) return data.map((item) => sanitizeForRole(item, role)) as T
   if (data && typeof data === 'object') {
     const clean = { ...data }
-    for (const key of INTERNAL_FIELDS) {
-      delete (clean as any)[key]
-    }
+    for (const key of INTERNAL_FIELDS) delete (clean as any)[key]
     for (const key of Object.keys(clean)) {
       if ((clean as any)[key] && typeof (clean as any)[key] === 'object') {
         (clean as any)[key] = sanitizeForRole((clean as any)[key], role)
@@ -188,7 +150,7 @@ export function sanitizeForRole<T>(data: T, role: string): T {
 
 export async function logAudit(params: {
   action: string;
-  entity: string;
+  entity?: string;
   entityId?: string;
   userId?: string;
   userName?: string;
@@ -197,23 +159,27 @@ export async function logAudit(params: {
   oldData?: string;
   newData?: string;
   result?: string;
-}) {
+  errorMessage?: string;
+}): Promise<void> {
   try {
     await db.auditLog.create({
       data: {
         action: params.action,
-        entity: params.entity,
-        entityId: params.entityId,
-        userId: params.userId,
-        userName: params.userName,
-        userRole: params.userRole,
-        summary: params.summary,
-        oldData: params.oldData,
-        newData: params.newData,
-        result: params.result || 'success',
+        entity: params.entity ?? null,
+        entityId: params.entityId ?? null,
+        userId: params.userId ?? null,
+        userName: params.userName ?? null,
+        userRole: params.userRole ?? null,
+        summary: params.summary ?? null,
+        oldData: params.oldData ?? null,
+        newData: params.newData ?? null,
+        result: params.result ?? 'success',
+        errorMessage: params.errorMessage ?? null,
+        appVersion: process.env.APP_VERSION || null,
+        engineVersion: process.env.CALCULATION_ENGINE_VERSION || null,
       },
-    });
-  } catch (error) {
-    console.error('[audit] No se pudo registrar:', error);
+    })
+  } catch {
+    // Audit should never break the main flow
   }
 }
