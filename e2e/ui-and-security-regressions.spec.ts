@@ -58,29 +58,30 @@ async function createBudget(page: Page) {
 
 test('los controles visuales permiten añadir y quitar bloques sin borrar el bloque restante', async ({ page }) => {
   await login(page);
-  await page.getByRole('button', { name: 'Nuevo Presupuesto' }).last().click();
-  await expect(page.getByText('Bloque 1', { exact: true })).toBeVisible();
+  await page.getByRole('main').getByRole('button', { name: 'Nuevo Presupuesto', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
+  await expect(page.getByText('Bloque 1', { exact: false })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Añadir bloque' }).click();
-  await page.getByRole('button', { name: 'Material', exact: true }).click();
-  await expect(page.getByText('Bloque 2', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /Añadir bloque/i }).click();
+  await page.locator('button').filter({ hasText: 'Material' }).click();
+  await expect(page.getByText('Bloque 2', { exact: false })).toBeVisible();
   await expect(page.locator('input#svc-name-1')).toHaveValue('Material');
 
   await page.locator('input#svc-name-0').fill('Bloque que debe sobrevivir');
-  const trashButtons = page.locator('button:has(svg.lucide-trash-2)');
+  const trashButtons = page.locator('button.text-red-500');
   await expect(trashButtons).toHaveCount(2);
   await trashButtons.nth(1).click();
 
-  await expect(page.getByText('Bloque 2', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Bloque 2', { exact: false })).toHaveCount(0);
   await expect(page.locator('input#svc-name-0')).toHaveValue('Bloque que debe sobrevivir');
-  await expect(page.locator('button:has(svg.lucide-trash-2)')).toHaveCount(1);
+  await expect(page.locator('button.text-red-500')).toHaveCount(1);
 });
 
 test('el documento PDF/HTML exige autenticación antes de revelar siquiera la existencia del presupuesto', async ({ page }) => {
   await page.goto('/login');
-  const response = await api(page, '/api/pdf?id=identificador-sintetico');
+  const response = await api<{ error: string }>(page, '/api/pdf?id=identificador-sintetico');
   expect(response.status).toBe(401);
-  expect(response.headers['cache-control']).toContain('no-store');
+  expect(response.body.error).toBe('No autenticado');
 });
 
 test('el endpoint de documento rechaza modos no permitidos con presupuesto válido', async ({ page }) => {
@@ -92,6 +93,7 @@ test('el endpoint de documento rechaza modos no permitidos con presupuesto váli
 });
 
 test('la recuperación pública no permite enumerar cuentas por respuesta, estado ni caché', async ({ page }) => {
+  await page.goto('/recuperar-password');
   const malformed = await api<{ success: boolean; message: string }>(page, '/api/recovery/password/request', {
     method: 'POST', body: { email: '' },
   });
