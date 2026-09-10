@@ -16,17 +16,14 @@ export default function LoginPage() {
   const [rememberEmail, setRememberEmail] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const savedEmail = window.localStorage.getItem('gasi_remembered_email');
     if (savedEmail) setEmail(savedEmail);
-    setHydrated(true);
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!hydrated || loading) return;
     setLoading(true);
 
     try {
@@ -131,13 +128,10 @@ export default function LoginPage() {
             <Button
               type="submit"
               className="w-full bg-emerald-600 hover:bg-emerald-700"
-              disabled={!hydrated || loading}
-              aria-disabled={!hydrated || loading}
+              disabled={loading}
             >
               {loading ? (
                 <span className="animate-pulse">Accediendo…</span>
-              ) : !hydrated ? (
-                <span className="animate-pulse">Preparando acceso…</span>
               ) : (
                 <>
                   <LogIn className="w-4 h-4" />
