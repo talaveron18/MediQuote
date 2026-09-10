@@ -82,3 +82,10 @@ test('comercial no ve ni puede abrir la configuración económica interna', asyn
   await expect(page).toHaveURL('/');
   await expect(page.getByRole('link', { name: 'Economía interna' })).toHaveCount(0);
 });
+
+test('las validaciones del presupuesto muestran feedback visible al usuario', async ({ page }) => {
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  await page.getByRole('button', { name: 'Nuevo Presupuesto' }).click();
+  await page.getByRole('button', { name: 'Calcular' }).click();
+  await expect(page.getByText('Bloque 1: selecciona categoría profesional')).toBeVisible();
+});
