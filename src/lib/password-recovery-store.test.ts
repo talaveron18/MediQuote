@@ -13,6 +13,12 @@ const appConfig = {
     const value = configs.get(where.key)
     return value === undefined ? null : { key: where.key, value }
   }),
+  findMany: vi.fn(async ({ where }: any) => {
+    const prefix = where?.key?.startsWith ?? ''
+    return [...configs.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value }))
+  }),
   updateMany: vi.fn(async ({ where, data }: any) => {
     if (configs.get(where.key) !== where.value) return { count: 0 }
     configs.set(where.key, data.value)
@@ -54,6 +60,16 @@ describe('password recovery store', () => {
 
     await expect(consumeStoredPasswordRecovery(rawToken, new Date('2026-09-10T01:05:00Z'))).resolves.toBe('u-1')
     await expect(consumeStoredPasswordRecovery(rawToken, new Date('2026-09-10T01:06:00Z'))).resolves.toBeNull()
+  })
+
+  it('una segunda solicitud invalida el token anterior no usado', async () => {
+    const first = await createStoredPasswordRecovery('user@example.com', new Date('2026-09-10T01:00:00Z'))
+    const second = await createStoredPasswordRecovery('user@example.com', new Date('2026-09-10T01:01:00Z'))
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+
+    await expect(consumeStoredPasswordRecovery(first!.rawToken, new Date('2026-09-10T01:02:00Z'))).resolves.toBeNull()
+    await expect(consumeStoredPasswordRecovery(second!.rawToken, new Date('2026-09-10T01:03:00Z'))).resolves.toBe('u-1')
   })
 
   it('no crea registro para una cuenta inactiva/inexistente', async () => {
