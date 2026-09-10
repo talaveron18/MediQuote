@@ -59,7 +59,10 @@ jobs:
       - name: TypeScript check
         id: typecheck
         continue-on-error: true
-        run: npx tsc --noEmit --pretty false 2>&1 | tee typecheck.log
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsc --noEmit --pretty false 2>&1 | tee typecheck.log
 
       - name: Unit and regression tests
         id: unit_tests
