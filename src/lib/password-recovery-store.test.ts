@@ -1,40 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const configs = new Map<string, string>()
-let activeUser = { id: 'u-1', active: true }
+const state = vi.hoisted(() => ({
+  configs: new Map<string, string>(),
+  activeUser: { id: 'u-1', active: true },
+}))
 
-const appConfig = {
-  create: vi.fn(async ({ data }: any) => {
-    if (configs.has(data.key)) throw new Error('duplicate')
-    configs.set(data.key, data.value)
-    return data
-  }),
-  findUnique: vi.fn(async ({ where }: any) => {
-    const value = configs.get(where.key)
-    return value === undefined ? null : { key: where.key, value }
-  }),
-  findMany: vi.fn(async ({ where }: any) => {
-    const prefix = where?.key?.startsWith ?? ''
-    return [...configs.entries()]
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([key, value]) => ({ key, value }))
-  }),
-  updateMany: vi.fn(async ({ where, data }: any) => {
-    if (configs.get(where.key) !== where.value) return { count: 0 }
-    configs.set(where.key, data.value)
-    return { count: 1 }
-  }),
-  upsert: vi.fn(async ({ where, create, update }: any) => {
-    configs.set(where.key, configs.has(where.key) ? update.value : create.value)
-    return { key: where.key, value: configs.get(where.key)! }
-  }),
-}
+const mocks = vi.hoisted(() => {
+  const appConfig = {
+    create: vi.fn(async ({ data }: any) => {
+      if (state.configs.has(data.key)) throw new Error('duplicate')
+      state.configs.set(data.key, data.value)
+      return data
+    }),
+    findUnique: vi.fn(async ({ where }: any) => {
+      const value = state.configs.get(where.key)
+      return value === undefined ? null : { key: where.key, value }
+    }),
+    findMany: vi.fn(async ({ where }: any) => {
+      const prefix = where?.key?.startsWith ?? ''
+      return [...state.configs.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }))
+    }),
+    updateMany: vi.fn(async ({ where, data }: any) => {
+      if (state.configs.get(where.key) !== where.value) return { count: 0 }
+      state.configs.set(where.key, data.value)
+      return { count: 1 }
+    }),
+    upsert: vi.fn(async ({ where, create, update }: any) => {
+      state.configs.set(where.key, state.configs.has(where.key) ? update.value : create.value)
+      return { key: where.key, value: state.configs.get(where.key)! }
+    }),
+  }
+  return { appConfig }
+})
 
 vi.mock('./db', () => ({
   db: {
-    user: { findUnique: vi.fn(async () => activeUser) },
-    appConfig,
-    $transaction: vi.fn(async (callback: any) => callback({ appConfig })),
+    user: { findUnique: vi.fn(async () => state.activeUser) },
+    appConfig: mocks.appConfig,
+    $transaction: vi.fn(async (callback: any) => callback({ appConfig: mocks.appConfig })),
   },
 }))
 
@@ -47,15 +52,15 @@ import {
 
 describe('password recovery store', () => {
   beforeEach(() => {
-    configs.clear()
-    activeUser = { id: 'u-1', active: true }
+    state.configs.clear()
+    state.activeUser = { id: 'u-1', active: true }
   })
 
   it('persiste solo el hash y permite consumir el token una sola vez', async () => {
     const issued = await createStoredPasswordRecovery(' USER@example.com ', new Date('2026-09-10T01:00:00Z'))
     expect(issued).not.toBeNull()
     const rawToken = issued!.rawToken
-    const storedText = [...configs.values()].join('\n')
+    const storedText = [...state.configs.values()].join('\n')
     expect(storedText).not.toContain(rawToken)
 
     await expect(consumeStoredPasswordRecovery(rawToken, new Date('2026-09-10T01:05:00Z'))).resolves.toBe('u-1')
@@ -73,9 +78,9 @@ describe('password recovery store', () => {
   })
 
   it('no crea registro para una cuenta inactiva/inexistente', async () => {
-    activeUser = { id: 'u-1', active: false }
+    state.activeUser = { id: 'u-1', active: false }
     await expect(createStoredPasswordRecovery('nobody@example.com')).resolves.toBeNull()
-    expect(configs.size).toBe(0)
+    expect(state.configs.size).toBe(0)
   })
 
   it('incrementa la generación de sesión para invalidar cookies anteriores', async () => {
