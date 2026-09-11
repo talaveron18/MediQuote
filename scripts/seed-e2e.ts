@@ -1,5 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
+import {
+  VERIFIED_LABOR_INPUTS_KEY,
+  VERIFIED_LABOR_UNITS,
+  type VerifiedLaborConcept,
+  type VerifiedLaborInputRecord,
+} from '../src/lib/costing/verified-labor-inputs';
+import type { ContractType } from '../src/lib/costing/cost-types';
 
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
 const enabled = process.env.MEDIQUOTE_E2E === '1';
@@ -29,6 +36,52 @@ const syntheticEconomics: Record<string, string> = {
   commercial_semaphore_green_return_on_cost_percent: '28',
   commercial_semaphore_yellow_return_on_cost_percent: '18',
 };
+
+const conceptValues: Record<VerifiedLaborConcept, number> = {
+  productive_hour_gross: 23,
+  management_fee_per_contract: 12,
+  annual_convention_hours: 1680,
+  annual_productive_hours: 1290,
+  ss_common_contingencies_percent: 24,
+  ss_unemployment_percent: 6,
+  ss_fogasa_percent: 0.2,
+  ss_training_percent: 0.6,
+  ss_mei_percent: 0.8,
+  atep_percent: 1.5,
+};
+
+function syntheticVerifiedLaborRecords(): VerifiedLaborInputRecord[] {
+  const categoryIds = ['e2e-category-nursing', 'e2e-category-medicine'];
+  const territories = ['Madrid', 'Valladolid'];
+  const contracts: ContractType[] = ['indefinido', 'temporal', 'fijo_discontinuo', 'mercantil_autonomo'];
+  const rows: VerifiedLaborInputRecord[] = [];
+  for (const categoryId of categoryIds) {
+    for (const territory of territories) {
+      for (const contractType of contracts) {
+        for (const [conceptKey, value] of Object.entries(conceptValues) as Array<[VerifiedLaborConcept, number]>) {
+          rows.push({
+            id: `e2e:${categoryId}:${territory}:${contractType}:${conceptKey}`,
+            conceptKey,
+            categoryId,
+            territory,
+            contractType,
+            value: categoryId === 'e2e-category-medicine' && conceptKey === 'productive_hour_gross' ? 41 : value,
+            unit: VERIFIED_LABOR_UNITS[conceptKey],
+            effectiveFrom: '2026-01-01',
+            effectiveTo: '2026-12-31',
+            sourceDocument: 'E2E-GESTORIA-SYNTHETIC-NOT-REAL',
+            sourceDate: '2026-01-01',
+            notes: 'Fixture sintético aislado; no representa costes reales de GASI.',
+            status: 'verified',
+            recordedBy: 'e2e-seed',
+            recordedAt: '2026-01-01T00:00:00.000Z',
+          });
+        }
+      }
+    }
+  }
+  return rows;
+}
 
 async function main() {
   const adminPassword = requiredEnv('E2E_ADMIN_PASSWORD');
@@ -84,8 +137,8 @@ async function main() {
   });
 
   const syntheticCategories = [
-    { id: 'e2e-category-nursing', name: 'E2E Enfermería sintética', defaultPricePerHour: 37, defaultInternalCost: 23 },
-    { id: 'e2e-category-medicine', name: 'E2E Medicina sintética', defaultPricePerHour: 61, defaultInternalCost: 41 },
+    { id: 'e2e-category-nursing', name: 'E2E Enfermería sintética', defaultPricePerHour: 37, defaultInternalCost: 999 },
+    { id: 'e2e-category-medicine', name: 'E2E Medicina sintética', defaultPricePerHour: 61, defaultInternalCost: 999 },
   ];
   for (const category of syntheticCategories) {
     await db.professionalCategory.upsert({
@@ -104,6 +157,21 @@ async function main() {
   for (const [key, value] of Object.entries(syntheticEconomics)) {
     await db.appConfig.upsert({ where: { key }, update: { value }, create: { key, value } });
   }
+  await db.appConfig.upsert({
+    where: { key: VERIFIED_LABOR_INPUTS_KEY },
+    update: { value: JSON.stringify(syntheticVerifiedLaborRecords()) },
+    create: { key: VERIFIED_LABOR_INPUTS_KEY, value: JSON.stringify(syntheticVerifiedLaborRecords()) },
+  });
+
+  await db.legalParameter.upsert({
+    where: { key: 'SMI_ANNUAL_2026' },
+    update: { value: '17094', unit: 'EUR/año', category: 'E2E sintético', effectiveFrom: '2026-01-01', isActive: true },
+    create: {
+      key: 'SMI_ANNUAL_2026', label: 'E2E SMI anual sintético', value: '17094', unit: 'EUR/año',
+      category: 'E2E sintético', effectiveFrom: '2026-01-01', isActive: true,
+      notes: 'Fixture sintético aislado; no usar como fuente real.',
+    },
+  });
 
   console.log('E2E synthetic fixture ready in isolated database.');
 }
