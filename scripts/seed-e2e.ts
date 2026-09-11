@@ -9,6 +9,12 @@ if (!enabled || !isolatedName) {
   throw new Error('seed-e2e refuses to run unless MEDIQUOTE_E2E=1 and DATABASE_URL names an isolated mediquote_e2e/mediquote_test database.');
 }
 
+function requiredEnv(name: 'E2E_ADMIN_PASSWORD' | 'E2E_MAESTRO_PASSWORD' | 'E2E_COMMERCIAL_PASSWORD'): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} es obligatoria para sembrar el entorno E2E aislado`);
+  return value;
+}
+
 const db = new PrismaClient({ datasourceUrl: databaseUrl });
 
 const syntheticEconomics: Record<string, string> = {
@@ -25,18 +31,31 @@ const syntheticEconomics: Record<string, string> = {
 };
 
 async function main() {
-  const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
-  const commercialPassword = process.env.E2E_COMMERCIAL_PASSWORD ?? 'E2E-Comercial-Only-2026!';
+  const adminPassword = requiredEnv('E2E_ADMIN_PASSWORD');
+  const maestroPassword = requiredEnv('E2E_MAESTRO_PASSWORD');
+  const commercialPassword = requiredEnv('E2E_COMMERCIAL_PASSWORD');
+
+  const admin = await db.user.upsert({
+    where: { email: 'e2e.admin@example.invalid' },
+    update: {
+      name: 'E2E Admin', role: 'admin', active: true, mustChangePassword: false,
+      password: await hash(adminPassword, 12),
+    },
+    create: {
+      email: 'e2e.admin@example.invalid', name: 'E2E Admin', role: 'admin', active: true,
+      mustChangePassword: false, password: await hash(adminPassword, 12),
+    },
+  });
 
   const maestro = await db.user.upsert({
     where: { email: 'e2e.maestro@example.invalid' },
     update: {
       name: 'E2E Maestro', role: 'maestro', active: true, mustChangePassword: false,
-      password: await hash(maestroPassword, 12),
+      password: await hash(maestroPassword, 12), createdById: admin.id,
     },
     create: {
       email: 'e2e.maestro@example.invalid', name: 'E2E Maestro', role: 'maestro', active: true,
-      mustChangePassword: false, password: await hash(maestroPassword, 12),
+      mustChangePassword: false, password: await hash(maestroPassword, 12), createdById: admin.id,
     },
   });
 
