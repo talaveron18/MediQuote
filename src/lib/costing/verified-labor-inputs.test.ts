@@ -6,6 +6,7 @@ import {
   resolveVerifiedLaborInputForDates,
   validateLaborInputDraft,
   type LaborInputDraft,
+  type VerifiedLaborInputRecord,
 } from './verified-labor-inputs'
 
 const baseDraft = (overrides: Partial<LaborInputDraft> = {}): LaborInputDraft => ({
@@ -39,7 +40,7 @@ describe('verified labor inputs', () => {
     expect(issues.some((issue) => issue.field === 'unit' && issue.kind === 'invalid')).toBe(true)
   })
 
-  it('is append-only and idempotent for the same source/version identity', () => {
+  it('is append-only and idempotent only for an exactly identical source/version payload', () => {
     const first = appendLaborInputVersion({
       current: [], draft: baseDraft(), actorId: 'admin-1', now: new Date('2026-09-11T12:00:00Z'),
     })
@@ -53,6 +54,53 @@ describe('verified labor inputs', () => {
     expect(second.duplicate).toBe(true)
     expect(second.records).toHaveLength(1)
     expect(second.records[0].recordedAt).toBe('2026-09-11T12:00:00.000Z')
+  })
+
+  it('blocks reuse of a version identity with a different value instead of silently treating it as duplicate', () => {
+    const first = appendLaborInputVersion({
+      current: [], draft: baseDraft(), actorId: 'admin-1', now: new Date('2026-09-11T12:00:00Z'),
+    })
+    if (first.status !== 'ok') throw new Error('fixture inválido')
+
+    const changed = appendLaborInputVersion({
+      current: first.records,
+      draft: baseDraft({ value: 24.1 }),
+      actorId: 'admin-2',
+      now: new Date('2026-09-11T12:05:00Z'),
+    })
+    expect(changed.status).toBe('conflict')
+    if (changed.status !== 'conflict') return
+    expect(changed.issues[0].kind).toBe('blocked')
+    expect(changed.issues[0].message).toContain('nueva versión/fuente')
+    expect(first.records).toHaveLength(1)
+    expect(first.records[0].value).toBe(23.45)
+  })
+
+  it('fails closed if a verified persisted row was corrupted outside the ingestion contract', () => {
+    const corrupted: VerifiedLaborInputRecord = {
+      id: 'corrupt-v1',
+      conceptKey: 'productive_hour_gross',
+      categoryId: 'cat-enf',
+      territory: 'Madrid',
+      contractType: 'indefinido',
+      value: -99,
+      unit: 'EUR/h_productiva',
+      effectiveFrom: '2026-09-01',
+      sourceDocument: 'GESTORIA-SYNTHETIC-CORRUPT',
+      sourceDate: '2026-09-01',
+      status: 'verified',
+      recordedBy: 'admin-1',
+      recordedAt: '2026-09-11T12:00:00.000Z',
+    }
+    const result = resolveVerifiedLaborInput({
+      records: [corrupted], conceptKey: 'productive_hour_gross', categoryId: 'cat-enf',
+      territory: 'Madrid', contractType: 'indefinido', serviceDate: '2026-09-20',
+    })
+    expect(result.status).toBe('pending_configuration')
+    if (result.status === 'pending_configuration') {
+      expect(result.issues.some((issue) => issue.kind === 'blocked' && issue.field.includes('value'))).toBe(true)
+      expect(result.issues.some((issue) => issue.message.includes('persistido inválido'))).toBe(true)
+    }
   })
 
   it('resolves only an exact verified scope valid for the service date', () => {
