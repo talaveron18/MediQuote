@@ -104,7 +104,7 @@ async function calculateAndSaveDuplicate(page: Page, marker: string) {
   const created = await db.budget.findFirstOrThrow({
     where: { description: `${marker} (Copia)` },
     orderBy: { createdAt: 'desc' },
-    include: { serviceBlocks: { orderBy: { order: 'asc' } } },
+    include: { serviceBlocks: { orderBy: { sortOrder: 'asc' } } },
   });
   return created;
 }
