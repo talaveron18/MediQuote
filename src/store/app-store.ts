@@ -30,8 +30,10 @@ interface AppState {
   serviceBlocks: ServiceBlockInput[];
   blockResults: BlockCalculationResult[];
   budgetTotals: BudgetCalculationResult | null;
+  skipNextInitialEmptyBlock: boolean;
   setBudgetForm: (f: Partial<BudgetInput>) => void;
   setServiceBlocks: (b: ServiceBlockInput[]) => void;
+  seedDuplicatedServiceBlocks: (b: ServiceBlockInput[]) => void;
   updateServiceBlock: (index: number, b: Partial<ServiceBlockInput>) => void;
   addServiceBlock: (b: ServiceBlockInput) => void;
   removeServiceBlock: (index: number) => void;
@@ -89,8 +91,6 @@ export const emptyBlock: ServiceBlockInput = {
   enabledSurcharges: [],
 };
 
-// ─── Block type presets ─────────────────────────────────────────
-
 export const BLOCK_TYPE_PRESETS: Record<BlockType, { label: string; icon: string; block: ServiceBlockInput }> = {
   profesional_hora: {
     label: 'Profesional por hora',
@@ -100,120 +100,47 @@ export const BLOCK_TYPE_PRESETS: Record<BlockType, { label: string; icon: string
   servicio_fijo: {
     label: 'Servicio fijo',
     icon: 'FileText',
-    block: {
-      ...emptyBlock,
-      blockType: 'servicio_fijo',
-      serviceName: 'Servicio fijo',
-      unitType: 'servicio',
-      pricePerHour: 0,
-      fixedPrice: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'servicio_fijo', serviceName: 'Servicio fijo', unitType: 'servicio', pricePerHour: 0, fixedPrice: 0, quantity: 1 },
   },
   material: {
     label: 'Material',
     icon: 'Package',
-    block: {
-      ...emptyBlock,
-      blockType: 'material',
-      serviceName: 'Material',
-      unitType: 'unidad',
-      pricePerHour: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'material', serviceName: 'Material', unitType: 'unidad', pricePerHour: 0, quantity: 1 },
   },
   desplazamiento: {
     label: 'Desplazamiento',
     icon: 'Car',
-    block: {
-      ...emptyBlock,
-      blockType: 'desplazamiento',
-      serviceName: 'Desplazamiento',
-      unitType: 'kilometro',
-      pricePerHour: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'desplazamiento', serviceName: 'Desplazamiento', unitType: 'kilometro', pricePerHour: 0, quantity: 1 },
   },
   dietas: {
     label: 'Dietas',
     icon: 'UtensilsCrossed',
-    block: {
-      ...emptyBlock,
-      blockType: 'dietas',
-      serviceName: 'Dietas',
-      unitType: 'dia',
-      pricePerHour: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'dietas', serviceName: 'Dietas', unitType: 'dia', pricePerHour: 0, quantity: 1 },
   },
   alojamiento: {
     label: 'Alojamiento',
     icon: 'Hotel',
-    block: {
-      ...emptyBlock,
-      blockType: 'alojamiento',
-      serviceName: 'Alojamiento',
-      unitType: 'servicio',
-      pricePerHour: 0,
-      quantity: 1,
-      accommodationNights: 1,
-      accommodationPersons: 1,
-    } as ServiceBlockInput,
+    block: { ...emptyBlock, blockType: 'alojamiento', serviceName: 'Alojamiento', unitType: 'servicio', pricePerHour: 0, fixedPrice: 0, quantity: 1, accommodationNights: 1, accommodationPersons: 1 } as ServiceBlockInput,
   },
   ambulancia: {
     label: 'Ambulancia/Transporte sanitario',
     icon: 'Siren',
-    block: {
-      ...emptyBlock,
-      blockType: 'ambulancia',
-      serviceName: 'Ambulancia/Transporte sanitario',
-      unitType: 'servicio',
-      pricePerHour: 0,
-      fixedPrice: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'ambulancia', serviceName: 'Ambulancia/Transporte sanitario', unitType: 'servicio', pricePerHour: 0, fixedPrice: 0, quantity: 1 },
   },
   telemedicina: {
     label: 'Telemedicina',
     icon: 'Video',
-    block: {
-      ...emptyBlock,
-      blockType: 'telemedicina',
-      serviceName: 'Telemedicina',
-      unitType: 'servicio',
-      pricePerHour: 0,
-      fixedPrice: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'telemedicina', serviceName: 'Telemedicina', unitType: 'servicio', pricePerHour: 0, fixedPrice: 0, quantity: 1 },
   },
   curso: {
     label: 'Curso/Formación',
     icon: 'GraduationCap',
-    block: {
-      ...emptyBlock,
-      blockType: 'curso',
-      serviceName: 'Curso',
-      unitType: 'curso',
-      pricePerHour: 0,
-      quantity: 4,
-      courseName: '',
-      courseTeacher: '',
-      courseModality: 'presencial',
-      courseSessions: 1,
-    },
+    block: { ...emptyBlock, blockType: 'curso', serviceName: 'Curso', unitType: 'curso', pricePerHour: 0, quantity: 4, courseName: '', courseTeacher: '', courseModality: 'presencial', courseSessions: 1 },
   },
   otros: {
     label: 'Otros',
     icon: 'MoreHorizontal',
-    block: {
-      ...emptyBlock,
-      blockType: 'otros',
-      serviceName: '',
-      unitType: 'servicio',
-      pricePerHour: 0,
-      fixedPrice: 0,
-      quantity: 1,
-    },
+    block: { ...emptyBlock, blockType: 'otros', serviceName: '', unitType: 'servicio', pricePerHour: 0, fixedPrice: 0, quantity: 1 },
   },
 };
 
@@ -227,7 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   editingBudgetId: null,
   setView: (view) => set({ currentView: view }),
   editBudget: (id) => set({ currentView: 'budget-edit', editingBudgetId: id }),
-  newBudget: () => set({ currentView: 'budget-new', editingBudgetId: null, budgetForm: { ...emptyBudgetForm }, serviceBlocks: [], blockResults: [], budgetTotals: null }),
+  newBudget: () => set({ currentView: 'budget-new', editingBudgetId: null, budgetForm: { ...emptyBudgetForm }, serviceBlocks: [], blockResults: [], budgetTotals: null, skipNextInitialEmptyBlock: false }),
   currentUser: null,
   setCurrentUser: (u) => set({ currentUser: u }),
   currentRole: 'comercial',
@@ -249,19 +176,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   serviceBlocks: [],
   blockResults: [],
   budgetTotals: null,
+  skipNextInitialEmptyBlock: false,
   setBudgetForm: (f) => set((s) => ({
     budgetForm: { ...s.budgetForm, ...f },
-    budgetTotals: f.discountPercent !== undefined || f.ivaPercent !== undefined || f.serviceLocationId !== undefined
-      ? null
-      : s.budgetTotals,
+    budgetTotals: f.discountPercent !== undefined || f.ivaPercent !== undefined || f.serviceLocationId !== undefined ? null : s.budgetTotals,
   })),
   setServiceBlocks: (b) => set({ serviceBlocks: b }),
+  seedDuplicatedServiceBlocks: (b) => set({ serviceBlocks: b, blockResults: [], budgetTotals: null, skipNextInitialEmptyBlock: b.length > 0 }),
   updateServiceBlock: (index, b) => set((s) => {
     const blocks = [...s.serviceBlocks];
     blocks[index] = { ...blocks[index], ...b };
     return { serviceBlocks: blocks, budgetTotals: null };
   }),
-  addServiceBlock: (b) => set((s) => ({ serviceBlocks: [...s.serviceBlocks, b], budgetTotals: null })),
+  addServiceBlock: (b) => set((s) => {
+    if (s.skipNextInitialEmptyBlock) {
+      return { skipNextInitialEmptyBlock: false };
+    }
+    return { serviceBlocks: [...s.serviceBlocks, b], budgetTotals: null };
+  }),
   removeServiceBlock: (index) => set((s) => ({
     serviceBlocks: s.serviceBlocks.filter((_, i) => i !== index),
     budgetTotals: null,
@@ -284,6 +216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     blockResults: [],
     budgetTotals: null,
     editingBudgetId: null,
+    skipNextInitialEmptyBlock: false,
   }),
   sidebarOpen: true,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
