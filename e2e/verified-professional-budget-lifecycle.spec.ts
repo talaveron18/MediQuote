@@ -12,6 +12,7 @@ type Calculation = {
   totals: { calculationToken: string; totalFinal: number } | null;
   commercial: { status: 'calculated' | 'pending_configuration' };
   internalCost?: { totalInternalCost: number; laborBlocks: unknown[] };
+  issues?: Array<{ field: string; kind: string; message: string }>;
 };
 type Saved = {
   budget: { id: string; code: string; status: string; totalFinal: number; description?: string | null };
@@ -65,7 +66,7 @@ async function calculate(page: Page, blocks: unknown[]): Promise<Calculation> {
     blocks, location: madrid, discountPercent: 0, ivaPercent: 21,
   });
   expect(response.status).toBe(200);
-  expect(response.body.commercial.status).toBe('calculated');
+  expect(response.body.commercial.status, JSON.stringify(response.body.issues ?? [])).toBe('calculated');
   expect(response.body.totals?.calculationToken).toBeTruthy();
   return response.body;
 }
