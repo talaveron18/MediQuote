@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { genericInternalErrorResponse, privateNoStoreJson } from '@/lib/private-api-response';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
     const id = request.nextUrl.searchParams.get('id');
     const mode = request.nextUrl.searchParams.get('mode') || 'client';
     if (!id) {
-      return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
+      return privateNoStoreJson({ error: 'ID requerido' }, { status: 400 });
     }
 
     const budget = await db.budget.findUnique({
@@ -23,14 +24,14 @@ export async function GET(request: NextRequest) {
     });
 
     if (!budget || (auth.role === 'comercial' && budget.createdById !== auth.id)) {
-      return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 });
+      return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
     }
 
     if (mode !== 'client' && mode !== 'commercial') {
-      return NextResponse.json({ error: 'Modo de documento no válido' }, { status: 400 });
+      return privateNoStoreJson({ error: 'Modo de documento no válido' }, { status: 400 });
     }
     if (mode === 'commercial' && !['comercial', 'admin', 'maestro'].includes(auth.role)) {
-      return NextResponse.json({ error: 'No autorizado para el documento comercial' }, { status: 403 });
+      return privateNoStoreJson({ error: 'No autorizado para el documento comercial' }, { status: 403 });
     }
 
     const configRecords = await db.appConfig.findMany();
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
         select: { snapshot: true },
       });
       if (!quote) {
-        return NextResponse.json({ error: 'No hay cálculo comercial guardado para este presupuesto' }, { status: 409 });
+        return privateNoStoreJson({ error: 'No hay cálculo comercial guardado para este presupuesto' }, { status: 409 });
       }
       const snapshot = JSON.parse(quote.snapshot) as { commercial?: Record<string, unknown> };
       html = generateCommercialBudgetHTML(html, snapshot.commercial ?? {});
@@ -74,13 +75,15 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Disposition': `inline; filename="presupuesto-${budget.code}.html"`,
-        'Cache-Control': 'no-store, private',
+        'Cache-Control': 'private, no-store',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'X-Content-Type-Options': 'nosniff',
       },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Error desconocido';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[GET /api/pdf] Error:', error);
+    return genericInternalErrorResponse('Error al generar el documento');
   }
 }
 
