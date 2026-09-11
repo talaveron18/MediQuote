@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { PrismaClient } from '@prisma/client'
 import { hash } from 'bcryptjs'
 import { createPasswordRecoveryToken } from '../src/lib/password-recovery'
@@ -45,8 +45,43 @@ async function cleanup(userId: string) {
   await db.user.deleteMany({ where: { id: userId } })
 }
 
-async function login(request: any, email: string, password: string) {
+async function apiLogin(request: any, email: string, password: string) {
   return request.post('/api/auth', { data: { email, password } })
+}
+
+async function loginPage(context: BrowserContext, email: string, password: string) {
+  const page = await context.newPage()
+  await page.goto('/login')
+  await expect(page.getByTestId('login-form')).toHaveAttribute('data-hydrated', 'true')
+  await page.getByRole('textbox', { name: 'Correo electrónico' }).fill(email)
+  await page.locator('#password').fill(password)
+  await page.getByRole('button', { name: 'Iniciar sesión' }).click()
+  await expect(page).toHaveURL('/')
+  return page
+}
+
+async function browserPost(page: Page, path: string, body: unknown) {
+  return page.evaluate(async ({ path, body }) => {
+    const response = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return {
+      status: response.status,
+      ok: response.ok,
+      cacheControl: response.headers.get('cache-control') ?? '',
+      body: await response.json().catch(() => null),
+    }
+  }, { path, body })
+}
+
+async function browserGet(page: Page, path: string) {
+  return page.evaluate(async (path) => {
+    const response = await fetch(path, { credentials: 'same-origin' })
+    return { status: response.status, ok: response.ok }
+  }, path)
 }
 
 test.describe.serial('recuperación de contraseña aislada', () => {
@@ -81,8 +116,8 @@ test.describe.serial('recuperación de contraseña aislada', () => {
     const user = await createRecoveryUser('single-use')
     try {
       const oldContext = await browser.newContext()
-      const oldLogin = await login(oldContext.request, user.email, originalPassword)
-      expect(oldLogin.ok()).toBe(true)
+      const oldPage = await loginPage(oldContext, user.email, originalPassword)
+      expect((await browserGet(oldPage, '/api/auth?action=me')).ok).toBe(true)
 
       const token = await issueRecovery(user.id)
       await page.goto(`/restablecer-password?token=${encodeURIComponent(token)}`)
@@ -91,13 +126,12 @@ test.describe.serial('recuperación de contraseña aislada', () => {
       await page.getByRole('button', { name: 'Actualizar contraseña' }).click()
       await expect(page.getByRole('status')).toContainText('sesiones anteriores han sido revocadas')
 
-      const staleSession = await oldContext.request.get('/api/auth?action=me')
-      expect(staleSession.status()).toBe(401)
+      expect((await browserGet(oldPage, '/api/auth?action=me')).status).toBe(401)
       await oldContext.close()
 
-      const oldPasswordLogin = await login(page.request, user.email, originalPassword)
+      const oldPasswordLogin = await apiLogin(page.request, user.email, originalPassword)
       expect(oldPasswordLogin.status()).toBe(401)
-      const newPasswordLogin = await login(page.request, user.email, resetPassword)
+      const newPasswordLogin = await apiLogin(page.request, user.email, resetPassword)
       expect(newPasswordLogin.ok()).toBe(true)
 
       const replay = await page.request.post('/api/recovery/password/confirm', {
@@ -115,23 +149,27 @@ test.describe.serial('recuperación de contraseña aislada', () => {
     try {
       const contextA = await browser.newContext()
       const contextB = await browser.newContext()
-      expect((await login(contextA.request, user.email, originalPassword)).ok()).toBe(true)
-      expect((await login(contextB.request, user.email, originalPassword)).ok()).toBe(true)
+      const pageA = await loginPage(contextA, user.email, originalPassword)
+      const pageB = await loginPage(contextB, user.email, originalPassword)
+      expect((await browserGet(pageA, '/api/auth?action=me')).ok).toBe(true)
+      expect((await browserGet(pageB, '/api/auth?action=me')).ok).toBe(true)
       const token = await issueRecovery(user.id)
 
-      const changed = await contextA.request.post('/api/auth?action=change-password', {
-        data: { currentPassword: originalPassword, newPassword: changedPassword },
+      const changed = await browserPost(pageA, '/api/auth?action=change-password', {
+        currentPassword: originalPassword,
+        newPassword: changedPassword,
       })
-      expect(changed.ok()).toBe(true)
-      expect(changed.headers()['cache-control']).toContain('no-store')
+      expect(changed.ok, JSON.stringify(changed.body)).toBe(true)
+      expect(changed.cacheControl).toContain('no-store')
 
-      expect((await contextA.request.get('/api/auth?action=me')).ok()).toBe(true)
-      expect((await contextB.request.get('/api/auth?action=me')).status()).toBe(401)
+      expect((await browserGet(pageA, '/api/auth?action=me')).ok).toBe(true)
+      expect((await browserGet(pageB, '/api/auth?action=me')).status).toBe(401)
 
-      const revokedLink = await contextA.request.post('/api/recovery/password/confirm', {
-        data: { token, password: resetPassword },
+      const revokedLink = await browserPost(pageA, '/api/recovery/password/confirm', {
+        token,
+        password: resetPassword,
       })
-      expect(revokedLink.status()).toBe(400)
+      expect(revokedLink.status).toBe(400)
       await contextA.close()
       await contextB.close()
     } finally {
@@ -160,8 +198,8 @@ test.describe.serial('recuperación de contraseña aislada', () => {
       })
       expect(response.status()).toBe(400)
       expect(response.headers()['cache-control']).toContain('no-store')
-      expect((await login(request, user.email, originalPassword)).ok()).toBe(true)
-      expect((await login(request, user.email, resetPassword)).status()).toBe(401)
+      expect((await apiLogin(request, user.email, originalPassword)).ok()).toBe(true)
+      expect((await apiLogin(request, user.email, resetPassword)).status()).toBe(401)
     } finally {
       await cleanup(user.id)
     }
