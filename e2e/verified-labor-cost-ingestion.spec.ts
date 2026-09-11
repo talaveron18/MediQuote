@@ -65,7 +65,10 @@ test('costes laborales verificados: acceso administrativo, validación e idempot
   const record = {
     id: `e2e-labor-${marker}`,
     conceptKey: 'productive_hour_gross',
-    categoryId: 'e2e-category-nursing',
+    // Ámbito sintético deliberadamente ajeno a las categorías que consume el E2E de presupuestos.
+    // Esta prueba persiste su fixture para validar idempotencia y no debe crear solapamientos
+    // económicos en suites posteriores que comparten la misma base aislada durante el run.
+    categoryId: `e2e-category-ingestion-only-${marker}`,
     territory: 'Madrid',
     contractType: 'indefinido',
     value: 23.45,
