@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
-const commercialPassword = process.env.E2E_COMMERCIAL_PASSWORD ?? 'E2E-Comercial-Only-2026!';
+function requiredEnv(name: 'E2E_MAESTRO_PASSWORD' | 'E2E_COMMERCIAL_PASSWORD'): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} es obligatoria para ejecutar esta suite aislada`);
+  return value;
+}
+
+const maestroPassword = requiredEnv('E2E_MAESTRO_PASSWORD');
+const commercialPassword = requiredEnv('E2E_COMMERCIAL_PASSWORD');
 
 type BrowserApiResult = {
   status: number;
