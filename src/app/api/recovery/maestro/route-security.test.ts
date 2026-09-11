@@ -17,4 +17,19 @@ describe('maestro break-glass recovery boundary', () => {
   it('forces a password change after emergency recovery', () => {
     expect(routeSource).toContain('mustChangePassword: true')
   })
+
+  it('keeps password, recovery claim, reset invalidation, session revocation and audit in one serializable transaction', () => {
+    expect(routeSource).toContain("{ isolationLevel: 'Serializable' }")
+    expect(routeSource).toContain("startsWith: RESET_PREFIX")
+    expect(routeSource).toContain('SESSION_PREFIX')
+    expect(routeSource).toContain("action: 'maestro_password_recovered'")
+  })
+
+  it('does not log the thrown error or place account identifiers/secrets into the success audit payload', () => {
+    expect(routeSource).toContain("console.error('[POST /api/recovery/maestro] Error interno de recuperación')")
+    expect(routeSource).not.toContain("console.error('[POST /api/recovery/maestro] Error interno de recuperación', error)")
+    expect(routeSource).not.toContain('summary: `')
+    expect(routeSource).not.toContain('entityId: maestro.email')
+    expect(routeSource).not.toContain('userId: maestro.id')
+  })
 })
