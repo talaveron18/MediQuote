@@ -14,6 +14,7 @@ import ComercialImportDialog from '@/components/comercial-import-dialog';
 import BudgetBlockControls from '@/components/budget-block-controls';
 
 const DEV_ROLE_SWITCH = process.env.NEXT_PUBLIC_DEV_ROLE_SWITCH === 'true' && process.env.NODE_ENV === 'development';
+const DUPLICATE_DRAFT_KEY = 'mediquote:duplicate-draft:v1';
 
 const navItems: { view: AppView; label: string; icon: React.ReactNode; roles?: UserRole[] }[] = [
   { view: 'dashboard', label: 'Presupuestos', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -45,6 +46,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const handleNav = async (view: AppView) => {
     if (view === 'budget-new') {
+      // "Nuevo Presupuesto" is an explicit request for a clean workspace. A
+      // duplicate draft is only a temporary recovery aid for the duplicate flow
+      // and must never bleed into an unrelated new quote.
+      try { window.sessionStorage.removeItem(DUPLICATE_DRAFT_KEY); } catch { /* non-critical convenience state */ }
       newBudget();
     } else {
       setView(view);
