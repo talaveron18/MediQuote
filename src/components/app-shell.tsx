@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAppStore } from '@/store/app-store';
+import { emptyBlock, useAppStore } from '@/store/app-store';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import Image from 'next/image';
@@ -50,7 +50,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       // duplicate draft is only a temporary recovery aid for the duplicate flow
       // and must never bleed into an unrelated new quote.
       try { window.sessionStorage.removeItem(DUPLICATE_DRAFT_KEY); } catch { /* non-critical convenience state */ }
+      const alreadyOnNewBudget = currentView === 'budget-new';
       newBudget();
+      // If BudgetForm is already mounted, resetting the store does not rerun its
+      // mount-only starter-block effect. Seed the one clean starter block here;
+      // navigation from another view still relies on the normal mount effect.
+      if (alreadyOnNewBudget) useAppStore.getState().addServiceBlock({ ...emptyBlock });
     } else {
       setView(view);
     }
