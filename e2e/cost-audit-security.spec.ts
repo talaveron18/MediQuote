@@ -175,3 +175,45 @@ test('auditoría válida se sella, el documento se fuerza a descarga binaria y e
   expect(malformed.text).not.toContain('secret-internal-fragment');
   expect(malformed.text).not.toContain('Unexpected token');
 });
+
+test('justificante Base64 inválido se rechaza sin crear auditoría ni snapshot', async ({ page }) => {
+  const budget = await seedAuditableBudget(`E2E-AUD-B64-${Date.now()}`, JSON.stringify({
+    internalCost: {
+      totalInternalCost: 100,
+      laborBlocks: [{
+        labor: {
+          salaryForService: 60,
+          totalPluses: 5,
+          totalEmployerContributions: 20,
+          totalOccupationalRisk: 5,
+        },
+        managementCost: 10,
+        terminationProvision: 0,
+        otherContractCosts: 0,
+        overhead: 7,
+      }],
+      directCostTotal: 0,
+      directCostOverhead: 0,
+    },
+    commercial: { commissionAmount: 3, finalGasiBenefit: 4 },
+  }));
+  const before = await db.costAudit.count({ where: { budgetId: budget.id } });
+
+  await login(page, 'e2e.admin@example.invalid', adminPassword);
+  const response = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 100,
+      documentName: 'gestoria.pdf',
+      documentType: 'application/pdf',
+      documentBase64: '%%%NO-ES-BASE64%%%',
+    },
+  });
+
+  expect(response.status).toBe(400);
+  expectPrivateNoStore(response);
+  expect(response.text).toContain('Base64 válido');
+  expect(await db.costAudit.count({ where: { budgetId: budget.id } })).toBe(before);
+  expect(await db.economicArtifact.count({ where: { entityId: budget.id, artifactType: 'cost_audit' } })).toBe(0);
+});
