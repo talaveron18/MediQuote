@@ -125,15 +125,15 @@ export default function Home() {
     const unsubscribe = useAppStore.subscribe((state, previous) => {
       if (applyingHistory) return;
 
-      // A successful POST of a new budget first transitions from budget-new to
-      // budget-edit with the server-issued id. At that exact boundary the
-      // temporary duplicate draft has fulfilled its purpose and must be removed,
-      // otherwise Back/Forward or a later ?view=budget-new can resurrect an
-      // already-persisted copy and invite a second save.
+      // A successful POST of a new budget assigns a server id before leaving
+      // budget-new. The store now goes directly to dashboard instead of mounting
+      // a transient edit form; accept both shapes here so the temporary duplicate
+      // draft is always cleared exactly at that persistence boundary.
       if (
         previous.currentView === 'budget-new' &&
-        state.currentView === 'budget-edit' &&
-        Boolean(state.editingBudgetId)
+        Boolean(state.editingBudgetId) &&
+        state.editingBudgetId !== previous.editingBudgetId &&
+        (state.currentView === 'budget-edit' || state.currentView === 'dashboard')
       ) {
         clearDuplicateDraft();
       }
