@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [rememberEmail, setRememberEmail] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   const submittingRef = useRef(false);
   const { toast } = useToast();
 
@@ -81,13 +81,17 @@ export default function LoginPage() {
             Uso interno autorizado para GASI
           </p>
 
-          <form
+          <div
             ref={formRef}
+            role="form"
+            aria-label="Inicio de sesión"
             data-testid="login-form"
             data-hydrated="false"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleLogin();
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void handleLogin();
+              }
             }}
             className="space-y-4"
           >
@@ -155,7 +159,7 @@ export default function LoginPage() {
                 </>
               )}
             </Button>
-          </form>
+          </div>
 
           <div className="flex justify-center mt-5">
             <Image
