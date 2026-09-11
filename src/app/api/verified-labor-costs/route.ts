@@ -31,7 +31,7 @@ async function appendWithRetry(draft: LaborInputDraft, actorId: string) {
         const currentRow = await tx.appConfig.findUnique({ where: { key: VERIFIED_LABOR_INPUTS_KEY } })
         const current = parseVerifiedLaborInputStore(currentRow?.value)
         const appended = appendLaborInputVersion({ current, draft, actorId })
-        if (appended.status === 'invalid') return appended
+        if (appended.status !== 'ok') return appended
         if (!appended.duplicate) {
           await tx.appConfig.upsert({
             where: { key: VERIFIED_LABOR_INPUTS_KEY },
@@ -68,6 +68,19 @@ export async function POST(request: NextRequest) {
     const result = await appendWithRetry(body.record, auth.id)
     if (result.status === 'invalid') {
       return privateNoStoreJson({ status: 'invalid', issues: result.issues }, { status: 422 })
+    }
+    if (result.status === 'conflict') {
+      await logAudit({
+        action: 'verified_labor_cost_conflict_rejected',
+        entity: 'VerifiedLaborCost',
+        entityId: result.record.id,
+        userId: auth.id,
+        userName: auth.name,
+        userRole: auth.role,
+        summary: 'Se rechazó una escritura con identidad de versión existente y contenido distinto.',
+        result: 'failure',
+      })
+      return privateNoStoreJson({ status: 'conflict', issues: result.issues }, { status: 409 })
     }
 
     await logAudit({
