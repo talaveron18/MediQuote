@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Search, Eye, Copy, Trash2, Filter, FileText } from 'lucide-react'
+import { Plus, Search, Eye, Copy, Trash2, Filter, FileText, LockKeyhole } from 'lucide-react'
 import { useAppStore } from '@/store/app-store'
 import type { BudgetStatus, ServiceBlockInput } from '@/lib/types'
 
@@ -298,14 +298,15 @@ export default function Dashboard() {
                   <TableHead className="w-[120px]">Estado</TableHead>
                   <TableHead className="w-[140px] text-right">Importe</TableHead>
                   <TableHead className="w-[120px]">Fecha</TableHead>
-                  <TableHead className="w-[180px] text-right">Acciones</TableHead>
+                  <TableHead className="w-[220px] text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {budgets.map((budget) => {
                   const badgeConfig = STATUS_VARIANT[budget.status]
+                  const accepted = budget.status === 'aceptado'
                   return (
-                    <TableRow key={budget.id}>
+                    <TableRow key={budget.id} data-testid={`budget-row-${budget.id}`}>
                       {/* Código */}
                       <TableCell className="font-mono text-sm font-medium">
                         {budget.code}
@@ -348,38 +349,54 @@ export default function Dashboard() {
                       {/* Acciones */}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {!accepted && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Editar"
+                              onClick={() => handleEdit(budget.id)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              <span className="sr-only">Editar</span>
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
-                            title="Editar"
-                            onClick={() => handleEdit(budget.id)}
-                          >
-                            <Eye className="h-4 w-4" />
-                            <span className="sr-only">Editar</span>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Duplicar"
+                            title={accepted ? 'Duplicar como borrador; requiere recalcular' : 'Duplicar'}
                             onClick={() =>
                               handleDuplicate(budget.id, budget.code)
                             }
                           >
                             <Copy className="h-4 w-4" />
-                            <span className="sr-only">Duplicar</span>
+                            <span className="sr-only">
+                              {accepted ? 'Duplicar como borrador; requiere recalcular' : 'Duplicar'}
+                            </span>
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Eliminar"
-                            onClick={() =>
-                              handleDelete(budget.id, budget.code)
-                            }
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            <span className="sr-only">Eliminar</span>
-                          </Button>
+                          {!accepted && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Eliminar"
+                              onClick={() =>
+                                handleDelete(budget.id, budget.code)
+                              }
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span className="sr-only">Eliminar</span>
+                            </Button>
+                          )}
+                          {accepted && (
+                            <span
+                              data-testid={`accepted-lock-${budget.id}`}
+                              className="inline-flex items-center gap-1 px-2 text-xs text-muted-foreground"
+                              title="Aceptado: el original firmado es inmutable"
+                            >
+                              <LockKeyhole className="h-3.5 w-3.5" />
+                              Inmutable
+                            </span>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -393,4 +410,3 @@ export default function Dashboard() {
     </div>
   )
 }
-
