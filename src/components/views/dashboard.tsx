@@ -46,6 +46,7 @@ interface BudgetRow {
   serviceBlocks?: ServiceBlockInput[]
 }
 
+const DUPLICATE_DRAFT_KEY = 'mediquote:duplicate-draft:v1'
 const currencyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })
 function formatCurrency(amount: number): string { return currencyFormatter.format(amount) }
 function formatDate(date: string): string { return new Date(date).toLocaleDateString('es-ES') }
@@ -68,6 +69,7 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<string>('todos')
   const [loading, setLoading] = useState(false)
   const [searchInput, setSearchInput] = useState('')
+  const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(new Set())
 
   const fetchBudgets = useCallback(async () => {
     setLoading(true)
@@ -86,7 +88,11 @@ export default function Dashboard() {
 
   useEffect(() => { fetchBudgets() }, [fetchBudgets])
 
-  function handleNewBudget() { store.newBudget(); store.setView('budget-new') }
+  function handleNewBudget() {
+    window.sessionStorage.removeItem(DUPLICATE_DRAFT_KEY)
+    store.newBudget()
+    store.setView('budget-new')
+  }
   function handleEdit(id: string) { store.editBudget(id) }
 
   async function handleDelete(id: string, code: string) {
@@ -100,6 +106,8 @@ export default function Dashboard() {
   }
 
   async function handleDuplicate(id: string, code: string) {
+    if (duplicatingIds.has(id)) return
+    setDuplicatingIds((previous) => new Set(previous).add(id))
     try {
       const res = await fetch(`/api/budgets?search=${encodeURIComponent(code)}`)
       if (!res.ok) throw new Error('Error al obtener presupuesto')
@@ -107,22 +115,37 @@ export default function Dashboard() {
       const source = (data.budgets ?? []).find((b: BudgetRow) => b.id === id)
       if (!source) { alert('No se encontró el presupuesto a duplicar.'); return }
 
-      store.newBudget()
-      store.setBudgetForm({
+      const duplicateForm = {
         clientId: source.clientId,
         description: [source.description ?? '', '(Copia)'].filter(Boolean).join(' '),
-        status: 'borrador',
+        status: 'borrador' as const,
         validUntil: source.validUntil ?? undefined,
         discountPercent: source.discountPercent,
         ivaPercent: source.ivaPercent,
         clientNotes: source.clientNotes ?? undefined,
-      })
+      }
+      const duplicateBlocks = source.serviceBlocks ?? []
+
+      window.sessionStorage.setItem(DUPLICATE_DRAFT_KEY, JSON.stringify({
+        budgetForm: duplicateForm,
+        serviceBlocks: duplicateBlocks,
+      }))
+      store.newBudget()
+      store.setBudgetForm(duplicateForm)
       // The new-budget form adds one starter block on mount. Seed through the
       // dedicated one-shot path so that starter block is suppressed exactly
       // once and the copied block list remains unchanged.
-      store.seedDuplicatedServiceBlocks(source.serviceBlocks ?? [])
+      store.seedDuplicatedServiceBlocks(duplicateBlocks)
       store.setView('budget-new')
-    } catch (err) { console.error('[Dashboard] handleDuplicate error:', err) }
+    } catch (err) {
+      console.error('[Dashboard] handleDuplicate error:', err)
+    } finally {
+      setDuplicatingIds((previous) => {
+        const next = new Set(previous)
+        next.delete(id)
+        return next
+      })
+    }
   }
 
   function handleSearchSubmit(e: React.FormEvent) { e.preventDefault(); setSearch(searchInput) }
@@ -169,6 +192,7 @@ export default function Dashboard() {
           <TableBody>{budgets.map((budget) => {
             const badgeConfig = STATUS_VARIANT[budget.status]
             const accepted = budget.status === 'aceptado'
+            const duplicating = duplicatingIds.has(budget.id)
             return <TableRow key={budget.id} data-testid={`budget-row-${budget.id}`}>
               <TableCell className="font-mono text-sm font-medium">{budget.code}</TableCell>
               <TableCell><div><span className="font-medium">{budget.client.businessName}</span>{budget.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{budget.description}</p>}</div></TableCell>
@@ -177,7 +201,7 @@ export default function Dashboard() {
               <TableCell className="text-sm text-muted-foreground">{formatDate(budget.createdAt)}</TableCell>
               <TableCell className="text-right"><div className="flex items-center justify-end gap-1">
                 {!accepted && <Button variant="ghost" size="sm" title="Editar" onClick={() => handleEdit(budget.id)}><Eye className="h-4 w-4" /><span className="sr-only">Editar</span></Button>}
-                <Button variant="ghost" size="sm" title={accepted ? 'Duplicar como borrador; requiere recalcular' : 'Duplicar'} onClick={() => handleDuplicate(budget.id, budget.code)}><Copy className="h-4 w-4" /><span className="sr-only">{accepted ? 'Duplicar como borrador; requiere recalcular' : 'Duplicar'}</span></Button>
+                <Button variant="ghost" size="sm" disabled={duplicating} title={accepted ? 'Duplicar como borrador; requiere recalcular' : 'Duplicar'} onClick={() => handleDuplicate(budget.id, budget.code)}><Copy className="h-4 w-4" /><span className="sr-only">{accepted ? 'Duplicar como borrador; requiere recalcular' : 'Duplicar'}</span></Button>
                 {!accepted && <Button variant="ghost" size="sm" title="Eliminar" onClick={() => handleDelete(budget.id, budget.code)} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /><span className="sr-only">Eliminar</span></Button>}
                 {accepted && <span data-testid={`accepted-lock-${budget.id}`} className="inline-flex items-center gap-1 px-2 text-xs text-muted-foreground" title="Aceptado: el original firmado es inmutable"><LockKeyhole className="h-3.5 w-3.5" />Inmutable</span>}
               </div></TableCell>
