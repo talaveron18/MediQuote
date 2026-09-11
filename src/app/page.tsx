@@ -66,13 +66,27 @@ function stateFromLocation() {
       return {
         currentView: requestedView,
         editingBudgetId: null,
-        budgetForm: { ...useAppStore.getState().budgetForm, ...duplicateDraft.budgetForm },
+        budgetForm: { ...useAppStore.getInitialState().budgetForm, ...duplicateDraft.budgetForm },
         serviceBlocks: duplicateDraft.serviceBlocks,
         blockResults: [],
         budgetTotals: null,
         skipNextInitialEmptyBlock: duplicateDraft.serviceBlocks.length > 0,
       };
     }
+
+    // Browser history can revisit ?view=budget-new after a duplicate was saved.
+    // Reconstruct a genuinely new quote instead of retaining the in-memory form
+    // of the saved duplicate. BudgetForm is keyed by route state below, so its
+    // mount effect will add the single starter block.
+    return {
+      currentView: requestedView,
+      editingBudgetId: null,
+      budgetForm: { ...useAppStore.getInitialState().budgetForm },
+      serviceBlocks: [],
+      blockResults: [],
+      budgetTotals: null,
+      skipNextInitialEmptyBlock: false,
+    };
   }
 
   return {
@@ -177,7 +191,7 @@ export default function Home() {
         return <Dashboard />;
       case 'budget-new':
       case 'budget-edit':
-        return <BudgetForm />;
+        return <BudgetForm key={`${currentView}:${useAppStore.getState().editingBudgetId ?? 'new'}`} />;
       case 'clients':
         return <Clients />;
       case 'communications':
