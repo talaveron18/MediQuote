@@ -95,7 +95,6 @@ jobs:
       - name: Browser E2E
         id: browser_e2e
         if: steps.production_build.outcome == 'success'
-        continue-on-error: true
         run: npx playwright test
 
       - name: Upload QA evidence
