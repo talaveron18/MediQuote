@@ -26,6 +26,7 @@ const GESTORIA_KEYS = new Set<GestoriaComponentKey>(
   Object.keys(GESTORIA_COMPONENT_LABELS) as GestoriaComponentKey[],
 );
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MONEY_TOLERANCE = 0.01;
 
 type BreakdownParseResult =
   | { ok: true; value: GestoriaBreakdown }
@@ -52,6 +53,21 @@ function parseBreakdown(value: unknown): BreakdownParseResult {
     result[key as GestoriaComponentKey] = amount;
   }
   return { ok: true, value: result };
+}
+
+function validateBreakdownTotal(actualCost: number, breakdown: GestoriaBreakdown): string | null {
+  const entries = Object.entries(breakdown);
+  if (entries.length === 0) return null;
+
+  const suppliedTotal = entries.reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  if (suppliedTotal - actualCost > MONEY_TOLERANCE) {
+    return 'La suma del desglose de gestoría no puede superar el coste real total';
+  }
+
+  if (entries.length === GESTORIA_KEYS.size && Math.abs(suppliedTotal - actualCost) > MONEY_TOLERANCE) {
+    return 'El desglose completo de gestoría debe cuadrar con el coste real total';
+  }
+  return null;
 }
 
 function decodeDocumentBase64(value: string): Buffer | null {
@@ -114,6 +130,10 @@ export async function POST(request: NextRequest) {
       return privateNoStoreJson({ error: parsedBreakdown.error }, { status: 400 });
     }
     const actualBreakdown = parsedBreakdown.value;
+    const breakdownTotalError = validateBreakdownTotal(actualCost, actualBreakdown);
+    if (breakdownTotalError) {
+      return privateNoStoreJson({ error: breakdownTotalError }, { status: 400 });
+    }
 
     const budget = await db.budget.findUnique({
       where: { id: body.budgetId },
