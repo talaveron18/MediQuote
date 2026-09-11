@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
+import { privateNoStoreJson } from '@/lib/private-api-response';
 
 export async function GET(request: Request) {
   const auth = await requireRole(request, ['admin', 'maestro']);
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return NextResponse.json(logs);
+    return privateNoStoreJson(logs);
   } catch {
     // Fallback to ConfigAuditLog if AuditLog table doesn't exist
     try {
@@ -19,9 +20,9 @@ export async function GET(request: Request) {
         orderBy: { createdAt: 'desc' },
         take: 200,
       });
-      return NextResponse.json(logs);
+      return privateNoStoreJson(logs);
     } catch {
-      return NextResponse.json([]);
+      return privateNoStoreJson([]);
     }
   }
 }
