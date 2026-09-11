@@ -45,15 +45,18 @@ jobs:
           E2E_ADMIN_PASSWORD_VALUE="$(openssl rand -base64 36 | tr -d '\n')"
           E2E_MAESTRO_PASSWORD_VALUE="$(openssl rand -base64 36 | tr -d '\n')"
           E2E_COMMERCIAL_PASSWORD_VALUE="$(openssl rand -base64 36 | tr -d '\n')"
+          MAESTRO_RECOVERY_SECRET_VALUE="$(openssl rand -hex 48)"
           echo "::add-mask::$SESSION_SECRET_VALUE"
           echo "::add-mask::$E2E_ADMIN_PASSWORD_VALUE"
           echo "::add-mask::$E2E_MAESTRO_PASSWORD_VALUE"
           echo "::add-mask::$E2E_COMMERCIAL_PASSWORD_VALUE"
+          echo "::add-mask::$MAESTRO_RECOVERY_SECRET_VALUE"
           {
             echo "SESSION_SECRET=$SESSION_SECRET_VALUE"
             echo "E2E_ADMIN_PASSWORD=$E2E_ADMIN_PASSWORD_VALUE"
             echo "E2E_MAESTRO_PASSWORD=$E2E_MAESTRO_PASSWORD_VALUE"
             echo "E2E_COMMERCIAL_PASSWORD=$E2E_COMMERCIAL_PASSWORD_VALUE"
+            echo "GASI_MAESTRO_RECOVERY_SECRET=$MAESTRO_RECOVERY_SECRET_VALUE"
           } >> "$GITHUB_ENV"
 
       - name: Install application dependencies
