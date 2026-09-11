@@ -93,3 +93,108 @@ No sumar dos veces overhead, costes directos, comisión o beneficio si ya forman
 
 ## Regla de no invención
 Este contrato no fija salarios, cotizaciones, costes hora, overhead, comisión, margen, porcentaje GASI ni tolerancias económicas nuevas. Esos valores solo pueden proceder de la configuración aprobada, de documentación vigente o de una decisión expresa de Fernando.
+
+---
+
+## Anexo A — datos verificables de gestoría para preparar costes laborales antes de presupuestar
+
+Este anexo **no convierte a la gestoría en dueña de la política comercial**. Su única función es definir qué datos laborales/externos debe entregar o validar para que MediQuote pueda sustituir estados `pending_configuration` por inputs con fuente verificable. Ningún importe se presume y ningún campo ausente se rellena con cero.
+
+### A.1 Identificación y alcance
+Cada conjunto de datos debe identificar, como mínimo:
+- `professional_category_id` o denominación inequívoca de la categoría;
+- provincia/territorio y convenio aplicable;
+- modalidad de contratación a la que aplica (`indefinido`, `temporal`, `fijo_discontinuo` o, cuando proceda, `mercantil_autonomo`);
+- fecha de efecto desde la que el dato es aplicable;
+- fecha fin si la fuente tiene vigencia limitada;
+- documento/fuente del que sale el dato y fecha de verificación.
+
+Si el dato cambia por categoría, territorio o modalidad contractual, debe entregarse separado; no se admite reutilizar un valor genérico entre configuraciones distintas sin evidencia.
+
+### A.2 Retribución/coste profesional
+Para cada categoría/configuración, la gestoría debe aportar **una de estas dos representaciones verificables**, nunca una mezcla reconstruida sin fuente:
+
+**Opción preferida, desglose anual:**
+- salario base anual ordinario;
+- número de pagas extraordinarias;
+- importe por paga extraordinaria;
+- complementos fijos anuales obligatorios;
+- otros conceptos salariales anuales obligatorios;
+- horas anuales de convenio;
+- horas productivas/facturables anuales utilizadas como denominador económico, si la gestoría puede validarlas; si no, se mantienen como parámetro legal/operativo separado y no se inventan desde nómina.
+
+**Opción alternativa, coste bruto por hora productiva ya validado:**
+- importe bruto por hora productiva;
+- definición exacta de qué incluye y qué excluye;
+- denominador/horas productivas con el que se obtuvo;
+- fuente documental.
+
+MediQuote no debe aceptar simultáneamente ambos formatos para una misma versión salvo que exista una regla explícita de prioridad y reconciliación; hasta entonces debe utilizarse uno solo como fuente canónica.
+
+### A.3 Cotizaciones empresariales y AT/EP
+Cuando correspondan a relación laboral, deben venir desglosadas como porcentajes o importes verificables según la fuente:
+- contingencias comunes empresa;
+- desempleo empresa, diferenciando modalidad cuando aplique;
+- FOGASA;
+- formación profesional;
+- MEI del ejercicio aplicable;
+- accidentes de trabajo/enfermedad profesional, con identificación de la tarifa/actividad aplicada y separación de componentes cuando la fuente los desglose;
+- cualquier otra cotización empresarial obligatoria que efectivamente aplique.
+
+Cada porcentaje necesita fuente y fecha de efecto. Un total agregado de Seguridad Social puede utilizarse para auditoría posterior, pero **no sustituye automáticamente** a los componentes del motor cuando éste necesita el desglose para presupuestar.
+
+### A.4 Costes contractuales de gestoría
+Debe indicarse de forma separada, cuando exista:
+- coste de alta/contratación por contrato;
+- coste periódico de gestión imputable por contrato o trabajador;
+- coste de baja/finalización/tramitación cuando proceda;
+- cualquier otro concepto facturado por la gestoría que deba formar parte del coste de prestar el servicio.
+
+Para cada uno: unidad (`por_contrato`, `por_mes`, `por_trabajador`, `importe_fijo` u otra explícita), importe, IVA si afecta al coste contable utilizado, vigencia y fuente.
+
+### A.5 Pluses y complementos variables
+Si la gestoría dispone de reglas verificables del convenio o nómina que MediQuote deba aplicar, cada plus debe incluir:
+- nombre;
+- territorio/convenio;
+- condición de aplicación (nocturnidad, domingo, festivo, turno u otra);
+- fórmula (`por_hora`, `por_turno`, porcentaje de base u otra explícita);
+- valor;
+- base sobre la que se aplica si es porcentual;
+- fecha de efecto;
+- fuente oficial/documental.
+
+MediQuote no transforma un texto ambiguo en fórmula económica. Si la fuente no permite determinar de manera inequívoca base, unidad o condición, el plus permanece pendiente.
+
+### A.6 Entrada en MediQuote y trazabilidad
+Los datos verificados deben entrar por una capa administrativa/configurable y versionada; no desde el formulario comercial del presupuesto. Cada versión debe conservar:
+- clave/campo de destino en MediQuote;
+- valor;
+- unidad;
+- categoría/territorio/contrato al que aplica;
+- `effective_from` y, si existe, `effective_to`;
+- referencia de fuente;
+- usuario que lo incorporó o validó;
+- fecha/hora de incorporación;
+- estado `verified` o `pending`.
+
+Un presupuesto solo puede usar valores `verified` vigentes para su fecha y configuración. El snapshot del cálculo guarda la versión/fuente usada, de modo que un cambio posterior no reescriba presupuestos históricos.
+
+### A.7 Mapeo mínimo con los bloqueos actuales del motor
+Sin fijar importes, el motor actual necesita como mínimo:
+- salario/coste bruto productivo de la categoría (`ProfessionalCategory.defaultInternalCost` o futura estructura equivalente versionada);
+- jornada anual de convenio y horas productivas territoriales;
+- SMI anual aplicable;
+- porcentajes empresariales de Seguridad Social exigidos por el motor;
+- AT/EP aplicable;
+- coste real de gestoría por contrato;
+- reglas territoriales de pluses que se activen por las fechas/turnos del bloque;
+- parámetros económicos internos GASI por separado, que **no** proceden de gestoría.
+
+La ausencia de cualquiera de los campos exigidos por una configuración concreta debe producir `pending_configuration`, sin total final ni `calculationToken` utilizable.
+
+### A.8 Archivo de intercambio recomendado
+Si la gestoría puede devolver una tabla estructurada, usar una fila por concepto con estas columnas mínimas:
+
+`concept_key | category | territory | contract_type | value | unit | effective_from | effective_to | source_document | source_date | notes`
+
+El archivo puede ser CSV/XLSX o un documento equivalente. La importación futura debe validar claves conocidas y mantener el original como evidencia; no debe aceptar claves económicas nuevas de forma automática.
