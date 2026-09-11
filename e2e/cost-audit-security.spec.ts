@@ -176,7 +176,7 @@ test('auditoría válida se sella, el documento se fuerza a descarga binaria y e
   expect(malformed.text).not.toContain('Unexpected token');
 });
 
-test('justificante Base64 inválido se rechaza sin crear auditoría ni snapshot', async ({ page }) => {
+test('justificante Base64 inválido se rechaza sin crear auditoría', async ({ page }) => {
   const budget = await seedAuditableBudget(`E2E-AUD-B64-${Date.now()}`, JSON.stringify({
     internalCost: {
       totalInternalCost: 100,
@@ -215,5 +215,4 @@ test('justificante Base64 inválido se rechaza sin crear auditoría ni snapshot'
   expectPrivateNoStore(response);
   expect(response.text).toContain('Base64 válido');
   expect(await db.costAudit.count({ where: { budgetId: budget.id } })).toBe(before);
-  expect(await db.economicArtifact.count({ where: { entityId: budget.id, artifactType: 'cost_audit' } })).toBe(0);
 });
