@@ -42,6 +42,7 @@ jobs:
         shell: bash
         run: |
           echo "SESSION_SECRET=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+          echo "E2E_ADMIN_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')" >> "$GITHUB_ENV"
           echo "E2E_MAESTRO_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')" >> "$GITHUB_ENV"
           echo "E2E_COMMERCIAL_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')" >> "$GITHUB_ENV"
 
