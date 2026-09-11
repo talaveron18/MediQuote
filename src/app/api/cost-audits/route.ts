@@ -13,7 +13,7 @@ import { fingerprintDocument } from '@/lib/immutable-artifact';
 import {
   getLatestBudgetArtifact,
   sealBudgetArtifact,
-  sealCostAuditArtifact,
+  sealCostAuditArtifactWithClient,
 } from '@/lib/economic-artifact-store';
 import {
   genericInternalErrorResponse,
@@ -184,45 +184,48 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const audit = await db.costAudit.create({
-      data: {
-        budgetId: budget.id, createdById: auth.id,
-        estimatedCost: estimated.gestoriaTotal,
-        actualCost,
-        deviationAmount: deviation.deviationAmount, deviationPercent: deviation.deviationPercent,
-        estimatedBreakdown: JSON.stringify(estimated.breakdown),
-        actualBreakdown: JSON.stringify(actualBreakdown),
-        analysis: JSON.stringify({ reconciliation: deviation.analysis, internal: deviation.internalAnalysis }),
-        notes: body.notes?.trim() || null,
-        documentName: documentData ? (body.documentName?.slice(0, 240) || 'justificante') : null,
-        documentType: documentData ? (body.documentType?.slice(0, 120) || 'application/octet-stream') : null,
-        documentData: documentData ? Uint8Array.from(documentData) : undefined,
-      },
-    });
+    const { audit, auditArtifact } = await db.$transaction(async (tx) => {
+      const audit = await tx.costAudit.create({
+        data: {
+          budgetId: budget.id, createdById: auth.id,
+          estimatedCost: estimated.gestoriaTotal,
+          actualCost,
+          deviationAmount: deviation.deviationAmount, deviationPercent: deviation.deviationPercent,
+          estimatedBreakdown: JSON.stringify(estimated.breakdown),
+          actualBreakdown: JSON.stringify(actualBreakdown),
+          analysis: JSON.stringify({ reconciliation: deviation.analysis, internal: deviation.internalAnalysis }),
+          notes: body.notes?.trim() || null,
+          documentName: documentData ? (body.documentName?.slice(0, 240) || 'justificante') : null,
+          documentType: documentData ? (body.documentType?.slice(0, 120) || 'application/octet-stream') : null,
+          documentData: documentData ? Uint8Array.from(documentData) : undefined,
+        },
+      });
 
-    const sourceDocuments = documentData ? [fingerprintDocument(Uint8Array.from(documentData), {
-      name: audit.documentName || 'justificante',
-      mediaType: audit.documentType,
-    })] : [];
-    const auditArtifact = await sealCostAuditArtifact({
-      auditId: audit.id,
-      createdById: auth.id,
-      sourceDocuments,
-      payload: {
+      const sourceDocuments = documentData ? [fingerprintDocument(Uint8Array.from(documentData), {
+        name: audit.documentName || 'justificante',
+        mediaType: audit.documentType,
+      })] : [];
+      const auditArtifact = await sealCostAuditArtifactWithClient(tx, {
         auditId: audit.id,
-        budgetId: budget.id,
-        budgetCode: budget.code,
-        originalBudgetArtifactHash: budgetArtifact.artifactHash,
-        estimatedCost: audit.estimatedCost,
-        actualCost: audit.actualCost,
-        deviationAmount: audit.deviationAmount,
-        deviationPercent: audit.deviationPercent,
-        estimatedBreakdown: estimated.breakdown,
-        actualBreakdown,
-        reconciliation: deviation.analysis,
-        internalGasiCosts: deviation.internalAnalysis,
-        notes: audit.notes,
-      },
+        createdById: auth.id,
+        sourceDocuments,
+        payload: {
+          auditId: audit.id,
+          budgetId: budget.id,
+          budgetCode: budget.code,
+          originalBudgetArtifactHash: budgetArtifact.artifactHash,
+          estimatedCost: audit.estimatedCost,
+          actualCost: audit.actualCost,
+          deviationAmount: audit.deviationAmount,
+          deviationPercent: audit.deviationPercent,
+          estimatedBreakdown: estimated.breakdown,
+          actualBreakdown,
+          reconciliation: deviation.analysis,
+          internalGasiCosts: deviation.internalAnalysis,
+          notes: audit.notes,
+        },
+      });
+      return { audit, auditArtifact };
     });
 
     await logAudit({
