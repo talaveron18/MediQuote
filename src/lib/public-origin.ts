@@ -43,5 +43,15 @@ export function buildTrustedPublicUrl(input: PublicUrlInput): URL {
   origin.search = ''
   origin.hash = ''
 
-  return new URL(input.path, origin)
+  // Sensitive destinations must stay on the canonical origin. `new URL()`
+  // accepts protocol-relative and absolute values, which would otherwise allow
+  // a caller bug to turn a reset/signature link into an off-origin URL.
+  if (!input.path.startsWith('/') || input.path.startsWith('//')) {
+    throw new Error('La ruta pública debe ser relativa al origen canónico')
+  }
+  const result = new URL(input.path, origin)
+  if (result.origin !== origin.origin) {
+    throw new Error('La ruta pública no puede cambiar el origen canónico')
+  }
+  return result
 }
