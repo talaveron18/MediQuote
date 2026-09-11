@@ -163,10 +163,11 @@ test('auditoría queda enlazada al artefacto inmutable del presupuesto y conserv
   });
   const budgetArtifact = JSON.parse(budgetHistory.snapshot || '{}') as {
     artifactHash: string;
-    payload: { economicSnapshot: unknown };
+    payloadCanonical: string;
   };
   expect(budgetArtifact.artifactHash).toMatch(/^[a-f0-9]{64}$/);
-  expect(budgetArtifact.payload.economicSnapshot).toEqual(JSON.parse(snapshot));
+  const budgetPayload = JSON.parse(budgetArtifact.payloadCanonical) as { economicSnapshot: unknown };
+  expect(budgetPayload.economicSnapshot).toEqual(JSON.parse(snapshot));
 
   const auditHistory = await db.auditLog.findFirstOrThrow({
     where: { action: 'sealed_cost_audit_artifact', entity: 'cost_audit', entityId: body.audit.id },
@@ -174,11 +175,15 @@ test('auditoría queda enlazada al artefacto inmutable del presupuesto y conserv
   });
   const auditArtifact = JSON.parse(auditHistory.newData || '{}') as {
     artifactHash: string;
-    payload: { originalBudgetArtifactHash: string; budgetId: string };
+    payloadCanonical: string;
+  };
+  const auditPayload = JSON.parse(auditArtifact.payloadCanonical) as {
+    originalBudgetArtifactHash: string;
+    budgetId: string;
   };
   expect(auditArtifact.artifactHash).toBe(body.immutableArtifact.artifactHash);
-  expect(auditArtifact.payload.originalBudgetArtifactHash).toBe(budgetArtifact.artifactHash);
-  expect(auditArtifact.payload.budgetId).toBe(budget.id);
+  expect(auditPayload.originalBudgetArtifactHash).toBe(budgetArtifact.artifactHash);
+  expect(auditPayload.budgetId).toBe(budget.id);
 });
 
 test('historial API conserva conciliación parcial tras recarga y no expone documento binario en listado', async ({ page }) => {
