@@ -27,14 +27,31 @@ const GESTORIA_KEYS = new Set<GestoriaComponentKey>(
 );
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
-function cleanBreakdown(value: unknown): GestoriaBreakdown {
-  if (!value || typeof value !== 'object') return {};
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .filter(([key, item]) => GESTORIA_KEYS.has(key as GestoriaComponentKey)
-      && item !== ''
-      && Number.isFinite(Number(item))
-      && Number(item) >= 0)
-    .map(([key, item]) => [key, Number(item)])) as GestoriaBreakdown;
+type BreakdownParseResult =
+  | { ok: true; value: GestoriaBreakdown }
+  | { ok: false; error: string };
+
+function parseBreakdown(value: unknown): BreakdownParseResult {
+  if (value === undefined || value === null) return { ok: true, value: {} };
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'El desglose de gestoría debe ser un objeto de conceptos e importes' };
+  }
+
+  const result: GestoriaBreakdown = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (!GESTORIA_KEYS.has(key as GestoriaComponentKey)) {
+      return { ok: false, error: `Concepto de gestoría no reconocido: ${key}` };
+    }
+    if (item === '' || item === null || item === undefined) {
+      return { ok: false, error: `El concepto ${key} no contiene un importe válido` };
+    }
+    const amount = Number(item);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return { ok: false, error: `El concepto ${key} debe contener un importe numérico no negativo` };
+    }
+    result[key as GestoriaComponentKey] = amount;
+  }
+  return { ok: true, value: result };
 }
 
 function decodeDocumentBase64(value: string): Buffer | null {
@@ -92,6 +109,12 @@ export async function POST(request: NextRequest) {
     if (!body.budgetId || !Number.isFinite(actualCost) || actualCost < 0) {
       return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
     }
+    const parsedBreakdown = parseBreakdown(body.actualBreakdown);
+    if (!parsedBreakdown.ok) {
+      return privateNoStoreJson({ error: parsedBreakdown.error }, { status: 400 });
+    }
+    const actualBreakdown = parsedBreakdown.value;
+
     const budget = await db.budget.findUnique({
       where: { id: body.budgetId },
       select: { id: true, code: true, createdAt: true, updatedAt: true },
@@ -108,7 +131,6 @@ export async function POST(request: NextRequest) {
       console.error('[POST /api/cost-audits] Snapshot no auditable:', error);
       return privateNoStoreJson({ error: 'La cotización interna guardada no puede auditarse' }, { status: 409 });
     }
-    const actualBreakdown = cleanBreakdown(body.actualBreakdown);
     const deviation = calculateAuditDeviation({
       estimatedCost: estimated.gestoriaTotal,
       actualCost,
