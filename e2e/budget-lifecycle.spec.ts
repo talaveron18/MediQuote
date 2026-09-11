@@ -169,7 +169,7 @@ test('4 · documento cliente y firma electrónica recorren el presupuesto sin fi
   ]);
   const created = await createBudget(page, calculation, 'E2E documento y firma');
 
-  const clientDocument = await api<string>(page, `/api/pdf?budgetId=${created.budget.id}&mode=client`);
+  const clientDocument = await api<string>(page, `/api/pdf?id=${created.budget.id}&mode=client`);
   expect(clientDocument.status).toBe(200);
   expect(String(clientDocument.body)).toContain('Enfermería presencial');
   expect(String(clientDocument.body)).toContain('Medicina remota');
