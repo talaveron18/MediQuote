@@ -12,12 +12,8 @@ import {
 import { readInternalEconomicConfiguration } from '@/lib/costing/internal-economic-config';
 import { buildCostingInputFromDatabase } from '@/lib/costing/server-input';
 import { generateHolidaysForYear } from '@/lib/spanish-holidays';
-import type {
-  BlockCalculationResult,
-  HolidayInfo,
-  ServiceBlockInput,
-} from '@/lib/types';
-import type { DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types';
+import type { BlockCalculationResult, HolidayInfo, ServiceBlockInput } from '@/lib/types';
+import type { CostSourceRef, DataIssue, InternalCostBreakdown } from '@/lib/costing/cost-types';
 import { getConventionProfileForProvince, resolveServiceLocation } from '@/lib/service-locations';
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import { getLocalHolidayCalendar, getMunicipalHolidays } from '@/lib/local-holidays';
@@ -58,10 +54,7 @@ export async function POST(request: NextRequest) {
       db.surchargeConfig.findMany({ where: { active: true } }),
       db.laborRule.findFirst(),
       db.professionalCategory.findMany({ where: { active: true } }),
-      db.legalParameter.findMany({
-        where: { isActive: true },
-        include: { legalRecord: true },
-      }),
+      db.legalParameter.findMany({ where: { isActive: true }, include: { legalRecord: true } }),
       db.appConfig.findMany(),
     ]);
 
@@ -91,6 +84,7 @@ export async function POST(request: NextRequest) {
       municipalityIneCode: locationDefinition.municipalityIneCode,
       conventionProfileId: conventionProfile.id,
     };
+
     const holidayWhere: Record<string, unknown>[] = [{ type: 'nacional' }];
     if (location.cc) holidayWhere.push({ type: 'autonomico', autonomousCommunity: location.cc });
     if (location.province) holidayWhere.push({ type: 'provincial', province: location.province });
@@ -117,9 +111,7 @@ export async function POST(request: NextRequest) {
       holidays.push(...getMunicipalHolidays(location.municipalityIneCode, year));
     }
     const applicableHolidays = filterHolidaysForLocation(holidays, location);
-    const deduplicatedHolidays = [...new Map(
-      applicableHolidays.map((holiday) => [holiday.date, holiday]),
-    ).values()];
+    const deduplicatedHolidays = [...new Map(applicableHolidays.map((holiday) => [holiday.date, holiday])).values()];
 
     const scheduleResults: BlockCalculationResult[] = blocks.map((block) => calculateServiceBlock({
       block: { ...block, pricePerHour: 0, fixedPrice: 0 },
@@ -129,14 +121,7 @@ export async function POST(request: NextRequest) {
     }));
 
     const legalParameters: Record<string, number> = {};
-    const legalParameterSources: Record<string, {
-      id: string;
-      label: string;
-      url?: string;
-      effectiveFrom?: string;
-      effectiveTo?: string;
-      status: 'verified';
-    }> = {};
+    const legalParameterSources: Record<string, CostSourceRef> = {};
     for (const row of legalParameterRows) {
       const value = Number(row.value);
       if (Number.isFinite(value)) legalParameters[row.key] = value;
@@ -160,9 +145,7 @@ export async function POST(request: NextRequest) {
       appConfig,
       requiresTemporaryProvision ? 'temporal' : 'indefinido',
     );
-    if (economicConfig.status === 'pending_configuration') {
-      issues.push(...economicConfig.issues);
-    }
+    if (economicConfig.status === 'pending_configuration') issues.push(...economicConfig.issues);
 
     const localCalendar = getLocalHolidayCalendar(location.municipalityIneCode);
     for (const year of years) {
@@ -176,7 +159,9 @@ export async function POST(request: NextRequest) {
         });
       }
     }
+
     const internalBreakdowns: InternalCostBreakdown[] = [];
+    const verifiedLaborSources: Array<{ blockIndex: number; sources: CostSourceRef[] }> = [];
     const blockInternalCosts = blocks.map(() => 0);
     let directCostTotal = 0;
     const simpleTypes = new Set([
@@ -220,20 +205,16 @@ export async function POST(request: NextRequest) {
       }
       const costing = calculateCosting(built.input);
       if (costing.status !== 'calculated') {
-        issues.push(...costing.issues.map((issue) => ({
-          ...issue,
-          field: `blocks.${index}.${issue.field}`,
-        })));
+        issues.push(...costing.issues.map((issue) => ({ ...issue, field: `blocks.${index}.${issue.field}` })));
         continue;
       }
+      verifiedLaborSources.push({ blockIndex: index, sources: built.laborSources });
       internalBreakdowns.push(costing.internalCost);
       blockInternalCosts[index] = costing.internalCost.totalInternalCost;
     }
 
     if (issues.length > 0 || economicConfig.status !== 'ready') {
-      const pendingIssues = economicConfig.status === 'pending_configuration'
-        ? [...issues]
-        : issues;
+      const pendingIssues = economicConfig.status === 'pending_configuration' ? [...issues] : issues;
       const pending = {
         blocks: scheduleResults,
         totals: null,
@@ -256,22 +237,17 @@ export async function POST(request: NextRequest) {
     }
     const directCostWithOverhead = directCostTotal * overheadFactor;
     const totalInternalCost = roundMoney(
-      internalBreakdowns.reduce((sum, breakdown) => sum + breakdown.totalInternalCost, 0)
-      + directCostWithOverhead,
+      internalBreakdowns.reduce((sum, breakdown) => sum + breakdown.totalInternalCost, 0) + directCostWithOverhead,
     );
     const commercialPolicy = { ...economicConfig.value.commercialPolicy };
-    const range = calculatePriceRange(totalInternalCost, commercialPolicy);
+    calculatePriceRange(totalInternalCost, commercialPolicy);
     const requestedDiscount = Math.max(0, Number(body.discountPercent ?? 0));
     const closingPrice = calculateClosingPriceFromDiscount({
       totalInternalCost,
       requestedDiscountPercent: requestedDiscount,
       policy: commercialPolicy,
     });
-    const commercial = calculateCommercialResult({
-      totalInternalCost,
-      closingPriceExVat: closingPrice,
-      policy: commercialPolicy,
-    });
+    const commercial = calculateCommercialResult({ totalInternalCost, closingPriceExVat: closingPrice, policy: commercialPolicy });
     const fallbackIvaPercent = Math.min(100, Math.max(0, Number(body.ivaPercent ?? 21)));
     const blockPricing = allocateBlockPricing({
       internalCosts: blockInternalCosts,
@@ -330,6 +306,7 @@ export async function POST(request: NextRequest) {
           location,
           schedules: result.blocks,
           internalCost: result.internalCost,
+          verifiedLaborSources,
           internalEconomicConfiguration: economicConfig.value,
           commercialPolicy,
           commercial,
@@ -345,7 +322,6 @@ export async function POST(request: NextRequest) {
     });
 
     Object.assign(result.totals, { calculationToken: quote.id });
-
     return NextResponse.json(sanitizeForRole(result, auth.role));
   } catch (error) {
     console.error('[POST /api/calculations] Error:', error);
