@@ -313,4 +313,4 @@ test('historial conserva ambas versiones y ambas auditorías después de recarga
   expect(hashes).toContain(String(firstAuditArtifact.payload.originalBudgetArtifactHash));
   expect(hashes).toContain(v2Artifact.artifactHash);
   expect(String(firstAuditArtifact.payload.originalBudgetArtifactHash)).not.toBe(v2Artifact.artifactHash);
-}
+});
