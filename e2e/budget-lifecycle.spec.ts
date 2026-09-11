@@ -178,8 +178,9 @@ test('4 · documento cliente y firma electrónica recorren el presupuesto sin fi
   expect(String(clientDocument.body)).not.toContain('coste interno');
   expect(String(clientDocument.body)).not.toContain('commissionAmount');
 
+  const signerEmail = 'cliente.firma@example.invalid';
   const signature = await api<SignatureCreated>(page, '/api/signatures', {
-    method: 'POST', body: { budgetId: created.budget.id },
+    method: 'POST', body: { budgetId: created.budget.id, recipientEmail: signerEmail },
   });
   expect(signature.status).toBe(201);
   expect(signature.body.id).toBeTruthy();
@@ -192,18 +193,19 @@ test('4 · documento cliente y firma electrónica recorren el presupuesto sin fi
   const token = new URL(signature.body.signingUrl).pathname.split('/').filter(Boolean).pop();
   expect(token).toBeTruthy();
 
-  const publicReview = await api<{ request: { budget: { code: string } } }>(page, `/api/public/signature?token=${encodeURIComponent(token!)}`);
+  const publicReview = await api<{ status: string; budget: { code: string } }>(page, `/api/public/signature?token=${encodeURIComponent(token!)}`);
   expect(publicReview.status).toBe(200);
-  expect(publicReview.body.request.budget.code).toBe(created.budget.code);
+  expect(publicReview.body.status).toBe('pending');
+  expect(publicReview.body.budget.code).toBe(created.budget.code);
 
   const accepted = await api<{ status: string }>(page, '/api/public/signature', {
     method: 'POST',
     body: {
       token,
-      email: 'cliente@example.invalid',
+      signerEmail,
       signerName: 'Persona Cliente E2E',
       signatureData: validSignatureData,
-      consentAccepted: true,
+      consent: true,
     },
   });
   expect(accepted.status).toBe(200);
