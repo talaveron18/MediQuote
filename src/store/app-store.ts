@@ -153,7 +153,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentView: 'dashboard',
   editingBudgetId: null,
   setView: (view) => set({ currentView: view }),
-  editBudget: (id) => set({ currentView: 'budget-edit', editingBudgetId: id }),
+  // Saving a brand-new quote immediately returns to the dashboard. Avoid a
+  // transient budget-edit state/history entry in between: it can mount an edit
+  // form that is obsolete before its async load finishes and later overwrite a
+  // clean new-budget draft during Back/Forward navigation.
+  editBudget: (id) => set((s) => s.currentView === 'budget-new'
+    ? { currentView: 'dashboard', editingBudgetId: id }
+    : { currentView: 'budget-edit', editingBudgetId: id }),
   newBudget: () => set({ currentView: 'budget-new', editingBudgetId: null, budgetForm: { ...emptyBudgetForm }, serviceBlocks: [], blockResults: [], budgetTotals: null, skipNextInitialEmptyBlock: false }),
   currentUser: null,
   setCurrentUser: (u) => set({ currentUser: u }),
