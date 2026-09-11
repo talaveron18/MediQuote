@@ -18,6 +18,19 @@ export const VERIFIED_LABOR_CONCEPTS = [
 export type VerifiedLaborConcept = typeof VERIFIED_LABOR_CONCEPTS[number]
 export type LaborInputStatus = 'verified' | 'pending'
 
+export const VERIFIED_LABOR_UNITS: Record<VerifiedLaborConcept, string> = {
+  productive_hour_gross: 'EUR/h_productiva',
+  management_fee_per_contract: 'EUR/contrato',
+  annual_convention_hours: 'h/año',
+  annual_productive_hours: 'h/año',
+  ss_common_contingencies_percent: '%',
+  ss_unemployment_percent: '%',
+  ss_fogasa_percent: '%',
+  ss_training_percent: '%',
+  ss_mei_percent: '%',
+  atep_percent: '%',
+}
+
 export interface VerifiedLaborInputRecord {
   id: string
   conceptKey: VerifiedLaborConcept
@@ -76,7 +89,8 @@ export function parseVerifiedLaborInputStore(raw?: string | null): VerifiedLabor
 
 export function validateLaborInputDraft(draft: LaborInputDraft): DataIssue[] {
   const issues: DataIssue[] = []
-  if (!CONCEPTS.has(draft.conceptKey)) {
+  const knownConcept = CONCEPTS.has(draft.conceptKey)
+  if (!knownConcept) {
     issues.push({ field: 'conceptKey', kind: 'invalid', message: 'Concepto de coste no reconocido.' })
   }
   if (!normalizeText(draft.categoryId)) {
@@ -92,8 +106,18 @@ export function validateLaborInputDraft(draft: LaborInputDraft): DataIssue[] {
   if (!Number.isFinite(value) || value < 0) {
     issues.push({ field: 'value', kind: 'invalid', message: 'El valor debe ser finito y no negativo.' })
   }
-  if (!normalizeText(draft.unit)) {
+  const unit = normalizeText(draft.unit)
+  if (!unit) {
     issues.push({ field: 'unit', kind: 'missing', message: 'Falta la unidad del concepto.' })
+  } else if (knownConcept) {
+    const expectedUnit = VERIFIED_LABOR_UNITS[draft.conceptKey as VerifiedLaborConcept]
+    if (unit !== expectedUnit) {
+      issues.push({
+        field: 'unit',
+        kind: 'invalid',
+        message: `La unidad canónica de ${draft.conceptKey} debe ser ${expectedUnit}.`,
+      })
+    }
   }
   if (!ISO_DATE.test(draft.effectiveFrom)) {
     issues.push({ field: 'effectiveFrom', kind: 'invalid', message: 'effectiveFrom debe ser una fecha ISO.' })
@@ -193,6 +217,14 @@ export function resolveVerifiedLaborInput(params: {
     }] }
   }
   const record = matches[0]
+  const expectedUnit = VERIFIED_LABOR_UNITS[params.conceptKey]
+  if (record.unit !== expectedUnit) {
+    return { status: 'pending_configuration', issues: [{
+      field: `${field}.unit`,
+      kind: 'invalid',
+      message: `La versión verified usa ${record.unit}; se requiere la unidad canónica ${expectedUnit}.`,
+    }] }
+  }
   return {
     status: 'ready', value: record.value, unit: record.unit, record,
     source: {
@@ -203,4 +235,35 @@ export function resolveVerifiedLaborInput(params: {
       status: 'verified',
     },
   }
+}
+
+export function resolveVerifiedLaborInputForDates(params: {
+  records: VerifiedLaborInputRecord[]
+  conceptKey: VerifiedLaborConcept
+  categoryId: string
+  territory: string
+  contractType: ContractType
+  serviceDates: string[]
+}): ReturnType<typeof resolveVerifiedLaborInput> {
+  const dates = [...new Set(params.serviceDates)].sort()
+  if (dates.length === 0) {
+    return { status: 'pending_configuration', issues: [{
+      field: `verifiedLaborInputs.${params.conceptKey}.${params.categoryId}.${params.territory}.${params.contractType}`,
+      kind: 'missing',
+      message: 'No hay fechas de servicio para resolver la vigencia del coste laboral.',
+    }] }
+  }
+  const resolved = dates.map((serviceDate) => resolveVerifiedLaborInput({ ...params, serviceDate }))
+  const firstPending = resolved.find((result) => result.status === 'pending_configuration')
+  if (firstPending?.status === 'pending_configuration') return firstPending
+  const ready = resolved.filter((result): result is Extract<ReturnType<typeof resolveVerifiedLaborInput>, { status: 'ready' }> => result.status === 'ready')
+  const ids = new Set(ready.map((result) => result.record.id))
+  if (ids.size !== 1) {
+    return { status: 'pending_configuration', issues: [{
+      field: `verifiedLaborInputs.${params.conceptKey}.${params.categoryId}.${params.territory}.${params.contractType}`,
+      kind: 'blocked',
+      message: 'El bloque cruza versiones distintas del coste laboral; debe dividirse por vigencia antes de presupuestar.',
+    }] }
+  }
+  return ready[0]
 }
