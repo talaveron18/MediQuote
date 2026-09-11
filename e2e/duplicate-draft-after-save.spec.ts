@@ -89,12 +89,12 @@ async function calculateAndSaveDuplicate(page: Page, marker: string) {
   return { copy: copies[0], calculationToken: calculation.totals.calculationToken };
 }
 
-async function expectCleanNewBudget(page: Page, marker: string) {
+async function expectCleanNewBudget(page: Page) {
   await expect(page.getByRole('heading', { name: 'Nuevo presupuesto' })).toBeVisible();
-  await expect(page.getByText(marker, { exact: false })).toHaveCount(0);
   await expect(page.getByText('Resumen del presupuesto')).toHaveCount(0);
   await expect(page.getByTestId('budget-block-position-1')).toHaveCount(1);
   await expect(page.getByTestId('budget-block-position-2')).toHaveCount(0);
+  await expect(page.locator('#svc-name-0')).toHaveValue('');
 }
 
 test('1 · guardar un duplicado elimina el session draft temporal', async ({ page }) => {
@@ -116,9 +116,9 @@ test('2 · Back/Forward y reload después de guardar no resucitan ni duplican la
 
   for (let i = 0; i < 3 && !page.url().includes('view=budget-new'); i++) await page.goBack();
   await expect(page).toHaveURL(/view=budget-new/);
-  await expectCleanNewBudget(page, marker);
+  await expectCleanNewBudget(page);
   await page.reload();
-  await expectCleanNewBudget(page, marker);
+  await expectCleanNewBudget(page);
   await page.goForward();
   expect(await db.budget.count({ where: { description: `${marker} (Copia)` } })).toBe(1);
 });
@@ -132,9 +132,9 @@ test('3 · Nuevo Presupuesto en la barra lateral descarta un duplicado temporal 
 
   await page.getByRole('button', { name: 'Nuevo Presupuesto' }).click();
   expect(await page.evaluate((key) => sessionStorage.getItem(key), DUPLICATE_DRAFT_KEY)).toBeNull();
-  await expectCleanNewBudget(page, marker);
+  await expectCleanNewBudget(page);
   await page.reload();
-  await expectCleanNewBudget(page, marker);
+  await expectCleanNewBudget(page);
 });
 
 test('4 · la cotización consumida por el duplicado guardado no puede reutilizarse', async ({ page }) => {
