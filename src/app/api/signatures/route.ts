@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logAudit, requireAuth } from '@/lib/auth';
 import { hashBudgetForSignature, hashSignatureToken, SIGNATURE_CONSENT } from '@/lib/budget-signature';
+import { signatureDocumentIsCurrent } from '@/lib/signature-write-guard';
 import { buildTrustedPublicUrl } from '@/lib/public-origin';
 
 const includeBudget = {
@@ -33,6 +34,9 @@ export async function GET(request: NextRequest) {
     });
     if (!signed || !canUseBudget(auth, signed.budget) || signed.status !== 'accepted') {
       return privateNoStoreJson({ error: 'Certificado no encontrado' }, { status: 404 });
+    }
+    if (!signatureDocumentIsCurrent(signed.budget, signed.documentHash)) {
+      return privateNoStoreJson({ error: 'La integridad del presupuesto aceptado no puede verificarse.' }, { status: 409 });
     }
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Certificado ${esc(signed.budget.code)}</title><style>@page{size:A4;margin:16mm}body{font-family:Arial;color:#172033;max-width:800px;margin:30px auto}.row{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:8px 0}.box{border:1px solid #ccd5e0;border-radius:8px;padding:18px;margin:20px 0}.no-print{text-align:right}@media print{.no-print{display:none}}</style></head><body><div class="no-print"><button onclick="window.print()">Imprimir / Guardar PDF</button></div><h1>Certificado de aceptación electrónica</h1><div class="box"><div class="row"><b>Presupuesto</b><span>${esc(signed.budget.code)}</span></div><div class="row"><b>Cliente</b><span>${esc(signed.budget.client.businessName)} · ${esc(signed.budget.client.cif)}</span></div><div class="row"><b>Total aceptado</b><span>${signed.budget.totalFinal.toLocaleString('es-ES',{style:'currency',currency:'EUR'})}</span></div><div class="row"><b>Firmante</b><span>${esc(signed.signerName)} · ${esc(signed.signerEmail)}</span></div><div class="row"><b>Fecha UTC</b><span>${esc(signed.acceptedAt?.toISOString())}</span></div><div class="row"><b>Huella SHA-256</b><span style="font-family:monospace;font-size:10px">${esc(signed.documentHash)}</span></div></div><p>${esc(signed.consentText || SIGNATURE_CONSENT)}</p>${signed.signatureData ? `<div class="box"><h3>Firma manuscrita</h3><img src="${esc(signed.signatureData)}" alt="Firma" style="max-width:420px;max-height:180px"></div>` : ''}<p style="font-size:11px;color:#667">Trazabilidad: solicitud ${esc(signed.id)} · IP ${esc(signed.acceptedIp)} · agente ${esc(signed.userAgent)}</p></body></html>`;
     return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' } });
