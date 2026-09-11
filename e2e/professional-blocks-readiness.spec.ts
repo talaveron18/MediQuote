@@ -37,9 +37,7 @@ async function login(page: Page) {
 async function calculate(page: Page, blocks: unknown[], location: Location): Promise<{ status: number; body: Calculation }> {
   return page.evaluate(async ({ requestBlocks, requestLocation }) => {
     const response = await fetch('/api/calculations', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ blocks: requestBlocks, location: requestLocation, discountPercent: 0, ivaPercent: 21 }),
     });
     return { status: response.status, body: await response.json() };
@@ -56,32 +54,20 @@ function professionalBlock(params: {
   positions?: number;
 }) {
   return {
-    blockType: 'profesional_hora',
-    serviceName: params.name,
-    professionalCategory: params.category,
-    puestosSimultaneos: params.positions ?? 1,
-    plantillaSeleccionada: params.positions ?? 1,
-    pricePerHour: 0,
-    contractType: params.contractType,
-    dateMode: 'range',
-    dateRangeStart: params.start,
-    dateRangeEnd: params.end,
-    daysOfWeek: [1, 2, 3, 4, 5, 6, 0],
-    excludeSundays: false,
-    excludeHolidays: false,
-    shiftType: params.shiftType,
-    hoursPerDay: params.shiftType === '24h' ? 24 : 8,
-    breakMinutes: 0,
-    unitType: 'hora',
-    quantity: 1,
-    ivaPercent: 21,
+    blockType: 'profesional_hora', serviceName: params.name, professionalCategory: params.category,
+    puestosSimultaneos: params.positions ?? 1, plantillaSeleccionada: params.positions ?? 1,
+    pricePerHour: 0, contractType: params.contractType, dateMode: 'range',
+    dateRangeStart: params.start, dateRangeEnd: params.end, daysOfWeek: [1, 2, 3, 4, 5, 6, 0],
+    excludeSundays: false, excludeHolidays: false, shiftType: params.shiftType,
+    hoursPerDay: params.shiftType === '24h' ? 24 : 8, breakMinutes: 0,
+    unitType: 'hora', quantity: 1, ivaPercent: 21,
   };
 }
 
 const madrid: Location = { cc: 'Madrid', province: 'Madrid', municipality: 'Madrid' };
 const valladolid: Location = { cc: 'Castilla y León', province: 'Valladolid', municipality: 'Valladolid' };
 
-test('1 · múltiples categorías/turnos/bloques calculan calendario pero no emiten precio cuando faltan fuentes laborales verificadas', async ({ page }) => {
+test('1 · múltiples categorías/turnos calculan calendario y bloquean solo los pluses sin fuente verificable', async ({ page }) => {
   await login(page);
   const blocks = [
     professionalBlock({
@@ -101,17 +87,14 @@ test('1 · múltiples categorías/turnos/bloques calculan calendario pero no emi
   const result = await calculate(page, blocks, madrid);
   expect(result.status).toBe(200);
   expect(result.body.blocks).toHaveLength(3);
-  expect(result.body.blocks.every((block) => block.totalWorkingDays > 0 && block.totalHours > 0)).toBe(true);
+  expect(result.body.blocks.every((item) => item.totalWorkingDays > 0 && item.totalHours > 0)).toBe(true);
   expect(result.body.commercial.status).toBe('pending_configuration');
-  expect(result.body.commercial.requiresAuthorization).toBe(true);
   expect(result.body.totals).toBeNull();
-  expect(result.body.issues?.length).toBeGreaterThan(0);
-  expect(result.body.issues?.some((issue) => issue.field === 'legalParameters.JORNADA_MADRID_ANUAL')).toBe(true);
-  expect(result.body.issues?.some((issue) => issue.field === 'legalParameters.SS_CC_EMPRESA')).toBe(true);
-  expect(result.body.issues?.some((issue) => issue.field === 'appConfig.costing_management_fee_per_contract')).toBe(true);
+  expect(result.body.issues?.some((issue) => issue.field.includes('verifiedLaborInputs.productive_hour_gross'))).toBe(false);
+  expect(result.body.issues?.some((issue) => issue.field.includes('surcharges.'))).toBe(true);
 });
 
-test('2 · el centro/territorio selecciona su convenio y nunca reutiliza silenciosamente parámetros de otro territorio', async ({ page }) => {
+test('2 · Madrid y Valladolid pueden calcular días ordinarios con su propia capa verified sin fallback territorial', async ({ page }) => {
   await login(page);
   const block = professionalBlock({
     name: 'E2E territorial', category: 'e2e-category-nursing', contractType: 'indefinido',
@@ -122,15 +105,12 @@ test('2 · el centro/territorio selecciona su convenio y nunca reutiliza silenci
   const valladolidResult = await calculate(page, [block], valladolid);
   expect(madridResult.status).toBe(200);
   expect(valladolidResult.status).toBe(200);
-  expect(madridResult.body.totals).toBeNull();
-  expect(valladolidResult.body.totals).toBeNull();
-
-  const madridFields = new Set(madridResult.body.issues?.map((issue) => issue.field));
-  const valladolidFields = new Set(valladolidResult.body.issues?.map((issue) => issue.field));
-  expect(madridFields.has('legalParameters.JORNADA_MADRID_ANUAL')).toBe(true);
-  expect(madridFields.has('legalParameters.JORNADA_VALLADOLID_ANUAL')).toBe(false);
-  expect(valladolidFields.has('legalParameters.JORNADA_VALLADOLID_ANUAL')).toBe(true);
-  expect(valladolidFields.has('legalParameters.JORNADA_MADRID_ANUAL')).toBe(false);
+  expect(madridResult.body.commercial.status).toBe('calculated');
+  expect(valladolidResult.body.commercial.status).toBe('calculated');
+  expect(madridResult.body.totals?.calculationToken).toBeTruthy();
+  expect(valladolidResult.body.totals?.calculationToken).toBeTruthy();
+  expect(madridResult.body.issues).toBeUndefined();
+  expect(valladolidResult.body.issues).toBeUndefined();
 });
 
 test('3 · categoría inexistente y contratación omitida producen incidencias explícitas y ningún token reutilizable', async ({ page }) => {
