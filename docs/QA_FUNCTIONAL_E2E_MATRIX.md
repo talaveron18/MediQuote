@@ -102,8 +102,20 @@ Tras cambios no guardados: refresh, back/forward y navegación a otra vista. Ver
 - después del reset las sesiones anteriores dejan de ser válidas;
 - rate limit de solicitud y login.
 
+## E2E-12 — vigencias históricas de costes verificados
+Usar exclusivamente fixtures sintéticos `verified` con dos vigencias no solapadas (`v1` y `v2`) para la misma categoría, territorio, modalidad contractual y conceptos obligatorios.
+
+Invariantes:
+- un presupuesto guardado bajo `v1` conserva al reabrirse su total, artefacto inmutable y fuentes `v1`, aunque después se incorpore `v2`;
+- el PDF cliente y una firma posterior del presupuesto histórico se generan desde el presupuesto/snapshot guardado y no sustituyen silenciosamente sus fuentes por `v2`;
+- un presupuesto nuevo cuya fecha de servicio cae en `v2` consume exclusivamente fuentes `v2`;
+- editar y recalcular un borrador histórico con fechas que ya caen en `v2` crea una nueva versión económica con fuentes `v2`, sin reutilizar el snapshot `v1`;
+- un bloque cuya prestación atraviesa el límite entre `v1` y `v2` queda `pending_configuration`, sin total ni `calculationToken`, salvo que exista una regla económica explícita aprobada para prorratear vigencias.
+
+Regresión ejecutable: `e2e/verified-labor-version-history.spec.ts`. Las cifras de esta suite son sintéticas y no representan salarios, cotizaciones ni costes reales de GASI.
+
 ## Evidencia por fallo
 Cada fallo confirmado debe registrar: ID, precondiciones, pasos exactos, esperado, real, captura/log sin secretos, archivo probable, severidad y test añadido.
 
 ## Criterio de readiness
-No marcar MediQuote como listo para presupuestos reales hasta que E2E-01, 02, 03, 05, 07, 09 y 10 estén automatizados y verdes; recuperación segura de contraseña debe estar resuelta antes de depender operativamente de una única cuenta maestra.
+No marcar MediQuote como listo para presupuestos reales hasta que E2E-01, 02, 03, 05, 07, 09, 10 y 12 estén automatizados y verdes; recuperación segura de contraseña debe estar resuelta antes de depender operativamente de una única cuenta maestra.
