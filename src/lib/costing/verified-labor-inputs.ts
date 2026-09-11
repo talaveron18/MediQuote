@@ -45,6 +45,7 @@ export interface VerifiedLaborInputRecord {
   sourceDate: string
   notes?: string
   status: LaborInputStatus
+  supersedesId?: string
   recordedBy: string
   recordedAt: string
 }
@@ -63,6 +64,7 @@ export interface LaborInputDraft {
   sourceDate: string
   notes?: string
   status: string
+  supersedesId?: string | null
 }
 
 const CONTRACT_TYPES = new Set<ContractType>([
@@ -138,6 +140,9 @@ export function validateLaborInputDraft(draft: LaborInputDraft): DataIssue[] {
   if (draft.status !== 'verified' && draft.status !== 'pending') {
     issues.push({ field: 'status', kind: 'invalid', message: 'El estado debe ser verified o pending.' })
   }
+  if (draft.supersedesId !== undefined && draft.supersedesId !== null && !draft.supersedesId.trim()) {
+    issues.push({ field: 'supersedesId', kind: 'invalid', message: 'supersedesId no puede estar vacío.' })
+  }
   return issues
 }
 
@@ -167,6 +172,7 @@ function equivalentVersion(existing: VerifiedLaborInputRecord, draft: LaborInput
     && existing.sourceDate === draft.sourceDate
     && (existing.notes ?? undefined) === normalizeOptionalText(draft.notes)
     && existing.status === draft.status
+    && (existing.supersedesId ?? undefined) === normalizeOptionalText(draft.supersedesId)
 }
 
 function validatePersistedRecord(record: VerifiedLaborInputRecord): DataIssue[] {
@@ -184,6 +190,7 @@ function validatePersistedRecord(record: VerifiedLaborInputRecord): DataIssue[] 
     sourceDate: record.sourceDate,
     notes: record.notes,
     status: record.status,
+    supersedesId: record.supersedesId,
   })
   if (!record.id.trim()) {
     issues.push({ field: 'id', kind: 'invalid', message: 'La versión persistida no tiene identificador válido.' })
@@ -195,6 +202,30 @@ function validatePersistedRecord(record: VerifiedLaborInputRecord): DataIssue[] 
     issues.push({ field: 'recordedAt', kind: 'invalid', message: 'La versión persistida no conserva una fecha de incorporación válida.' })
   }
   return issues
+}
+
+function sameScope(record: VerifiedLaborInputRecord, draft: LaborInputDraft) {
+  return record.conceptKey === draft.conceptKey
+    && record.categoryId === normalizeText(draft.categoryId)
+    && normalizeTerritory(record.territory) === normalizeTerritory(draft.territory)
+    && record.contractType === draft.contractType
+}
+
+function validSupersededIds(records: VerifiedLaborInputRecord[]) {
+  const byId = new Map(records.map((record) => [record.id, record]))
+  const result = new Set<string>()
+  for (const record of records) {
+    if (!record.supersedesId || validatePersistedRecord(record).length > 0) continue
+    const target = byId.get(record.supersedesId)
+    if (!target) continue
+    if (
+      target.conceptKey === record.conceptKey
+      && target.categoryId === record.categoryId
+      && normalizeTerritory(target.territory) === normalizeTerritory(record.territory)
+      && target.contractType === record.contractType
+    ) result.add(target.id)
+  }
+  return result
 }
 
 export function appendLaborInputVersion(params: {
@@ -225,6 +256,32 @@ export function appendLaborInputVersion(params: {
     }
   }
 
+  const supersedesId = normalizeOptionalText(params.draft.supersedesId)
+  if (supersedesId) {
+    const target = params.current.find((row) => row.id === supersedesId)
+    if (!target) {
+      return { status: 'invalid', issues: [{
+        field: 'supersedesId', kind: 'missing', message: 'La versión que se pretende sustituir no existe.',
+      }] }
+    }
+    if (supersedesId === id) {
+      return { status: 'invalid', issues: [{
+        field: 'supersedesId', kind: 'invalid', message: 'Una versión no puede sustituirse a sí misma.',
+      }] }
+    }
+    if (!sameScope(target, params.draft)) {
+      return { status: 'invalid', issues: [{
+        field: 'supersedesId', kind: 'blocked', message: 'Solo puede sustituirse una versión del mismo concepto, categoría, territorio y modalidad contractual.',
+      }] }
+    }
+    const alreadySupersededBy = params.current.find((row) => row.supersedesId === supersedesId)
+    if (alreadySupersededBy) {
+      return { status: 'conflict', record: target, issues: [{
+        field: 'supersedesId', kind: 'blocked', message: `La versión ya fue sustituida por ${alreadySupersededBy.id}; no se admite una segunda rama de sustitución.`,
+      }] }
+    }
+  }
+
   const record: VerifiedLaborInputRecord = {
     id,
     conceptKey: params.draft.conceptKey as VerifiedLaborConcept,
@@ -239,6 +296,7 @@ export function appendLaborInputVersion(params: {
     sourceDate: params.draft.sourceDate,
     ...(params.draft.notes?.trim() ? { notes: params.draft.notes.trim() } : {}),
     status: params.draft.status as LaborInputStatus,
+    ...(supersedesId ? { supersedesId } : {}),
     recordedBy: params.actorId,
     recordedAt: (params.now ?? new Date()).toISOString(),
   }
@@ -254,8 +312,10 @@ export function resolveVerifiedLaborInput(params: {
   serviceDate: string
 }): { status: 'ready'; value: number; unit: string; source: CostSourceRef; record: VerifiedLaborInputRecord }
   | { status: 'pending_configuration'; issues: DataIssue[] } {
+  const supersededIds = validSupersededIds(params.records)
   const matches = params.records.filter((row) => (
-    row.status === 'verified'
+    !supersededIds.has(row.id)
+    && row.status === 'verified'
     && row.conceptKey === params.conceptKey
     && row.categoryId === params.categoryId
     && normalizeTerritory(row.territory) === normalizeTerritory(params.territory)
