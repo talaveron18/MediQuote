@@ -26,7 +26,7 @@ type Calculation = {
     requiresAuthorization: boolean;
     pendingFields?: string[];
   };
-  internalCost?: { totalInternalCost: number; directCostTotal: number; directCostOverhead: number };
+  internalCost?: { totalInternalCost: number; directCostTotal: number; directCostOverhead: number; laborBlocks?: unknown[] };
   issues?: Array<{ field: string; kind: string; message: string }>;
 };
 type Saved = {
@@ -35,7 +35,7 @@ type Saved = {
 };
 type CostSnapshot = {
   budget: { id: string; code: string; totalFinal: number };
-  internalCost: { totalInternalCost: number; directCostTotal: number; directCostOverhead: number };
+  internalCost: { totalInternalCost: number; directCostTotal: number; directCostOverhead: number; laborBlocks?: unknown[] };
   commercial: {
     initialListPriceExVat: number;
     minimumOrdinaryPriceExVat: number;
@@ -52,7 +52,6 @@ type CostSnapshot = {
   };
 };
 
-const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const formatCurrency = (value: number) => new Intl.NumberFormat('es-ES', {
   style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2,
 }).format(value);
@@ -169,11 +168,11 @@ test('2 · la cotización sellada reconcilia coste, margen, comisión y semáfor
   await login(page);
   const calculation = await calculate(page, [directBlock('Coste sintético 100', 100, 1)]);
   expect(calculation.commercial.status).toBe('calculated');
-  expect(calculation.internalCost).toEqual({
+  expect(calculation.internalCost).toEqual(expect.objectContaining({
     totalInternalCost: 107.25,
     directCostTotal: 100,
     directCostOverhead: 7.25,
-  });
+  }));
   expect(calculation.commercial.initialPriceExVat).toBe(156.59);
   expect(calculation.commercial.closingPriceExVat).toBe(156.59);
   expect(calculation.commercial.semaphore).toBe('green');
@@ -197,7 +196,7 @@ test('3 · descuento extremo se acota al suelo y una edición posterior genera u
   const discounted = await calculate(page, blocksV1, 999);
   expect(discounted.commercial.status).toBe('calculated');
   expect(discounted.internalCost?.totalInternalCost).toBe(85.8);
-  expect(discounted.commercial.maximumDiscountPercent).toBeCloseTo(4.1096, 4);
+  expect(discounted.commercial.maximumDiscountPercent).toBe(4.11);
   expect(discounted.commercial.closingPriceExVat).toBe(120.12);
 
   const created = await save(page, discounted, `E2E desviación económica ${Date.now()}`);
