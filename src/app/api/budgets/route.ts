@@ -9,6 +9,7 @@ import type { BudgetStatus } from '@/lib/types'
 
 class CostingQuoteConflict extends Error {}
 class BudgetSealConflict extends Error {}
+class BudgetAcceptedConflict extends Error {}
 
 function generateBudgetCode(existingCount: number): string {
   const now = new Date()
@@ -237,6 +238,16 @@ function canAccessBudget(auth: { id: string; role: string }, budget: { createdBy
   return canAccessAllBudgets(auth.role) || budget.createdById === auth.id
 }
 
+async function lockMutableBudget(tx: any, budgetId: string) {
+  const rows = await tx.$queryRaw<Array<{ status: string }>>`
+    SELECT "status" FROM "Budget" WHERE "id" = ${budgetId} FOR UPDATE
+  `
+  if (!rows[0]) throw new BudgetAcceptedConflict('Presupuesto no encontrado')
+  if (rows[0].status === 'aceptado') {
+    throw new BudgetAcceptedConflict('Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.')
+  }
+}
+
 async function sealPersistedBudget(
   tx: any,
   budgetId: string,
@@ -438,6 +449,9 @@ export async function PUT(request: NextRequest) {
     if (!existing || !canAccessBudget(auth, existing)) {
       return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
     }
+    if (existing.status === 'aceptado') {
+      return NextResponse.json({ error: 'Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.' }, { status: 409 })
+    }
 
     const updatesEconomicData = serviceBlocks !== undefined || [
       'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
@@ -474,6 +488,7 @@ export async function PUT(request: NextRequest) {
     const sealedAt = new Date()
 
     const result = await db.$transaction(async (tx) => {
+      await lockMutableBudget(tx, id)
       const costingQuote = previewQuote
         ? await claimCostingQuote(tx, auth.id, calculationToken, sealedAt)
         : null
@@ -554,7 +569,7 @@ export async function PUT(request: NextRequest) {
     if (error instanceof CostingQuoteConflict) {
       return NextResponse.json({ error: 'La cotización económica ya fue utilizada por otro guardado. Vuelve a calcular.' }, { status: 409 })
     }
-    if (error instanceof BudgetSealConflict) {
+    if (error instanceof BudgetSealConflict || error instanceof BudgetAcceptedConflict) {
       return NextResponse.json({ error: error.message }, { status: 409 })
     }
     console.error('[PUT /api/budgets] Error:', error)
@@ -573,9 +588,13 @@ export async function DELETE(request: NextRequest) {
     if (!existing || !canAccessBudget(auth, existing)) {
       return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 })
     }
+    if (existing.status === 'aceptado') {
+      return NextResponse.json({ error: 'Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.' }, { status: 409 })
+    }
     const sealedAt = new Date()
 
     const artifact = await db.$transaction(async (tx) => {
+      await lockMutableBudget(tx, id)
       const quoteSnapshot = await latestUsedQuoteSnapshot(tx, id)
       if (!quoteSnapshot) throw new BudgetSealConflict('El presupuesto no conserva una cotización económica auditable')
       await tx.budget.update({
@@ -599,7 +618,7 @@ export async function DELETE(request: NextRequest) {
       immutableArtifact: { version: artifact.version, artifactHash: artifact.artifactHash },
     })
   } catch (error) {
-    if (error instanceof BudgetSealConflict) {
+    if (error instanceof BudgetSealConflict || error instanceof BudgetAcceptedConflict) {
       return NextResponse.json({ error: error.message }, { status: 409 })
     }
     console.error('[DELETE /api/budgets] Error:', error)
