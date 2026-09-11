@@ -19,6 +19,8 @@ type ImmutableArtifact = { version: number; artifactHash: string };
 type CreatedBudget = { budget: { id: string; code: string; status: string }; immutableArtifact: ImmutableArtifact };
 type UpdatedBudget = { budget: ReopenedBudget; immutableArtifact: ImmutableArtifact };
 type ReopenedBudget = { id: string; code: string; status: string; serviceBlocks: Array<{ serviceName: string; professionalCategory?: string; sortOrder?: number }>; totalFinal: number };
+type SignatureCreated = { id: string; signingUrl: string; mailtoUrl: string };
+type SignatureList = { requests: Array<{ id: string; status: string }> };
 
 async function api<T = unknown>(page: Page, path: string, options: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown } = {}): Promise<ApiResult<T>> {
   return page.evaluate(async ({ requestPath, method, requestBody }) => {
@@ -176,20 +178,28 @@ test('4 · documento cliente y firma electrónica recorren el presupuesto sin fi
   expect(String(clientDocument.body)).not.toContain('coste interno');
   expect(String(clientDocument.body)).not.toContain('commissionAmount');
 
-  const signature = await api<{ request: { token: string; status: string } }>(page, '/api/signatures', {
+  const signature = await api<SignatureCreated>(page, '/api/signatures', {
     method: 'POST', body: { budgetId: created.budget.id },
   });
   expect(signature.status).toBe(201);
-  expect(signature.body.request.status).toBe('pending');
+  expect(signature.body.id).toBeTruthy();
+  expect(signature.body.signingUrl).toContain('/firmar/');
 
-  const publicReview = await api<{ request: { budget: { code: string } } }>(page, `/api/public/signature?token=${signature.body.request.token}`);
+  const signatureRequests = await api<SignatureList>(page, `/api/signatures?budgetId=${created.budget.id}`);
+  expect(signatureRequests.status).toBe(200);
+  expect(signatureRequests.body.requests.find((request) => request.id === signature.body.id)?.status).toBe('pending');
+
+  const token = new URL(signature.body.signingUrl).pathname.split('/').filter(Boolean).pop();
+  expect(token).toBeTruthy();
+
+  const publicReview = await api<{ request: { budget: { code: string } } }>(page, `/api/public/signature?token=${encodeURIComponent(token!)}`);
   expect(publicReview.status).toBe(200);
   expect(publicReview.body.request.budget.code).toBe(created.budget.code);
 
   const accepted = await api<{ status: string }>(page, '/api/public/signature', {
     method: 'POST',
     body: {
-      token: signature.body.request.token,
+      token,
       email: 'cliente@example.invalid',
       signerName: 'Persona Cliente E2E',
       signatureData: validSignatureData,
