@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { expect, test } from '@playwright/test';
 
-function requiredEnv(name: 'E2E_ADMIN_PASSWORD' | 'E2E_MAESTRO_PASSWORD'): string {
+function requiredEnv(name: 'E2E_ADMIN_PASSWORD' | 'E2E_MAESTRO_PASSWORD' | 'E2E_COMMERCIAL_PASSWORD'): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} es obligatoria para ejecutar esta suite aislada`);
   return value;
@@ -9,6 +9,7 @@ function requiredEnv(name: 'E2E_ADMIN_PASSWORD' | 'E2E_MAESTRO_PASSWORD'): strin
 
 const adminPassword = requiredEnv('E2E_ADMIN_PASSWORD');
 const maestroPassword = requiredEnv('E2E_MAESTRO_PASSWORD');
+const commercialPassword = requiredEnv('E2E_COMMERCIAL_PASSWORD');
 const db = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
 
 async function waitForLoginHydration(page: import('@playwright/test').Page) {
@@ -90,16 +91,22 @@ test.afterAll(async () => {
   await db.$disconnect();
 });
 
-test('solo admin accede a auditoría de costes y las respuestas privadas no se cachean', async ({ page }) => {
-  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+test('auditoría de costes respeta la jerarquía: comercial denegado, maestro privilegiado y no-cache', async ({ page }) => {
+  await login(page, 'e2e.comercial@example.invalid', commercialPassword);
   const forbidden = await browserRequest(page, '/api/cost-audits');
   expect(forbidden.status).toBe(403);
 
   await page.context().clearCookies();
+  await login(page, 'e2e.maestro@example.invalid', maestroPassword);
+  const maestroList = await browserRequest(page, '/api/cost-audits');
+  expect(maestroList.status).toBe(200);
+  expectPrivateNoStore(maestroList);
+
+  await page.context().clearCookies();
   await login(page, 'e2e.admin@example.invalid', adminPassword);
-  const list = await browserRequest(page, '/api/cost-audits');
-  expect(list.status).toBe(200);
-  expectPrivateNoStore(list);
+  const adminList = await browserRequest(page, '/api/cost-audits');
+  expect(adminList.status).toBe(200);
+  expectPrivateNoStore(adminList);
 });
 
 test('auditoría válida se sella, el documento se fuerza a descarga binaria y errores no filtran snapshot', async ({ page }) => {
