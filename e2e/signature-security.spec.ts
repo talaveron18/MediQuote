@@ -103,7 +103,7 @@ async function requestSignature(page: Page, budgetId: string, email = 'cliente@e
   return { ...result.body, token };
 }
 
-const validSignatureData = 'data:image/png;base64,iVBORw0KGgo=';
+const validSignatureData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 async function acceptSignature(page: Page, token: string, email = 'cliente@example.invalid') {
   return api<{ status: string; acceptedAt?: string; error?: string }>(page, '/api/public/signature', {
