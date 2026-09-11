@@ -10,8 +10,6 @@ const includeBudget = {
   serviceBlocks: { orderBy: { sortOrder: 'asc' as const } },
 } as const;
 
-class SignatureClaimConflict extends Error {}
-
 function noStoreJson(body: unknown, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
   headers.set('Cache-Control', 'private, no-store');
@@ -75,6 +73,12 @@ export async function GET(request: NextRequest) {
     return noStoreJson({ error: 'Este enlace ha caducado' }, { status: 410 });
   }
   if (signature.status !== 'pending') {
+    if (signature.status === 'accepted' && !signatureDocumentIsCurrent(signature.budget, signature.documentHash)) {
+      return noStoreJson(
+        { error: 'La integridad del presupuesto aceptado no puede verificarse.', status: 'accepted' },
+        { status: 409 },
+      );
+    }
     return noStoreJson({ status: signature.status, acceptedAt: signature.acceptedAt });
   }
   if (await revokeIfDocumentChanged(signature)) {
@@ -128,31 +132,47 @@ export async function POST(request: NextRequest) {
   const acceptedIp = (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || null;
   const userAgent = request.headers.get('user-agent')?.slice(0, 500) || null;
 
-  try {
-    await db.$transaction(async (tx) => {
-      const claimed = await claimPendingSignature(tx, signature.id, {
-        signerName,
-        signerEmail,
-        signatureData: body.signatureData,
-        consentText: SIGNATURE_CONSENT,
-        acceptedAt,
-        acceptedIp,
-        userAgent,
-      });
-      if (!claimed) throw new SignatureClaimConflict('signature already claimed');
-
-      await tx.budget.update({ where: { id: signature.budget.id }, data: {
-        status: 'aceptado', history: { create: {
-          userId: signature.createdById, action: 'client_accepted_electronically',
-          oldStatus: signature.budget.status, newStatus: 'aceptado', notes: `Firmado por ${signerName} (${signerEmail})`,
-        } },
-      } });
+  const acceptanceResult = await db.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Budget" WHERE "id" = ${signature.budget.id} FOR UPDATE
+    `;
+    const currentBudget = await tx.budget.findUnique({
+      where: { id: signature.budget.id },
+      include: includeBudget,
     });
-  } catch (error) {
-    if (error instanceof SignatureClaimConflict) {
-      return noStoreJson({ error: 'Esta solicitud ya ha sido procesada', status: 'accepted' }, { status: 409 });
+    if (!currentBudget || currentBudget.status === 'aceptado' || !signatureDocumentIsCurrent(currentBudget, signature.documentHash)) {
+      await tx.budgetSignatureRequest.updateMany({
+        where: { id: signature.id, status: 'pending' },
+        data: { status: 'revoked' },
+      });
+      return 'document_changed' as const;
     }
-    throw error;
+
+    const claimed = await claimPendingSignature(tx, signature.id, {
+      signerName,
+      signerEmail,
+      signatureData: body.signatureData,
+      consentText: SIGNATURE_CONSENT,
+      acceptedAt,
+      acceptedIp,
+      userAgent,
+    });
+    if (!claimed) return 'already_claimed' as const;
+
+    await tx.budget.update({ where: { id: signature.budget.id }, data: {
+      status: 'aceptado', history: { create: {
+        userId: signature.createdById, action: 'client_accepted_electronically',
+        oldStatus: currentBudget.status, newStatus: 'aceptado', notes: `Firmado por ${signerName} (${signerEmail})`,
+      } },
+    } });
+    return 'accepted' as const;
+  });
+
+  if (acceptanceResult === 'document_changed') {
+    return noStoreJson({ error: 'El presupuesto ha cambiado. Solicite un enlace de firma nuevo.', status: 'revoked' }, { status: 409 });
+  }
+  if (acceptanceResult === 'already_claimed') {
+    return noStoreJson({ error: 'Esta solicitud ya ha sido procesada', status: 'accepted' }, { status: 409 });
   }
 
   const recipients = await db.user.findMany({
