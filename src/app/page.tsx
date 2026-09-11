@@ -9,7 +9,14 @@ import Clients from '@/components/views/clients';
 import Admin from '@/components/views/admin';
 import Communications from '@/components/views/communications';
 import CostAudit from '@/components/views/cost-audit';
-import type { AppView } from '@/lib/types';
+import type { AppView, BudgetInput, ServiceBlockInput } from '@/lib/types';
+
+const DUPLICATE_DRAFT_KEY = 'mediquote:duplicate-draft:v1';
+
+type DuplicateDraft = {
+  budgetForm: Partial<BudgetInput>;
+  serviceBlocks: ServiceBlockInput[];
+};
 
 const URL_VIEWS = new Set<AppView>([
   'dashboard',
@@ -22,6 +29,18 @@ const URL_VIEWS = new Set<AppView>([
   'history',
 ]);
 
+function readDuplicateDraft(): DuplicateDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(DUPLICATE_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DuplicateDraft;
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.serviceBlocks)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function stateFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const rawView = params.get('view') as AppView | null;
@@ -30,6 +49,21 @@ function stateFromLocation() {
 
   if (requestedView === 'budget-edit' && !budgetId) {
     return { currentView: 'dashboard' as AppView, editingBudgetId: null };
+  }
+
+  if (requestedView === 'budget-new') {
+    const duplicateDraft = readDuplicateDraft();
+    if (duplicateDraft) {
+      return {
+        currentView: requestedView,
+        editingBudgetId: null,
+        budgetForm: { ...useAppStore.getState().budgetForm, ...duplicateDraft.budgetForm },
+        serviceBlocks: duplicateDraft.serviceBlocks,
+        blockResults: [],
+        budgetTotals: null,
+        skipNextInitialEmptyBlock: duplicateDraft.serviceBlocks.length > 0,
+      };
+    }
   }
 
   return {
