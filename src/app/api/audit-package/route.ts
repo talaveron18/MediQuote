@@ -5,12 +5,12 @@ import {
   mkdirSync,
   copyFileSync,
   existsSync,
-  readFileSync,
   writeFileSync,
 } from 'fs';
 import path from 'path';
 import { dataRoot } from '@/lib/data-paths';
 import { resolveSqlitePath } from '@/lib/sqlite-backup';
+import { genericInternalErrorResponse, privateNoStoreJson } from '@/lib/private-api-response';
 
 const BASE = dataRoot();
 
@@ -28,11 +28,10 @@ export async function POST(request: NextRequest) {
       return handleAuditPackage(auth.id, auth.name, auth.role);
     }
 
-    return NextResponse.json({ error: 'Tipo no válido. Use type=generate' }, { status: 400 });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Error desconocido';
+    return privateNoStoreJson({ error: 'Tipo no válido. Use type=generate' }, { status: 400 });
+  } catch (error) {
     console.error('[POST /api/audit-package] Error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return genericInternalErrorResponse('Error al generar el paquete de auditoría');
   }
 }
 
@@ -51,11 +50,9 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   ].join('-');
   const folderName = `gasi-auditoria-${dateStr}-${timeStr}`;
 
-  // Create audit directory
   const auditDir = path.join(BASE, 'exports', 'auditoria', folderName);
   mkdirSync(auditDir, { recursive: true });
 
-  // Subdirectories
   const pdfSubDir = path.join(auditDir, 'presupuestos_pdf');
   const jsonSubDir = path.join(auditDir, 'presupuestos_json');
   mkdirSync(pdfSubDir, { recursive: true });
@@ -63,14 +60,12 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
 
   const copiedFiles: string[] = [];
 
-  // ─── 1. Copy database ─────────────────────────────────────
   const dbAbsPath = resolveSqlitePath();
   if (existsSync(dbAbsPath)) {
     copyFileSync(dbAbsPath, path.join(auditDir, 'database.sqlite'));
     copiedFiles.push('database.sqlite');
   }
 
-  // ─── 2. Copy PDF exports ──────────────────────────────────
   const srcPdfDir = path.join(BASE, 'exports', 'presupuestos', 'pdf');
   if (existsSync(srcPdfDir)) {
     const fs = await import('fs/promises');
@@ -85,11 +80,10 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
         }
       }
     } catch {
-      // Directory doesn't exist or can't be read
+      // Optional export source unavailable.
     }
   }
 
-  // ─── 3. Copy JSON exports ─────────────────────────────────
   const srcJsonDir = path.join(BASE, 'exports', 'presupuestos', 'json');
   if (existsSync(srcJsonDir)) {
     const fs = await import('fs/promises');
@@ -104,25 +98,22 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
         }
       }
     } catch {
-      // Directory doesn't exist or can't be read
+      // Optional export source unavailable.
     }
   }
 
-  // ─── 4. Copy CSV summary ──────────────────────────────────
   const csvSrc = path.join(BASE, 'exports', 'presupuestos_resumen.csv');
   if (existsSync(csvSrc)) {
     copyFileSync(csvSrc, path.join(auditDir, 'presupuestos_resumen.csv'));
     copiedFiles.push('presupuestos_resumen.csv');
   }
 
-  // ─── 5. Copy remote config ────────────────────────────────
   const configSrc = path.join(BASE, 'remote-config', 'gasi-config.json');
   if (existsSync(configSrc)) {
     copyFileSync(configSrc, path.join(auditDir, 'gasi-config.json'));
     copiedFiles.push('gasi-config.json');
   }
 
-  // ─── 6. Generate audit-log.csv ────────────────────────────
   const auditLogs = await db.auditLog.findMany({
     orderBy: { createdAt: 'asc' },
     take: 10000,
@@ -148,7 +139,6 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   );
   copiedFiles.push('audit-log.csv');
 
-  // ─── 7. Generate audit-log.jsonl ──────────────────────────
   const jsonlLines = auditLogs.map(log => JSON.stringify({
     date: log.createdAt instanceof Date ? log.createdAt.toISOString() : String(log.createdAt),
     user: log.userName || log.userId || null,
@@ -166,7 +156,6 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   );
   copiedFiles.push('audit-log.jsonl');
 
-  // ─── 8. Generate version-info.txt ─────────────────────────
   const versionInfo = [
     `GASI Presupuestos - Información de Versión`,
     `Generado: ${now.toISOString()}`,
@@ -182,7 +171,6 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   writeFileSync(path.join(auditDir, 'version-info.txt'), versionInfo, 'utf-8');
   copiedFiles.push('version-info.txt');
 
-  // Audit log
   await logAudit({
     action: 'audit_package_generated',
     entity: 'system',
@@ -192,7 +180,7 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
     summary: `Paquete de auditoría generado: ${folderName} (${copiedFiles.length} archivos)`,
   });
 
-  return NextResponse.json({
+  return privateNoStoreJson({
     success: true,
     path: `exports/auditoria/${folderName}/`,
     folderName,
@@ -200,8 +188,6 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
     filesCount: copiedFiles.length,
   });
 }
-
-// ─── CSV Helper ────────────────────────────────────────────────
 
 function csvEscape(value: string): string {
   if (!value) return '""';
