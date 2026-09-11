@@ -66,6 +66,10 @@ export async function deliverPasswordRecoveryLink(input: PasswordRecoveryDeliver
       expiresAt: input.expiresAt.toISOString(),
     }),
     cache: 'no-store',
+    // Never follow 30x responses with a one-time reset URL in the body. This
+    // keeps the token and authenticated delivery request pinned to the exact
+    // operator-configured endpoint instead of trusting a redirected origin.
+    redirect: 'error',
   })
 
   if (!response.ok) {
