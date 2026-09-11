@@ -3,17 +3,9 @@ import type { BlockCalculationResult, ServiceBlockInput } from '../types';
 import { CONVENTION_PROFILES } from '../service-locations';
 import { calculateCosting } from './cost-engine';
 import { buildCostingInputFromDatabase } from './server-input';
+import { VERIFIED_LABOR_INPUTS_KEY, VERIFIED_LABOR_UNITS, type VerifiedLaborConcept } from './verified-labor-inputs';
 
-const baseLegalParameters = {
-  SMI_ANNUAL_2026: 17094,
-  SS_CC_EMPRESA: 23.6,
-  SS_DESEMPLEO_INDEFINIDO_EMPRESA: 5.5,
-  SS_DESEMPLEO_TEMPORAL_EMPRESA: 6.7,
-  SS_FOGASA_EMPRESA: 0.2,
-  SS_FORMACION_EMPRESA: 0.6,
-  SS_MEI_EMPRESA_2026: 0.75,
-  SS_ATEP_ORIENTATIVO: 1.5,
-};
+const baseLegalParameters = { SMI_ANNUAL_2026: 17094 };
 
 const syntheticInternalEconomics = {
   costing_overhead_percent: '7.25',
@@ -50,14 +42,45 @@ function schedule(hours: number, date = '2026-07-19'): BlockCalculationResult {
   };
 }
 
+const territoryByProfile: Record<string, string> = {
+  madrid: 'Madrid', burgos_extension: 'Burgos', leon: 'León', palencia: 'Palencia',
+  salamanca_clm: 'Salamanca', valladolid: 'Valladolid', zamora: 'Zamora',
+};
+
+function verifiedRows(territory: string) {
+  const values: Record<VerifiedLaborConcept, number> = {
+    productive_hour_gross: 14,
+    management_fee_per_contract: 11.5,
+    annual_convention_hours: 1680,
+    annual_productive_hours: 1293,
+    ss_common_contingencies_percent: 23.6,
+    ss_unemployment_percent: 6.7,
+    ss_fogasa_percent: 0.2,
+    ss_training_percent: 0.6,
+    ss_mei_percent: 0.75,
+    atep_percent: 1.5,
+  };
+  return Object.entries(values).map(([conceptKey, value]) => ({
+    id: `test:${territory}:${conceptKey}`,
+    conceptKey,
+    categoryId: 'nurse-id',
+    territory,
+    contractType: 'temporal',
+    value,
+    unit: VERIFIED_LABOR_UNITS[conceptKey as VerifiedLaborConcept],
+    effectiveFrom: '2026-01-01',
+    effectiveTo: '2026-12-31',
+    sourceDocument: 'GESTORIA-SYNTHETIC-TEST',
+    sourceDate: '2026-01-01',
+    status: 'verified',
+    recordedBy: 'test',
+    recordedAt: '2026-01-01T00:00:00.000Z',
+  }));
+}
+
 function configFor(profileId: keyof typeof CONVENTION_PROFILES, extra: Record<string, number> = {}) {
   const profile = CONVENTION_PROFILES[profileId];
-  const legalParameters: Record<string, number> = {
-    ...baseLegalParameters,
-    [profile.annualConventionHoursKey]: 1680,
-    [profile.annualProductiveHoursKey]: 1293,
-    ...extra,
-  };
+  const legalParameters: Record<string, number> = { ...baseLegalParameters, ...extra };
   const sourceKeys = new Set([
     ...profile.plusRules.map((rule) => rule.legalParameterKey),
     ...(profile.specialPlusRules ?? []).flatMap((rule) => [rule.legalParameterKey, rule.baseLegalParameterKey].filter(Boolean) as string[]),
@@ -65,10 +88,11 @@ function configFor(profileId: keyof typeof CONVENTION_PROFILES, extra: Record<st
   const legalParameterSources = Object.fromEntries([...sourceKeys].map((key) => [key, {
     id: profile.legalRecordKey, label: profile.label, status: 'verified' as const,
   }]));
+  const territory = territoryByProfile[profileId] ?? 'Madrid';
   const appConfig: Record<string, string> = {
-    costing_province: 'Madrid',
-    costing_management_fee_per_contract: '11.5',
+    costing_province: territory,
     ...syntheticInternalEconomics,
+    [VERIFIED_LABOR_INPUTS_KEY]: JSON.stringify(verifiedRows(territory)),
   };
   return {
     legalParameters,
@@ -87,7 +111,7 @@ describe('Adaptador territorial al motor económico', () => {
     const profile = CONVENTION_PROFILES.madrid;
     const built = buildCostingInputFromDatabase({
       block: { ...block, hoursPerDay: hours }, schedule: schedule(hours),
-      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
       config: configFor('madrid', {
         PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
         SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
@@ -100,13 +124,14 @@ describe('Adaptador territorial al motor económico', () => {
     expect(built.input.hours.breakdown.weekend).toBe(0);
     expect(built.input.plusRules.find((rule) => rule.hourBucket === 'night')?.value).toBe(25);
     expect(built.input.plusRules.find((rule) => rule.hourBucket === 'sunday')?.value).toBe(0);
+    expect(built.input.salary.source?.id).toContain('gestoria:');
     expect(calculateCosting(built.input).status).toBe('calculated');
   });
 
   it('sustituye los recargos genéricos por el convenio provincial de Burgos', () => {
     const profile = CONVENTION_PROFILES.burgos_extension;
     const built = buildCostingInputFromDatabase({
-      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
       config: configFor('burgos_extension', {
         PLUS_NOCTURNIDAD_BURGOS: 25, PLUS_DOMINGO_BURGOS: 21.74,
         SIN_PLUS_SABADO_BURGOS: 0, PLUS_FESTIVO_BURGOS: 38.70,
@@ -125,7 +150,7 @@ describe('Adaptador territorial al motor económico', () => {
     holidaySchedule.shiftBreakdown = { ...holidaySchedule.shiftBreakdown, sunday: 0, weekend: 0, holiday: 8, holidayNational: 8 };
     const built = buildCostingInputFromDatabase({
       block: { ...block, specificDates: ['2026-12-25'], shiftType: 'morning' }, schedule: holidaySchedule,
-      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
       config: configFor('madrid', {
         PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
         SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
@@ -145,10 +170,27 @@ describe('Adaptador territorial al motor económico', () => {
     const config = configFor('madrid', { PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0 });
     delete config.legalParameterSources.PLUS_NOCTURNIDAD_MADRID;
     const built = buildCostingInputFromDatabase({
-      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
       config, serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
     });
     expect(built.status).toBe('pending_configuration');
+  });
+
+  it('no usa defaultInternalCost si falta la versión verified de gestoría', () => {
+    const profile = CONVENTION_PROFILES.madrid;
+    const config = configFor('madrid', {
+      PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
+      SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
+    });
+    config.appConfig[VERIFIED_LABOR_INPUTS_KEY] = '[]';
+    const built = buildCostingInputFromDatabase({
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
+      config, serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
+    });
+    expect(built.status).toBe('pending_configuration');
+    if (built.status === 'pending_configuration') {
+      expect(built.issues.some((issue) => issue.field.includes('verifiedLaborInputs.productive_hour_gross'))).toBe(true);
+    }
   });
 
   it('no inventa overhead, margen, comisión ni umbrales cuando faltan', () => {
@@ -159,12 +201,10 @@ describe('Adaptador territorial al motor económico', () => {
       PLUS_FESTIVO_ESPECIAL_MADRID: 38,
     });
     for (const key of Object.keys(syntheticInternalEconomics)) delete config.appConfig[key];
-
     const built = buildCostingInputFromDatabase({
-      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
       config, serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
     });
-
     expect(built.status).toBe('pending_configuration');
     if (built.status !== 'pending_configuration') return;
     expect(built.issues.some((issue) => issue.field === 'appConfig.costing_overhead_percent')).toBe(true);
@@ -175,7 +215,7 @@ describe('Adaptador territorial al motor económico', () => {
   it('transporta exactamente la configuración interna sintética al snapshot del motor', () => {
     const profile = CONVENTION_PROFILES.madrid;
     const built = buildCostingInputFromDatabase({
-      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 14 },
+      block, schedule: schedule(8), category: { id: 'nurse-id', name: 'Enfermero', defaultInternalCost: 999 },
       config: configFor('madrid', {
         PLUS_NOCTURNIDAD_MADRID: 25, SIN_PLUS_DOMINGO_MADRID: 0,
         SIN_PLUS_SABADO_MADRID: 0, PLUS_FESTIVO_MADRID: 12,
@@ -183,11 +223,11 @@ describe('Adaptador territorial al motor económico', () => {
       }),
       serviceId: '0', location: { province: 'Madrid', conventionProfile: profile },
     });
-
     expect(built.status).toBe('ready');
     if (built.status !== 'ready') return;
     expect(built.input.overhead.percentageOnExpandedLabor).toBe(7.25);
     expect(built.input.contract.terminationProvisionPercent).toBe(2.5);
+    expect(built.laborSources).toHaveLength(10);
     expect(built.input.commercialPolicy).toEqual({
       gasiMarkupOnCostPercent: 31,
       commercialFloorOnCostPercent: 9,
