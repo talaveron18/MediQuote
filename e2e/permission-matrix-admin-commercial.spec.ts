@@ -51,9 +51,10 @@ async function login(page: Page, role: Role) {
   await expect(page).toHaveURL('/');
 }
 
-async function logout(page: Page) {
-  const result = await request(page, '/api/auth', { method: 'POST', body: { action: 'logout' } });
-  expect(result.status).toBe(200);
+async function clearSession(page: Page) {
+  await page.context().clearCookies();
+  await page.goto('/login');
+  await expect(page.getByTestId('login-form')).toHaveAttribute('data-hydrated', 'true');
 }
 
 function block(label: string, price = 29) {
@@ -114,7 +115,7 @@ test('2 · admin puede abrir y editar presupuesto ajeno sin romper la propiedad 
   await login(page, 'comercial');
   const marker = `E2E matrix admin cross-owner ${Date.now()}`;
   const budget = await createBudget(page, marker);
-  await logout(page);
+  await clearSession(page);
 
   await login(page, 'admin');
   const opened = await request<{ budgets: Array<{ id: string; description: string }> }>(page, `/api/budgets?id=${encodeURIComponent(budget.id)}`);
@@ -162,7 +163,7 @@ test('3 · firma respeta propiedad del comercial y acceso transversal documentad
   const ownerCertificate = await request(page, `/api/signatures?certificate=${encodeURIComponent(created.body.id)}`);
   expect(ownerCertificate.status).toBe(200);
   expect(ownerCertificate.text).toContain('Certificado de aceptación electrónica');
-  await logout(page);
+  await clearSession(page);
 
   for (const role of ['admin', 'maestro'] as const) {
     await login(page, role);
@@ -172,7 +173,7 @@ test('3 · firma respeta propiedad del comercial y acceso transversal documentad
     expect(crossListing.body.requests.some((item) => item.id === created.body.id)).toBe(true);
     expect(crossCertificate.status).toBe(200);
     expect(crossCertificate.text).toContain('Certificado de aceptación electrónica');
-    await logout(page);
+    await clearSession(page);
   }
 });
 
@@ -184,7 +185,7 @@ test('4 · auditoría permanece restringida a admin/maestro y logs sensibles son
   expect(commercialLogs.status).toBe(403);
   expect(commercialCosts.status).toBe(403);
   expect(commercialPackage.status).toBe(403);
-  await logout(page);
+  await clearSession(page);
 
   for (const role of ['admin', 'maestro'] as const) {
     await login(page, role);
@@ -195,6 +196,6 @@ test('4 · auditoría permanece restringida a admin/maestro y logs sensibles son
     expect(costs.status).toBe(200);
     expect(invalidPackage.status).toBe(400);
     expectPrivateNoStore(logs);
-    await logout(page);
+    await clearSession(page);
   }
 });
