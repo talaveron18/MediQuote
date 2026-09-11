@@ -25,6 +25,7 @@ const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 const GESTORIA_KEYS = new Set<GestoriaComponentKey>(
   Object.keys(GESTORIA_COMPONENT_LABELS) as GestoriaComponentKey[],
 );
+const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 function cleanBreakdown(value: unknown): GestoriaBreakdown {
   if (!value || typeof value !== 'object') return {};
@@ -34,6 +35,14 @@ function cleanBreakdown(value: unknown): GestoriaBreakdown {
       && Number.isFinite(Number(item))
       && Number(item) >= 0)
     .map(([key, item]) => [key, Number(item)])) as GestoriaBreakdown;
+}
+
+function decodeDocumentBase64(value: string): Buffer | null {
+  const encoded = value.replace(/^data:[^;]+;base64,/, '').trim();
+  if (!encoded || !STRICT_BASE64.test(encoded)) return null;
+  const decoded = Buffer.from(encoded, 'base64');
+  if (decoded.byteLength === 0 || decoded.toString('base64') !== encoded) return null;
+  return decoded;
 }
 
 export async function GET(request: NextRequest) {
@@ -107,8 +116,12 @@ export async function POST(request: NextRequest) {
       actualBreakdown,
     });
     let documentData: Buffer | undefined;
-    if (body.documentBase64) {
-      documentData = Buffer.from(body.documentBase64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    if (body.documentBase64 !== undefined) {
+      const decoded = decodeDocumentBase64(body.documentBase64);
+      if (!decoded) {
+        return privateNoStoreJson({ error: 'El justificante no contiene Base64 válido' }, { status: 400 });
+      }
+      documentData = decoded;
       if (documentData.byteLength > MAX_DOCUMENT_BYTES) {
         return privateNoStoreJson({ error: 'El justificante supera 4 MB' }, { status: 413 });
       }
