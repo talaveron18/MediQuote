@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { db } from './db'
 import { hashRecoveryToken, isRecoveryRecordUsable } from './password-recovery'
 
@@ -26,7 +27,7 @@ function parseStoredReset(value: string): StoredReset | null {
   }
 }
 
-async function bumpSessionGenerationTx(tx: Parameters<Parameters<typeof db.$transaction>[0]>[0], userId: string) {
+async function bumpSessionGenerationTx(tx: Prisma.TransactionClient, userId: string) {
   const key = `${SESSION_PREFIX}${userId}`
   const row = await tx.appConfig.findUnique({ where: { key } })
   const current = Number(row?.value ?? '1')
@@ -41,7 +42,7 @@ async function bumpSessionGenerationTx(tx: Parameters<Parameters<typeof db.$tran
 }
 
 async function invalidateOtherRecoveriesTx(
-  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
+  tx: Prisma.TransactionClient,
   userId: string,
   now: Date,
   exceptKey?: string,
