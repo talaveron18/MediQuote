@@ -41,6 +41,15 @@ function readDuplicateDraft(): DuplicateDraft | null {
   }
 }
 
+function clearDuplicateDraft() {
+  try {
+    window.sessionStorage.removeItem(DUPLICATE_DRAFT_KEY);
+  } catch {
+    // Session storage is a navigation convenience only; persistence already
+    // succeeded server-side, so storage failures must not break the workspace.
+  }
+}
+
 function stateFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const rawView = params.get('view') as AppView | null;
@@ -101,6 +110,20 @@ export default function Home() {
 
     const unsubscribe = useAppStore.subscribe((state, previous) => {
       if (applyingHistory) return;
+
+      // A successful POST of a new budget first transitions from budget-new to
+      // budget-edit with the server-issued id. At that exact boundary the
+      // temporary duplicate draft has fulfilled its purpose and must be removed,
+      // otherwise Back/Forward or a later ?view=budget-new can resurrect an
+      // already-persisted copy and invite a second save.
+      if (
+        previous.currentView === 'budget-new' &&
+        state.currentView === 'budget-edit' &&
+        Boolean(state.editingBudgetId)
+      ) {
+        clearDuplicateDraft();
+      }
+
       if (state.currentView === previous.currentView && state.editingBudgetId === previous.editingBudgetId) return;
 
       const nextLocation = locationForState(state.currentView, state.editingBudgetId);
