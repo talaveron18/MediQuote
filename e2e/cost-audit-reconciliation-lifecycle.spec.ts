@@ -252,3 +252,180 @@ test('coherencia total-desglose falla cerrado sin persistencia para parcial impo
   expect(fullMismatch.text).toContain('debe cuadrar con el coste real total');
   expect(await db.costAudit.count({ where: { budgetId: budget.id } })).toBe(before);
 });
+
+test('dos auditorías sucesivas conservan filas y conciliaciones independientes', async ({ page }) => {
+  const budget = await seedAuditableBudget(`E2E-AUD-REPEAT-${Date.now()}`);
+  await login(page);
+
+  const first = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 120,
+      actualBreakdown: { salary: 70, pluses: 10 },
+      notes: 'primera auditoría sintética',
+    },
+  });
+  expect(first.status).toBe(201);
+  const firstBody = JSON.parse(first.text) as { audit: { id: string } };
+  const firstStoredBefore = await db.costAudit.findUniqueOrThrow({ where: { id: firstBody.audit.id } });
+
+  const second = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 124,
+      actualBreakdown: { salary: 72, pluses: 11 },
+      notes: 'segunda auditoría sintética',
+    },
+  });
+  expect(second.status).toBe(201);
+  const secondBody = JSON.parse(second.text) as { audit: { id: string } };
+  expect(secondBody.audit.id).not.toBe(firstBody.audit.id);
+
+  const firstStoredAfter = await db.costAudit.findUniqueOrThrow({ where: { id: firstBody.audit.id } });
+  const secondStored = await db.costAudit.findUniqueOrThrow({ where: { id: secondBody.audit.id } });
+  expect(firstStoredAfter.actualCost).toBe(firstStoredBefore.actualCost);
+  expect(firstStoredAfter.actualBreakdown).toBe(firstStoredBefore.actualBreakdown);
+  expect(firstStoredAfter.analysis).toBe(firstStoredBefore.analysis);
+  expect(firstStoredAfter.notes).toBe('primera auditoría sintética');
+  expect(secondStored.actualCost).toBe(124);
+  expect(JSON.parse(secondStored.actualBreakdown || '{}')).toEqual({ salary: 72, pluses: 11 });
+});
+
+test('cada auditoría conserva justificante propio y la descarga nunca cruza documentos', async ({ page }) => {
+  const budget = await seedAuditableBudget(`E2E-AUD-DOCS-${Date.now()}`);
+  await login(page);
+  const firstBytes = Buffer.from('%PDF-justificante-uno');
+  const secondBytes = Buffer.from('%PDF-justificante-dos-distinto');
+
+  const first = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 120,
+      actualBreakdown: { salary: 70 },
+      documentName: 'gestoria-uno.pdf',
+      documentType: 'application/pdf',
+      documentBase64: firstBytes.toString('base64'),
+    },
+  });
+  const second = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 121,
+      actualBreakdown: { salary: 71 },
+      documentName: 'gestoria-dos.pdf',
+      documentType: 'application/pdf',
+      documentBase64: secondBytes.toString('base64'),
+    },
+  });
+  expect(first.status).toBe(201);
+  expect(second.status).toBe(201);
+  const firstId = (JSON.parse(first.text) as { audit: { id: string } }).audit.id;
+  const secondId = (JSON.parse(second.text) as { audit: { id: string } }).audit.id;
+
+  const firstDownload = await browserRequest(page, `/api/cost-audits?document=${encodeURIComponent(firstId)}`);
+  const secondDownload = await browserRequest(page, `/api/cost-audits?document=${encodeURIComponent(secondId)}`);
+  expect(firstDownload.status).toBe(200);
+  expect(secondDownload.status).toBe(200);
+  expectPrivateNoStore(firstDownload);
+  expectPrivateNoStore(secondDownload);
+  expect(firstDownload.headers['content-disposition']).toContain('gestoria-uno.pdf');
+  expect(secondDownload.headers['content-disposition']).toContain('gestoria-dos.pdf');
+  expect(firstDownload.text).toBe(firstBytes.toString());
+  expect(secondDownload.text).toBe(secondBytes.toString());
+  expect(firstDownload.text).not.toBe(secondDownload.text);
+});
+
+test('artefactos de auditorías sucesivas son independientes y enlazan la misma baseline de presupuesto', async ({ page }) => {
+  const budget = await seedAuditableBudget(`E2E-AUD-ARTIFACTS-${Date.now()}`);
+  await login(page);
+
+  const first = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: { budgetId: budget.id, actualCost: 120, actualBreakdown: { salary: 70 } },
+  });
+  const second = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: { budgetId: budget.id, actualCost: 122, actualBreakdown: { salary: 71 } },
+  });
+  expect(first.status).toBe(201);
+  expect(second.status).toBe(201);
+  const firstBody = JSON.parse(first.text) as { audit: { id: string }; immutableArtifact: { version: number; artifactHash: string } };
+  const secondBody = JSON.parse(second.text) as { audit: { id: string }; immutableArtifact: { version: number; artifactHash: string } };
+  expect(firstBody.immutableArtifact.version).toBe(1);
+  expect(secondBody.immutableArtifact.version).toBe(1);
+  expect(firstBody.immutableArtifact.artifactHash).not.toBe(secondBody.immutableArtifact.artifactHash);
+
+  const baselineRows = await db.budgetHistory.findMany({
+    where: { budgetId: budget.id, action: 'sealed_budget_artifact' },
+    orderBy: { createdAt: 'asc' },
+  });
+  expect(baselineRows).toHaveLength(1);
+  const baseline = JSON.parse(baselineRows[0].snapshot || '{}') as { artifactHash: string };
+
+  const artifactRows = await db.auditLog.findMany({
+    where: {
+      action: 'sealed_cost_audit_artifact',
+      entity: 'cost_audit',
+      entityId: { in: [firstBody.audit.id, secondBody.audit.id] },
+    },
+  });
+  expect(artifactRows).toHaveLength(2);
+  const payloads = artifactRows.map((row) => {
+    const artifact = JSON.parse(row.newData || '{}') as { artifactHash: string; payloadCanonical: string };
+    return {
+      hash: artifact.artifactHash,
+      payload: JSON.parse(artifact.payloadCanonical) as { auditId: string; originalBudgetArtifactHash: string },
+    };
+  });
+  expect(new Set(payloads.map((item) => item.hash)).size).toBe(2);
+  expect(payloads.every((item) => item.payload.originalBudgetArtifactHash === baseline.artifactHash)).toBe(true);
+  expect(new Set(payloads.map((item) => item.payload.auditId))).toEqual(new Set([firstBody.audit.id, secondBody.audit.id]));
+});
+
+test('historial listado mantiene ambas auditorías tras reload sin sobrescritura ni binarios', async ({ page }) => {
+  const budget = await seedAuditableBudget(`E2E-AUD-LIST-TWO-${Date.now()}`);
+  await login(page);
+
+  const first = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 120,
+      actualBreakdown: { salary: 70 },
+      notes: 'historial uno',
+      documentName: 'uno.pdf',
+      documentType: 'application/pdf',
+      documentBase64: Buffer.from('%PDF-uno').toString('base64'),
+    },
+  });
+  const second = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 121,
+      actualBreakdown: { salary: 71 },
+      notes: 'historial dos',
+      documentName: 'dos.pdf',
+      documentType: 'application/pdf',
+      documentBase64: Buffer.from('%PDF-dos').toString('base64'),
+    },
+  });
+  const firstId = (JSON.parse(first.text) as { audit: { id: string } }).audit.id;
+  const secondId = (JSON.parse(second.text) as { audit: { id: string } }).audit.id;
+
+  await page.reload();
+  const listed = await browserRequest(page, '/api/cost-audits');
+  expect(listed.status).toBe(200);
+  expectPrivateNoStore(listed);
+  const audits = (JSON.parse(listed.text) as { audits: Array<Record<string, unknown>> }).audits
+    .filter((item) => item.budgetId === budget.id);
+  expect(audits).toHaveLength(2);
+  expect(new Set(audits.map((item) => item.id))).toEqual(new Set([firstId, secondId]));
+  expect(audits.every((item) => item.hasDocument === true)).toBe(true);
+  expect(audits.every((item) => !Object.prototype.hasOwnProperty.call(item, 'documentData'))).toBe(true);
+  expect(new Set(audits.map((item) => item.notes))).toEqual(new Set(['historial uno', 'historial dos']));
+});
