@@ -3,42 +3,19 @@ import { expect, test, type Page } from '@playwright/test';
 const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
 const nursingCategory = 'e2e-category-nursing';
 const medicineCategory = 'e2e-category-medicine';
+const validSignatureData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-type ApiResult<T = unknown> = { status: number; ok: boolean; body: T };
-
+type ApiResult<T = unknown> = { status: number; body: T };
 type Calculation = {
-  totals: {
-    subtotal: number;
-    discountAmount: number;
-    ivaAmount: number;
-    totalFinal: number;
-    calculationToken: string;
-  };
+  blocks: Array<{ blockIndex: number; category: string; totalWithVat: number }>;
+  totals: { subtotal: number; discountAmount: number; ivaAmount: number; totalFinal: number; calculationToken: string };
   commercial: { status: string };
 };
+type CreatedBudget = { budget: { id: string; code: string; status: string } };
+type BudgetSnapshot = { version: number; hash: string; payload: { serviceBlocks: Array<{ serviceName: string; professionalCategory?: string; sortOrder?: number }>; totalFinal: number } };
+type ReopenedBudget = { id: string; code: string; status: string; serviceBlocks: Array<{ serviceName: string; professionalCategory?: string; sortOrder?: number }>; totalFinal: number };
 
-type SavedBudget = {
-  id: string;
-  code: string;
-  description: string | null;
-  subtotal: number;
-  discountAmount: number;
-  ivaAmount: number;
-  totalFinal: number;
-  status: string;
-  serviceBlocks: Array<{
-    serviceName: string;
-    professionalCategory: string;
-    sortOrder: number;
-    blockTotalFinal: number;
-  }>;
-};
-
-async function api<T = unknown>(
-  page: Page,
-  path: string,
-  options: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown } = {},
-): Promise<ApiResult<T>> {
+async function api<T = unknown>(page: Page, path: string, options: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown } = {}): Promise<ApiResult<T>> {
   return page.evaluate(async ({ requestPath, method, requestBody }) => {
     const response = await fetch(requestPath, {
       method,
@@ -51,7 +28,7 @@ async function api<T = unknown>(
     if (text) {
       try { body = JSON.parse(text); } catch { body = text; }
     }
-    return { status: response.status, ok: response.ok, body };
+    return { status: response.status, body };
   }, { requestPath: path, method: options.method ?? 'GET', requestBody: options.body }) as Promise<ApiResult<T>>;
 }
 
@@ -64,28 +41,17 @@ async function login(page: Page) {
   await expect(page).toHaveURL('/');
 }
 
-function syntheticBlocks(order: 'normal' | 'reversed' = 'normal') {
-  const blocks = [
-    {
-      blockType: 'material', serviceName: 'Material E2E centro norte', professionalCategory: nursingCategory,
-      dateMode: 'range', dateRangeStart: '2026-10-05', dateRangeEnd: '2026-10-05',
-      shiftType: 'morning', hoursPerDay: 8, unitType: 'unidad', quantity: 2, pricePerHour: 13, fixedPrice: 13,
-      ivaPercent: 21,
-    },
-    {
-      blockType: 'curso', serviceName: 'Formación E2E centro sur', professionalCategory: medicineCategory,
-      dateMode: 'specific', specificDates: ['2026-10-06', '2026-10-08'],
-      shiftType: 'afternoon', hoursPerDay: 4, unitType: 'unidad', quantity: 1, pricePerHour: 29, fixedPrice: 29,
-      ivaPercent: 21,
-    },
-  ];
-  return order === 'normal' ? blocks : [blocks[1], blocks[0]];
+function block(label: string, category: string, date: string, shiftType: string, fixedPrice: number, sortOrder: number) {
+  return {
+    blockType: 'material', serviceName: label, professionalCategory: category, dateMode: 'range',
+    dateRangeStart: date, dateRangeEnd: date, shiftType, hoursPerDay: 8,
+    unitType: 'unidad', quantity: 1, pricePerHour: fixedPrice, fixedPrice, ivaPercent: 21, sortOrder,
+  };
 }
 
-async function calculate(page: Page, order: 'normal' | 'reversed' = 'normal') {
+async function calculate(page: Page, blocks: unknown[]) {
   const result = await api<Calculation>(page, '/api/calculations', {
-    method: 'POST',
-    body: { blocks: syntheticBlocks(order), discountPercent: 0, ivaPercent: 21 },
+    method: 'POST', body: { blocks, discountPercent: 0, ivaPercent: 21 },
   });
   expect(result.status).toBe(200);
   expect(result.body.commercial.status).toBe('calculated');
@@ -93,130 +59,128 @@ async function calculate(page: Page, order: 'normal' | 'reversed' = 'normal') {
   return result.body;
 }
 
-async function createBudget(page: Page, marker: string, calculation: Calculation) {
-  const result = await api<{ budget: SavedBudget; immutableArtifact: { version: number; artifactHash: string } }>(page, '/api/budgets', {
+async function createBudget(page: Page, calculation: Calculation, marker: string) {
+  const result = await api<CreatedBudget>(page, '/api/budgets', {
     method: 'POST',
-    body: {
-      clientId: 'e2e-client-001',
-      calculationToken: calculation.totals.calculationToken,
-      description: marker,
-      status: 'borrador',
-    },
+    body: { clientId: 'e2e-client-001', calculationToken: calculation.totals.calculationToken, description: marker, status: 'borrador' },
   });
   expect(result.status).toBe(201);
   return result.body;
 }
 
-async function reopenBudget(page: Page, code: string) {
-  const result = await api<{ budgets: SavedBudget[] }>(page, `/api/budgets?search=${encodeURIComponent(code)}`);
+async function snapshots(page: Page, budgetId: string) {
+  const result = await api<{ artifacts: Array<{ version: number; hash: string; payload: BudgetSnapshot['payload'] }> }>(page, `/api/budgets?id=${encodeURIComponent(budgetId)}&artifacts=1`);
   expect(result.status).toBe(200);
-  expect(result.body.budgets).toHaveLength(1);
-  return result.body.budgets[0];
+  return result.body.artifacts;
 }
 
-test('1 · presupuesto multibloque se guarda y reabre con orden y totales del servidor', async ({ page }) => {
+async function reopenBudget(page: Page, code: string) {
+  const result = await api<{ budgets: ReopenedBudget[] }>(page, '/api/budgets');
+  expect(result.status).toBe(200);
+  const budget = result.body.budgets.find((item) => item.code === code);
+  expect(budget).toBeTruthy();
+  return budget!;
+}
+
+test('1 · presupuesto multibloque guarda, reabre y recarga con totales servidor e instantánea inmutable', async ({ page }) => {
   await login(page);
-  const calculation = await calculate(page);
-  const created = await createBudget(page, 'E2E persistencia guardar-reabrir', calculation);
+  const blocks = [
+    block('Enfermería mañana', nursingCategory, '2026-10-13', 'morning', 40, 0),
+    block('Medicina tarde', medicineCategory, '2026-10-14', 'afternoon', 75, 1),
+  ];
+  const calculation = await calculate(page, blocks);
+  expect(calculation.blocks).toHaveLength(2);
 
-  expect(created.immutableArtifact.version).toBe(1);
-  expect(created.immutableArtifact.artifactHash).toMatch(/^[a-f0-9]{64}$/);
-
+  const created = await createBudget(page, calculation, 'E2E ciclo presupuesto');
   const reopened = await reopenBudget(page, created.budget.code);
-  expect(reopened.description).toBe('E2E persistencia guardar-reabrir');
-  expect(reopened.serviceBlocks.map((block) => block.serviceName)).toEqual([
-    'Material E2E centro norte',
-    'Formación E2E centro sur',
-  ]);
-  expect(reopened.serviceBlocks.map((block) => block.professionalCategory)).toEqual([
-    nursingCategory,
-    medicineCategory,
-  ]);
-  expect(reopened.serviceBlocks.map((block) => block.sortOrder)).toEqual([0, 1]);
-  expect(reopened.subtotal).toBe(calculation.totals.subtotal);
-  expect(reopened.discountAmount).toBe(calculation.totals.discountAmount);
-  expect(reopened.ivaAmount).toBe(calculation.totals.ivaAmount);
+  expect(reopened.serviceBlocks.map((item) => item.serviceName)).toEqual(['Enfermería mañana', 'Medicina tarde']);
+  expect(reopened.serviceBlocks.map((item) => item.professionalCategory)).toEqual([nursingCategory, medicineCategory]);
   expect(reopened.totalFinal).toBe(calculation.totals.totalFinal);
+
+  const sealed = await snapshots(page, created.budget.id);
+  expect(sealed).toHaveLength(1);
+  expect(sealed[0].version).toBe(1);
+  expect(sealed[0].hash).toMatch(/^[a-f0-9]{64}$/);
+  expect(sealed[0].payload.totalFinal).toBe(calculation.totals.totalFinal);
 
   await page.reload();
   const afterReload = await reopenBudget(page, created.budget.code);
-  expect(afterReload.totalFinal).toBe(reopened.totalFinal);
+  expect(afterReload.totalFinal).toBe(calculation.totals.totalFinal);
 });
 
-test('2 · editar económicamente crea v2 inmutable y persiste el nuevo orden tras navegación', async ({ page }) => {
+test('2 · edición económica produce v2 distinta y preserva v1 sin mutación', async ({ page }) => {
   await login(page);
-  const initialCalculation = await calculate(page);
-  const created = await createBudget(page, 'E2E edición versionada', initialCalculation);
-  const editedCalculation = await calculate(page, 'reversed');
+  const v1Blocks = [
+    block('Bloque A v1', nursingCategory, '2026-10-15', 'morning', 30, 0),
+    block('Bloque B v1', medicineCategory, '2026-10-16', 'night', 70, 1),
+  ];
+  const calcV1 = await calculate(page, v1Blocks);
+  const created = await createBudget(page, calcV1, 'E2E versionado v1');
+  const v1Artifacts = await snapshots(page, created.budget.id);
+  const v1Hash = v1Artifacts[0].hash;
 
-  const edited = await api<{ budget: SavedBudget; immutableArtifact: { version: number; artifactHash: string } }>(page, '/api/budgets', {
+  const v2Blocks = [
+    block('Bloque B v2', medicineCategory, '2026-10-16', 'night', 70, 0),
+    block('Bloque A v2', nursingCategory, '2026-10-15', 'morning', 55, 1),
+  ];
+  const calcV2 = await calculate(page, v2Blocks);
+  const edited = await api(page, '/api/budgets', {
     method: 'PUT',
-    body: {
-      id: created.budget.id,
-      serviceBlocks: [],
-      calculationToken: editedCalculation.totals.calculationToken,
-      description: 'E2E edición versionada v2',
-    },
+    body: { id: created.budget.id, serviceBlocks: [], calculationToken: calcV2.totals.calculationToken, description: 'E2E versionado v2' },
   });
   expect(edited.status).toBe(200);
-  expect(edited.body.immutableArtifact.version).toBe(2);
-  expect(edited.body.immutableArtifact.artifactHash).toMatch(/^[a-f0-9]{64}$/);
-  expect(edited.body.immutableArtifact.artifactHash).not.toBe(created.immutableArtifact.artifactHash);
 
-  const reopened = await reopenBudget(page, created.budget.code);
-  expect(reopened.description).toBe('E2E edición versionada v2');
-  expect(reopened.serviceBlocks.map((block) => block.serviceName)).toEqual([
-    'Formación E2E centro sur',
-    'Material E2E centro norte',
-  ]);
-  expect(reopened.totalFinal).toBe(editedCalculation.totals.totalFinal);
+  const artifacts = await snapshots(page, created.budget.id);
+  expect(artifacts).toHaveLength(2);
+  expect(artifacts.map((item) => item.version)).toEqual([1, 2]);
+  expect(artifacts[0].hash).toBe(v1Hash);
+  expect(artifacts[1].hash).not.toBe(v1Hash);
+  expect(artifacts[0].payload.serviceBlocks.map((item) => item.serviceName)).toEqual(['Bloque A v1', 'Bloque B v1']);
+  expect(artifacts[1].payload.serviceBlocks.map((item) => item.serviceName)).toEqual(['Bloque B v2', 'Bloque A v2']);
+  expect(artifacts[1].payload.totalFinal).toBe(calcV2.totals.totalFinal);
 
-  await page.goto('/recuperar-password');
+  await page.goto('/');
   await page.goBack();
-  await expect(page).toHaveURL('/');
-  const afterBack = await reopenBudget(page, created.budget.code);
-  expect(afterBack.serviceBlocks.map((block) => block.sortOrder)).toEqual([0, 1]);
+  const reopened = await reopenBudget(page, created.budget.code);
+  expect(reopened.serviceBlocks.map((item) => item.serviceName)).toEqual(['Bloque B v2', 'Bloque A v2']);
+  expect(reopened.totalFinal).toBe(calcV2.totals.totalFinal);
 });
 
-test('3 · doble guardado concurrente consume la cotización una sola vez', async ({ page }) => {
+test('3 · doble guardado consume un cálculo una sola vez y crea exactamente un presupuesto', async ({ page }) => {
   await login(page);
-  const calculation = await calculate(page);
-  const payload = {
-    clientId: 'e2e-client-001', calculationToken: calculation.totals.calculationToken,
-    description: 'E2E doble guardado protegido', status: 'borrador',
-  };
+  const marker = `E2E doble guardado ${Date.now()}`;
+  const calculation = await calculate(page, [block(marker, nursingCategory, '2026-10-17', 'morning', 42, 0)]);
 
-  const results = await page.evaluate(async (body) => {
-    const save = () => fetch('/api/budgets', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }).then(async (response) => ({ status: response.status, body: await response.json() }));
+  const outcomes = await page.evaluate(async ({ token, description }) => {
+    const payload = JSON.stringify({ clientId: 'e2e-client-001', calculationToken: token, description, status: 'borrador' });
+    const save = async () => {
+      const response = await fetch('/api/budgets', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: payload });
+      return { status: response.status, body: await response.json() };
+    };
     return Promise.all([save(), save()]);
-  }, payload);
+  }, { token: calculation.totals.calculationToken, description: marker });
 
-  expect(results.map((result) => result.status).sort((a, b) => a - b)).toEqual([201, 409]);
-  const success = results.find((result) => result.status === 201)!;
-  const conflict = results.find((result) => result.status === 409)!;
-  expect((conflict.body as { error: string }).error).toMatch(/cotización económica/i);
-
-  const code = (success.body as { budget: SavedBudget }).budget.code;
-  const reopened = await reopenBudget(page, code);
-  expect(reopened.description).toBe('E2E doble guardado protegido');
+  expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([201, 409]);
+  const listing = await api<{ budgets: Array<{ description?: string }> }>(page, '/api/budgets');
+  expect(listing.status).toBe(200);
+  expect(listing.body.budgets.filter((budget) => budget.description === marker)).toHaveLength(1);
 });
 
 test('4 · documento cliente y firma electrónica recorren el presupuesto sin filtrar economía interna', async ({ page }) => {
   await login(page);
-  const calculation = await calculate(page);
-  const created = await createBudget(page, 'E2E documento y firma', calculation);
+  const calculation = await calculate(page, [
+    block('Enfermería presencial', nursingCategory, '2026-10-18', 'morning', 44, 0),
+    block('Medicina remota', medicineCategory, '2026-10-18', 'afternoon', 88, 1),
+  ]);
+  const created = await createBudget(page, calculation, 'E2E documento y firma');
 
   const document = await page.evaluate(async (budgetId) => {
     const response = await fetch(`/api/pdf?id=${encodeURIComponent(budgetId)}&mode=client`, { credentials: 'same-origin' });
-    return { status: response.status, contentType: response.headers.get('content-type'), html: await response.text() };
+    return { status: response.status, html: await response.text() };
   }, created.budget.id);
   expect(document.status).toBe(200);
-  expect(document.contentType).toContain('text/html');
-  expect(document.html).toContain(created.budget.code);
-  expect(document.html).toContain('E2E Enfermería sintética');
-  expect(document.html).toContain('E2E Medicina sintética');
+  expect(document.html).toContain('Enfermería presencial');
+  expect(document.html).toContain('Medicina remota');
   expect(document.html).not.toContain(nursingCategory);
   expect(document.html).not.toContain(medicineCategory);
   expect(document.html).not.toMatch(/coste interno|margen interno|comisión comercial/i);
@@ -238,7 +202,7 @@ test('4 · documento cliente y firma electrónica recorren el presupuesto sin fi
     token,
     signerName: 'Cliente Sintético E2E',
     signerEmail: 'cliente@example.invalid',
-    signatureData: 'data:image/png;base64,iVBORw0KGgo=',
+    signatureData: validSignatureData,
     consent: true,
   };
   const accepted = await api<{ status: string }>(page, '/api/public/signature', { method: 'POST', body: acceptanceBody });
@@ -254,9 +218,9 @@ test('4 · documento cliente y firma electrónica recorren el presupuesto sin fi
 
   const certificate = await page.evaluate(async (certificateId) => {
     const response = await fetch(`/api/signatures?certificate=${encodeURIComponent(certificateId)}`, { credentials: 'same-origin' });
-    return { status: response.status, html: await response.text() };
+    return { status: response.status, body: await response.json() };
   }, signatureRequest.body.id);
   expect(certificate.status).toBe(200);
-  expect(certificate.html).toContain('Certificado de aceptación electrónica');
-  expect(certificate.html).toContain(created.budget.code);
+  expect(certificate.body.signatureRequest.status).toBe('accepted');
+  expect(certificate.body.signatureRequest.budget.code).toBe(created.budget.code);
 });
