@@ -60,24 +60,25 @@ function expectPrivateNoStore(response: ApiResponse) {
   expect(response.headers['x-content-type-options']).toBe('nosniff')
 }
 
-test('costes laborales verificados: acceso administrativo, validación e idempotencia concurrente', async ({ page }) => {
-  const marker = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const record = {
+function fixture(marker: string, value = 23.45) {
+  return {
     id: `e2e-labor-${marker}`,
     conceptKey: 'productive_hour_gross',
-    // Ámbito sintético deliberadamente ajeno a las categorías que consume el E2E de presupuestos.
-    // Esta prueba persiste su fixture para validar idempotencia y no debe crear solapamientos
-    // económicos en suites posteriores que comparten la misma base aislada durante el run.
     categoryId: `e2e-category-ingestion-only-${marker}`,
     territory: 'Madrid',
     contractType: 'indefinido',
-    value: 23.45,
+    value,
     unit: 'EUR/h_productiva',
     effectiveFrom: '2026-09-01',
     sourceDocument: `GESTORIA-E2E-${marker}`,
     sourceDate: '2026-09-01',
     status: 'verified',
   }
+}
+
+test('costes laborales verificados: acceso administrativo, validación, idempotencia y conflicto sin mutación', async ({ page }) => {
+  const marker = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const record = fixture(marker)
 
   await login(page, 'comercial')
   const commercialGet = await api(page, 'GET')
@@ -114,6 +115,14 @@ test('costes laborales verificados: acceso administrativo, validación e idempot
   expect(concurrent.filter((response) => response.body.duplicate === false)).toHaveLength(1)
   expect(concurrent.filter((response) => response.body.duplicate === true)).toHaveLength(1)
 
+  const correction = await api<{ status: string; issues: Array<{ kind: string; message: string }> }>(page, 'POST', {
+    record: { ...record, value: record.value + 7.25 },
+  })
+  expect(correction.status).toBe(409)
+  expect(correction.body.status).toBe('conflict')
+  expect(correction.body.issues.some((issue) => issue.kind === 'blocked')).toBe(true)
+  expectPrivateNoStore(correction)
+
   const listed = await api<{ records: LaborRecord[] }>(page, 'GET')
   expect(listed.status).toBe(200)
   expectPrivateNoStore(listed)
@@ -130,4 +139,33 @@ test('costes laborales verificados: acceso administrativo, validación e idempot
     sourceDocument: record.sourceDocument,
   })
   expect(listed.body.records.some((candidate) => candidate.id === `${record.id}-invalid`)).toBe(false)
+})
+
+test('costes laborales verificados: dos escrituras concurrentes divergentes no pueden pisarse', async ({ page }) => {
+  await login(page, 'admin')
+  const marker = `race-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const original = fixture(marker, 31.1)
+  const divergent = { ...original, value: 46.8 }
+
+  const responses = await page.evaluate(async ({ first, second }) => {
+    const send = async (record: typeof first) => {
+      const response = await fetch('/api/verified-labor-costs', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ record }),
+      })
+      return { status: response.status, body: await response.json() }
+    }
+    return Promise.all([send(first), send(second)])
+  }, { first: original, second: divergent })
+
+  expect(responses.map((response) => response.status).sort()).toEqual([201, 409])
+  const winner = responses.find((response) => response.status === 201)
+  const rejected = responses.find((response) => response.status === 409)
+  expect(winner?.body.duplicate).toBe(false)
+  expect(rejected?.body.status).toBe('conflict')
+
+  const listed = await api<{ records: LaborRecord[] }>(page, 'GET')
+  const matches = listed.body.records.filter((candidate) => candidate.id === original.id)
+  expect(matches).toHaveLength(1)
+  expect([original.value, divergent.value]).toContain(matches[0].value)
 })
