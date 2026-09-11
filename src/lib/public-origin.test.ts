@@ -35,4 +35,15 @@ describe('buildTrustedPublicUrl', () => {
     })
     expect(url.toString()).toBe('http://127.0.0.1:3000/firmar/test')
   })
+
+  it('rejects absolute and protocol-relative destinations that could escape the canonical origin', () => {
+    for (const path of ['https://evil.example/reset', '//evil.example/reset', 'firmar/sin-barra']) {
+      expect(() => buildTrustedPublicUrl({
+        path,
+        requestOrigin: 'https://request.invalid',
+        configuredOrigin: 'https://mediquote.gasi.example',
+        production: true,
+      })).toThrow(/ruta pública/)
+    }
+  })
 })
