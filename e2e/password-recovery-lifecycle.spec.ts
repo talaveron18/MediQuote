@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type APIResponse, type BrowserContext, type Page } from '@playwright/test'
 import { PrismaClient } from '@prisma/client'
 import { hash } from 'bcryptjs'
 import { createPasswordRecoveryToken } from '../src/lib/password-recovery'
@@ -140,7 +140,7 @@ test.describe.serial('recuperación de contraseña aislada', () => {
     const user = await createRecoveryUser('rate-limit')
     try {
       const headers = { 'x-forwarded-for': `198.51.100.${Math.floor(Math.random() * 200) + 1}` }
-      const responses = []
+      const responses: APIResponse[] = []
       for (let index = 0; index < 6; index += 1) {
         responses.push(await request.post('/api/recovery/password/request', {
           data: { email: user.email },
