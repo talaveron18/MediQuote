@@ -73,6 +73,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const normalizeText = (value: string) => value.trim()
 const normalizeTerritory = (value: string) => value.trim().toLocaleLowerCase('es-ES')
+const normalizeOptionalText = (value?: string | null) => value?.trim() || undefined
 
 export function parseVerifiedLaborInputStore(raw?: string | null): VerifiedLaborInputRecord[] {
   if (!raw) return []
@@ -153,19 +154,76 @@ function canonicalId(draft: LaborInputDraft) {
   ].join('|')
 }
 
+function equivalentVersion(existing: VerifiedLaborInputRecord, draft: LaborInputDraft): boolean {
+  return existing.conceptKey === draft.conceptKey
+    && existing.categoryId === normalizeText(draft.categoryId)
+    && normalizeTerritory(existing.territory) === normalizeTerritory(draft.territory)
+    && existing.contractType === draft.contractType
+    && existing.value === Number(draft.value)
+    && existing.unit === normalizeText(draft.unit)
+    && existing.effectiveFrom === draft.effectiveFrom
+    && (existing.effectiveTo ?? undefined) === (draft.effectiveTo || undefined)
+    && existing.sourceDocument === normalizeText(draft.sourceDocument)
+    && existing.sourceDate === draft.sourceDate
+    && (existing.notes ?? undefined) === normalizeOptionalText(draft.notes)
+    && existing.status === draft.status
+}
+
+function validatePersistedRecord(record: VerifiedLaborInputRecord): DataIssue[] {
+  const issues = validateLaborInputDraft({
+    id: record.id,
+    conceptKey: record.conceptKey,
+    categoryId: record.categoryId,
+    territory: record.territory,
+    contractType: record.contractType,
+    value: record.value,
+    unit: record.unit,
+    effectiveFrom: record.effectiveFrom,
+    effectiveTo: record.effectiveTo,
+    sourceDocument: record.sourceDocument,
+    sourceDate: record.sourceDate,
+    notes: record.notes,
+    status: record.status,
+  })
+  if (!record.id.trim()) {
+    issues.push({ field: 'id', kind: 'invalid', message: 'La versión persistida no tiene identificador válido.' })
+  }
+  if (!record.recordedBy?.trim()) {
+    issues.push({ field: 'recordedBy', kind: 'invalid', message: 'La versión persistida no conserva quién la incorporó.' })
+  }
+  if (!record.recordedAt || Number.isNaN(Date.parse(record.recordedAt))) {
+    issues.push({ field: 'recordedAt', kind: 'invalid', message: 'La versión persistida no conserva una fecha de incorporación válida.' })
+  }
+  return issues
+}
+
 export function appendLaborInputVersion(params: {
   current: VerifiedLaborInputRecord[]
   draft: LaborInputDraft
   actorId: string
   now?: Date
 }): { status: 'ok'; records: VerifiedLaborInputRecord[]; record: VerifiedLaborInputRecord; duplicate: boolean }
+  | { status: 'conflict'; issues: DataIssue[]; record: VerifiedLaborInputRecord }
   | { status: 'invalid'; issues: DataIssue[] } {
   const issues = validateLaborInputDraft(params.draft)
   if (issues.length) return { status: 'invalid', issues }
 
   const id = params.draft.id?.trim() || canonicalId(params.draft)
   const existing = params.current.find((row) => row.id === id)
-  if (existing) return { status: 'ok', records: params.current, record: existing, duplicate: true }
+  if (existing) {
+    if (equivalentVersion(existing, params.draft)) {
+      return { status: 'ok', records: params.current, record: existing, duplicate: true }
+    }
+    return {
+      status: 'conflict',
+      record: existing,
+      issues: [{
+        field: `verifiedLaborInputs.${id}`,
+        kind: 'blocked',
+        message: 'La identidad de versión ya existe con contenido distinto. Registre una nueva versión/fuente; no se sobrescribe ni se ignora la discrepancia.',
+      }],
+    }
+  }
 
   const record: VerifiedLaborInputRecord = {
     id,
@@ -211,6 +269,17 @@ export function resolveVerifiedLaborInput(params: {
       field, kind: 'missing', message: 'No existe un dato de gestoría verified vigente para esta configuración.',
     }] }
   }
+
+  const invalidPersisted = matches.flatMap((record) => validatePersistedRecord(record).map((issue) => ({
+    ...issue,
+    field: `${field}.${record.id}.${issue.field}`,
+    kind: 'blocked' as const,
+    message: `Dato verified persistido inválido: ${issue.message}`,
+  })))
+  if (invalidPersisted.length > 0) {
+    return { status: 'pending_configuration', issues: invalidPersisted }
+  }
+
   if (matches.length > 1) {
     return { status: 'pending_configuration', issues: [{
       field, kind: 'blocked', message: 'Existen versiones verified solapadas; debe resolverse la ambigüedad antes de presupuestar.',
