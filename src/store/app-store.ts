@@ -189,6 +189,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { serviceBlocks: blocks, budgetTotals: null };
   }),
   addServiceBlock: (b) => set((s) => {
+    // BudgetForm loads data asynchronously. If an old instance finishes after
+    // navigation has already left the form, its mount-time starter block must
+    // not leak back into the global draft and later reappear through history.
+    if (s.currentView !== 'budget-new' && s.currentView !== 'budget-edit') {
+      return s;
+    }
     if (s.skipNextInitialEmptyBlock) {
       return { skipNextInitialEmptyBlock: false };
     }
