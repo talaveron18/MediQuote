@@ -141,10 +141,14 @@ test('4 · refresh y back-forward no convierten una cotización profesional bloq
   expect(first.body.totals).toBeNull();
   expect(first.body.commercial.status).toBe('pending_configuration');
 
-  await page.goto('/login');
+  await page.goto('/?e2e-navigation=professional-readiness');
+  await expect(page).toHaveURL(/e2e-navigation=professional-readiness/);
   await page.goBack();
-  await page.reload();
   await expect(page).toHaveURL('/');
+  await page.goForward();
+  await expect(page).toHaveURL(/e2e-navigation=professional-readiness/);
+  await page.reload();
+  await expect(page).toHaveURL(/e2e-navigation=professional-readiness/);
 
   const second = await calculate(page, [block], madrid);
   expect(second.status).toBe(200);
