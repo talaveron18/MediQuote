@@ -92,9 +92,14 @@ test.afterAll(async () => {
 });
 
 test('auditoría de costes respeta la jerarquía: comercial denegado, maestro privilegiado y no-cache', async ({ page }) => {
+  const anonymous = await page.request.get('/api/cost-audits');
+  expect(anonymous.status()).toBe(401);
+  expect(anonymous.headers()['cache-control']).toBe('private, no-store');
+
   await login(page, 'e2e.comercial@example.invalid', commercialPassword);
   const forbidden = await browserRequest(page, '/api/cost-audits');
   expect(forbidden.status).toBe(403);
+  expectPrivateNoStore(forbidden);
 
   await page.context().clearCookies();
   await login(page, 'e2e.maestro@example.invalid', maestroPassword);
@@ -174,6 +179,57 @@ test('auditoría válida se sella, el documento se fuerza a descarga binaria y e
   expect(malformed.text).toContain('La cotización interna guardada no puede auditarse');
   expect(malformed.text).not.toContain('secret-internal-fragment');
   expect(malformed.text).not.toContain('Unexpected token');
+});
+
+test('desglose de gestoría falla cerrado ante conceptos desconocidos o importes inválidos', async ({ page }) => {
+  const budget = await seedAuditableBudget(`E2E-AUD-STRICT-${Date.now()}`, JSON.stringify({
+    internalCost: {
+      totalInternalCost: 100,
+      laborBlocks: [{
+        labor: {
+          salaryForService: 60,
+          totalPluses: 5,
+          totalEmployerContributions: 20,
+          totalOccupationalRisk: 5,
+        },
+        managementCost: 10,
+        terminationProvision: 0,
+        otherContractCosts: 0,
+        overhead: 7,
+      }],
+      directCostTotal: 0,
+      directCostOverhead: 0,
+    },
+    commercial: { commissionAmount: 3, finalGasiBenefit: 4 },
+  }));
+  const before = await db.costAudit.count({ where: { budgetId: budget.id } });
+
+  await login(page, 'e2e.admin@example.invalid', adminPassword);
+
+  const unknown = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 100,
+      actualBreakdown: { salary: 60, conceptoInventado: 40 },
+    },
+  });
+  expect(unknown.status).toBe(400);
+  expectPrivateNoStore(unknown);
+  expect(unknown.text).toContain('Concepto de gestoría no reconocido');
+
+  const negative = await browserRequest(page, '/api/cost-audits', {
+    method: 'POST',
+    body: {
+      budgetId: budget.id,
+      actualCost: 100,
+      actualBreakdown: { salary: -1 },
+    },
+  });
+  expect(negative.status).toBe(400);
+  expectPrivateNoStore(negative);
+  expect(negative.text).toContain('importe numérico no negativo');
+  expect(await db.costAudit.count({ where: { budgetId: budget.id } })).toBe(before);
 });
 
 test('justificante Base64 inválido se rechaza sin crear auditoría', async ({ page }) => {
