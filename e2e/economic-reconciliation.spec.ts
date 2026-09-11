@@ -185,8 +185,9 @@ test('2 · la cotización sellada reconcilia coste, margen, comisión y semáfor
   expect(costing.body.commercial.commissionRatePercent).toBe(10);
   expect(costing.body.commercial.commissionAmount).toBe(4.93);
   expect(costing.body.commercial.finalGasiBenefit).toBe(44.41);
-  expect(costing.body.commercial.gasiReturnOnCostPercent).toBeCloseTo(41.4079, 4);
-  expect(costing.body.commercial.finalMarginOnSalePercent).toBeCloseTo(28.3607, 4);
+  // El motor calcula los ratios con los importes internos sin redondear y solo redondea el resultado final.
+  expect(costing.body.commercial.gasiReturnOnCostPercent).toBeCloseTo(41.4042, 4);
+  expect(costing.body.commercial.finalMarginOnSalePercent).toBeCloseTo(28.3581, 4);
   expect(costing.body.commercial.semaphore).toBe('green');
 });
 
