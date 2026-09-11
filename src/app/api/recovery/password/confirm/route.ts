@@ -1,60 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { NextRequest } from 'next/server';
 import { hashPassword, logAudit } from '@/lib/auth';
-import {
-  bumpSessionGeneration,
-  consumeStoredPasswordRecovery,
-} from '@/lib/password-recovery-store';
+import { completePasswordRecovery } from '@/lib/password-recovery-transaction';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
+import { privateNoStoreJson } from '@/lib/private-api-response';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { token?: string; password?: string };
-    const token = body.token?.trim() ?? '';
-    const password = body.password ?? '';
+    const body = await request.json().catch(() => ({})) as { token?: unknown; password?: unknown };
+    const token = typeof body.token === 'string' ? body.token.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
 
     if (!token || !isStrongEnoughPassword(password)) {
-      return NextResponse.json(
+      return privateNoStoreJson(
         { error: `Enlace inválido o contraseña inferior a ${MINIMUM_PASSWORD_LENGTH} caracteres` },
         { status: 400 },
       );
     }
 
-    const userId = await consumeStoredPasswordRecovery(token);
-    if (!userId) {
-      return NextResponse.json({ error: 'El enlace no es válido o ha caducado' }, { status: 400 });
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, name: true, role: true, active: true },
-    });
-    if (!user?.active) {
-      return NextResponse.json({ error: 'El enlace no es válido o ha caducado' }, { status: 400 });
-    }
-
+    // Hashing is intentionally done before entering the DB transaction. The
+    // token remains unused if bcrypt itself fails.
     const passwordHash = await hashPassword(password);
-    await db.user.update({
-      where: { id: user.id },
-      data: { password: passwordHash, mustChangePassword: false },
-    });
-    await bumpSessionGeneration(user.id);
+    const completed = await completePasswordRecovery(token, passwordHash);
+    if (!completed) {
+      await logAudit({
+        action: 'password_reset_token_invalid',
+        entity: 'user',
+        summary: 'Intento de recuperación con enlace inválido, caducado o ya utilizado',
+        result: 'blocked',
+      });
+      return privateNoStoreJson({ error: 'El enlace no es válido o ha caducado' }, { status: 400 });
+    }
 
     await logAudit({
-      action: 'password_recovery_completed',
+      action: 'password_reset_completed',
       entity: 'user',
-      entityId: user.id,
-      userId: user.id,
-      userName: user.name,
-      userRole: user.role,
-      summary: `Recuperación de contraseña completada para ${user.email}; sesiones anteriores revocadas`,
+      entityId: completed.id,
+      userId: completed.id,
+      userName: completed.name,
+      userRole: completed.role,
+      summary: `Recuperación de contraseña completada para ${completed.email}; sesiones anteriores revocadas`,
     });
 
-    return NextResponse.json({ success: true });
+    return privateNoStoreJson({ success: true });
   } catch (error) {
     console.error('[POST /api/recovery/password/confirm] Error:', error);
-    return NextResponse.json({ error: 'No se pudo completar la recuperación' }, { status: 500 });
+    return privateNoStoreJson({ error: 'No se pudo completar la recuperación' }, { status: 500 });
   }
 }
