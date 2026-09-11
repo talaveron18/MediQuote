@@ -3,6 +3,7 @@ import {
   appendLaborInputVersion,
   parseVerifiedLaborInputStore,
   resolveVerifiedLaborInput,
+  resolveVerifiedLaborInputForDates,
   validateLaborInputDraft,
   type LaborInputDraft,
 } from './verified-labor-inputs'
@@ -31,6 +32,11 @@ describe('verified labor inputs', () => {
     expect(issues.map((issue) => issue.field)).toEqual(expect.arrayContaining([
       'conceptKey', 'value', 'sourceDocument',
     ]))
+  })
+
+  it('rejects a semantically wrong unit even when the numeric value is valid', () => {
+    const issues = validateLaborInputDraft(baseDraft({ unit: '%' }))
+    expect(issues.some((issue) => issue.field === 'unit' && issue.kind === 'invalid')).toBe(true)
   })
 
   it('is append-only and idempotent for the same source/version identity', () => {
@@ -100,6 +106,34 @@ describe('verified labor inputs', () => {
     if (result.status === 'pending_configuration') {
       expect(result.issues[0].kind).toBe('blocked')
       expect(result.issues[0].message).toContain('solapadas')
+    }
+  })
+
+  it('fails closed when a single block crosses two verified versions', () => {
+    const v1 = appendLaborInputVersion({
+      current: [],
+      draft: baseDraft({ id: 'v1', effectiveTo: '2026-09-30' }),
+      actorId: 'a',
+    })
+    if (v1.status !== 'ok') throw new Error('fixture inválido')
+    const v2 = appendLaborInputVersion({
+      current: v1.records,
+      draft: baseDraft({ id: 'v2', effectiveFrom: '2026-10-01', sourceDocument: 'GESTORIA-SYNTHETIC-002' }),
+      actorId: 'a',
+    })
+    if (v2.status !== 'ok') throw new Error('fixture inválido')
+    const result = resolveVerifiedLaborInputForDates({
+      records: v2.records,
+      conceptKey: 'productive_hour_gross',
+      categoryId: 'cat-enf',
+      territory: 'Madrid',
+      contractType: 'indefinido',
+      serviceDates: ['2026-09-30', '2026-10-01'],
+    })
+    expect(result.status).toBe('pending_configuration')
+    if (result.status === 'pending_configuration') {
+      expect(result.issues[0].kind).toBe('blocked')
+      expect(result.issues[0].message).toContain('cruza versiones')
     }
   })
 
