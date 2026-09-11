@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
         engineVersion: snapshot.engineVersion,
         calculatedAt: snapshot.calculatedAt,
         internalCost: snapshot.internalCost,
+        verifiedLaborSources: snapshot.verifiedLaborSources ?? [],
         commercial: snapshot.commercial,
       });
     } catch (error) {
