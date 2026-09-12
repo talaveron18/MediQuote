@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { hashPassword, logAudit } from '@/lib/auth';
 import { completePasswordRecovery } from '@/lib/password-recovery-transaction';
-import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
+import { isCanonicalPasswordRecoveryToken } from '@/lib/password-recovery';
+import { isStrongEnoughPassword, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 import { privateNoStoreJson } from '@/lib/private-api-response';
 
 export const runtime = 'nodejs';
@@ -12,9 +13,10 @@ export async function POST(request: NextRequest) {
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
 
-    if (!token || !isStrongEnoughPassword(password)) {
+    // Validate the opaque token before doing bcrypt work or touching recovery storage.
+    if (!isCanonicalPasswordRecoveryToken(token) || !isStrongEnoughPassword(password)) {
       return privateNoStoreJson(
-        { error: `Enlace inválido o contraseña inferior a ${MINIMUM_PASSWORD_LENGTH} caracteres` },
+        { error: `Enlace inválido o contraseña fuera de la política (${MINIMUM_PASSWORD_LENGTH} caracteres mínimo, ${MAXIMUM_PASSWORD_BYTES} bytes máximo)` },
         { status: 400 },
       );
     }
@@ -44,8 +46,10 @@ export async function POST(request: NextRequest) {
     });
 
     return privateNoStoreJson({ success: true });
-  } catch (error) {
-    console.error('[POST /api/recovery/password/confirm] Error:', error);
+  } catch {
+    // Never include thrown DB/hash details in recovery logs: they can contain
+    // implementation data and are not required to diagnose the public flow.
+    console.error('[POST /api/recovery/password/confirm] Internal recovery error');
     return privateNoStoreJson({ error: 'No se pudo completar la recuperación' }, { status: 500 });
   }
 }
