@@ -149,7 +149,7 @@ test.describe.serial('recuperación: concurrencia y cambios de estado', () => {
       await page.locator('#password').fill(resetPasswordB)
       await page.locator('#confirmation').fill(resetPasswordB)
       await page.getByRole('button', { name: 'Actualizar contraseña' }).click()
-      await expect(page.getByRole('alert')).toContainText('El enlace no es válido o ha caducado')
+      await expect(page.getByText('El enlace no es válido o ha caducado', { exact: true })).toBeVisible()
       expect((await apiLogin(page.request, user.email, resetPasswordA)).ok()).toBe(true)
       expect((await apiLogin(page.request, user.email, resetPasswordB)).status()).toBe(401)
     } finally {
