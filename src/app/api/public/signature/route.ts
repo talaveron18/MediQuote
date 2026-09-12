@@ -105,14 +105,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  let body: { token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean };
+  let parsedBody: unknown;
   try {
-    body = await request.json() as {
-      token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean;
-    };
+    parsedBody = await request.json();
   } catch {
     return noStoreJson({ error: 'El cuerpo debe ser JSON válido' }, { status: 400 });
   }
+  if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+    return noStoreJson({ error: 'El cuerpo debe ser un objeto JSON válido' }, { status: 400 });
+  }
+  const body = parsedBody as { token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean };
   const signature = await findRequest(body.token ?? '');
   if (!signature) return noStoreJson({ error: 'Enlace no válido' }, { status: 404 });
   if (signature.status !== 'pending') return noStoreJson({ error: 'Esta solicitud ya no está pendiente', status: signature.status }, { status: 409 });
