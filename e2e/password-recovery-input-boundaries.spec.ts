@@ -122,7 +122,7 @@ test.describe.serial('límites de entrada de recuperación', () => {
       await page.locator('#password').fill(tooLong)
       await page.locator('#confirmation').fill(tooLong)
       await page.getByRole('button', { name: 'Actualizar contraseña' }).click()
-      await expect(page.getByRole('alert')).toContainText('72 bytes')
+      await expect(page.locator('p[role="alert"]')).toContainText('72 bytes')
 
       await page.locator('#password').fill(resetPassword)
       await page.locator('#confirmation').fill(resetPassword)
