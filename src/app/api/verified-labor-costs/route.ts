@@ -11,6 +11,67 @@ import {
 
 export const runtime = 'nodejs'
 
+const REQUIRED_STRING_FIELDS = [
+  'conceptKey',
+  'categoryId',
+  'territory',
+  'contractType',
+  'unit',
+  'effectiveFrom',
+  'sourceDocument',
+  'sourceDate',
+  'status',
+] as const
+
+const OPTIONAL_STRING_FIELDS = ['id', 'effectiveTo', 'notes', 'supersedesId'] as const
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isRealIsoDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+}
+
+function validateRequestRecord(record: Record<string, unknown>): Array<{ field: string; kind: 'invalid' | 'missing'; message: string }> {
+  const issues: Array<{ field: string; kind: 'invalid' | 'missing'; message: string }> = []
+
+  for (const field of REQUIRED_STRING_FIELDS) {
+    const value = record[field]
+    if (typeof value !== 'string') {
+      issues.push({ field, kind: value === undefined || value === null ? 'missing' : 'invalid', message: `${field} debe ser texto.` })
+    }
+  }
+  for (const field of OPTIONAL_STRING_FIELDS) {
+    const value = record[field]
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      issues.push({ field, kind: 'invalid', message: `${field} debe ser texto cuando se informa.` })
+    }
+  }
+
+  if (typeof record.value !== 'number' || !Number.isFinite(record.value) || record.value < 0) {
+    issues.push({ field: 'value', kind: 'invalid', message: 'value debe ser un número finito y no negativo; no se aplican conversiones implícitas.' })
+  }
+
+  for (const field of ['effectiveFrom', 'sourceDate'] as const) {
+    const value = record[field]
+    if (typeof value === 'string' && !isRealIsoDate(value)) {
+      issues.push({ field, kind: 'invalid', message: `${field} debe ser una fecha ISO real (YYYY-MM-DD).` })
+    }
+  }
+  if (typeof record.effectiveTo === 'string' && record.effectiveTo && !isRealIsoDate(record.effectiveTo)) {
+    issues.push({ field: 'effectiveTo', kind: 'invalid', message: 'effectiveTo debe ser una fecha ISO real (YYYY-MM-DD).' })
+  }
+
+  return issues
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireRole(request, ['admin', 'maestro'])
@@ -55,17 +116,25 @@ export async function POST(request: NextRequest) {
     const auth = await requireRole(request, ['admin', 'maestro'])
     if (auth instanceof NextResponse) return auth
 
-    let body: { record?: LaborInputDraft }
+    let body: unknown
     try {
       body = await request.json()
     } catch {
       return privateNoStoreJson({ error: 'El cuerpo debe ser JSON válido.' }, { status: 400 })
     }
-    if (!body.record || typeof body.record !== 'object') {
-      return privateNoStoreJson({ error: 'Falta record.' }, { status: 400 })
+    if (!isObjectRecord(body)) {
+      return privateNoStoreJson({ error: 'El cuerpo debe ser un objeto JSON.' }, { status: 400 })
+    }
+    if (!isObjectRecord(body.record)) {
+      return privateNoStoreJson({ error: 'record debe ser un objeto JSON.' }, { status: 400 })
     }
 
-    const result = await appendWithRetry(body.record, auth.id)
+    const requestIssues = validateRequestRecord(body.record)
+    if (requestIssues.length > 0) {
+      return privateNoStoreJson({ status: 'invalid', issues: requestIssues }, { status: 422 })
+    }
+
+    const result = await appendWithRetry(body.record as unknown as LaborInputDraft, auth.id)
     if (result.status === 'invalid') {
       return privateNoStoreJson({ status: 'invalid', issues: result.issues }, { status: 422 })
     }
