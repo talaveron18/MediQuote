@@ -11,6 +11,29 @@ class CostingQuoteConflict extends Error {}
 class BudgetSealConflict extends Error {}
 class BudgetAcceptedConflict extends Error {}
 
+const validBudgetStatuses = new Set<BudgetStatus>(['borrador', 'enviado', 'aceptado', 'rechazado', 'caducado'])
+
+function badBudgetRequest(error: string) {
+  return NextResponse.json({ error }, {
+    status: 400,
+    headers: { 'Cache-Control': 'private, no-store' },
+  })
+}
+
+async function readBudgetBody(request: NextRequest): Promise<Record<string, any> | null> {
+  try {
+    const body = await request.json()
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+    return body as Record<string, any>
+  } catch {
+    return null
+  }
+}
+
+function hasInvalidBudgetStatus(status: unknown): boolean {
+  return status !== undefined && (typeof status !== 'string' || !validBudgetStatuses.has(status as BudgetStatus))
+}
+
 function generateBudgetCode(existingCount: number): string {
   const now = new Date()
   const y = now.getFullYear()
@@ -343,7 +366,9 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request)
     if (auth instanceof NextResponse) return auth
-    const body = await request.json()
+    const body = await readBudgetBody(request)
+    if (!body) return badBudgetRequest('El cuerpo JSON del presupuesto no es válido')
+    if (hasInvalidBudgetStatus(body.status)) return badBudgetRequest('Estado de presupuesto no válido')
     const {
       clientId,
       status = 'borrador' as BudgetStatus,
@@ -451,7 +476,9 @@ export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth(request)
     if (auth instanceof NextResponse) return auth
-    const body = await request.json()
+    const body = await readBudgetBody(request)
+    if (!body) return badBudgetRequest('El cuerpo JSON del presupuesto no es válido')
+    if (hasInvalidBudgetStatus(body.status)) return badBudgetRequest('Estado de presupuesto no válido')
     const { id, serviceBlocks, calculationToken, ...updateData } = body
     if (!id) return NextResponse.json({ error: 'Se requiere el ID del presupuesto' }, { status: 400 })
 
