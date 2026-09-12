@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
     const budget = await tx.budget.findUnique({ where: { id: body.budgetId }, include: includeBudget });
     if (!budget || !canUseBudget(auth, budget)) return { status: 'not_found' as const };
     if (budget.status === 'aceptado') return { status: 'accepted' as const };
+    if (budget.status === 'rechazado') return { status: 'rejected' as const };
     if (budget.status === 'caducado') return { status: 'expired' as const };
 
     const recipientEmail = (body.recipientEmail || budget.client.email || '').trim().toLowerCase();
@@ -123,6 +124,9 @@ export async function POST(request: NextRequest) {
   if (issuance.status === 'not_found') return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
   if (issuance.status === 'accepted') {
     return privateNoStoreJson({ error: 'Un presupuesto aceptado no puede volver a enviarse para firma. Cree una nueva versión si necesita cambios.' }, { status: 409 });
+  }
+  if (issuance.status === 'rejected') {
+    return privateNoStoreJson({ error: 'Un presupuesto rechazado no puede volver a enviarse para firma. Cree una nueva versión si necesita reabrir la propuesta.' }, { status: 409 });
   }
   if (issuance.status === 'expired') {
     return privateNoStoreJson({ error: 'Un presupuesto caducado no puede enviarse para firma. Cree una nueva versión vigente.' }, { status: 409 });
