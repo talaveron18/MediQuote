@@ -151,10 +151,11 @@ test('3 · una nueva solicitud revoca el enlace de firma anterior y deja solo el
   const first = await requestSignature(page, budget.id, 'primero@example.invalid');
   const second = await requestSignature(page, budget.id, 'segundo@example.invalid');
 
-  const oldLink = await api<{ status: string }>(page, `/api/public/signature?token=${encodeURIComponent(first.token)}`);
+  const oldLink = await api<{ status: string; error: string }>(page, `/api/public/signature?token=${encodeURIComponent(first.token)}`);
   const currentLink = await api<{ status: string; recipientEmail: string }>(page, `/api/public/signature?token=${encodeURIComponent(second.token)}`);
-  expect(oldLink.status).toBe(200);
+  expect(oldLink.status).toBe(409);
   expect(oldLink.body.status).toBe('revoked');
+  expect(oldLink.body.error).toMatch(/presupuesto ha cambiado|enlace.*nuevo/i);
   expect(currentLink.status).toBe(200);
   expect(currentLink.body.status).toBe('pending');
   expect(currentLink.body.recipientEmail).toBe('segundo@example.invalid');
@@ -182,9 +183,10 @@ test('4 · editar el presupuesto después de emitir firma invalida el enlace por
   expect(stale.body.status).toBe('revoked');
   expect(stale.body.error).toMatch(/presupuesto ha cambiado/i);
 
-  const secondRead = await api<{ status: string }>(page, `/api/public/signature?token=${encodeURIComponent(signature.token)}`);
-  expect(secondRead.status).toBe(200);
+  const secondRead = await api<{ status: string; error: string }>(page, `/api/public/signature?token=${encodeURIComponent(signature.token)}`);
+  expect(secondRead.status).toBe(409);
   expect(secondRead.body.status).toBe('revoked');
+  expect(secondRead.body.error).toMatch(/presupuesto ha cambiado/i);
 });
 
 test('5 · comercial no puede descargar documento cliente ni comercial de un presupuesto ajeno', async ({ page }) => {
