@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword, SESSION_COOKIE, getCurrentUser, logAudit } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
@@ -7,6 +7,19 @@ import { changePasswordAndRevokeRecovery } from '@/lib/password-recovery-transac
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 import { privateNoStoreJson } from '@/lib/private-api-response';
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function readObjectBody(request: NextRequest): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await request.json();
+    return isObject(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -19,11 +32,12 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const body = await request.json().catch(() => ({}));
+      const body = await readObjectBody(request);
+      if (!body) return privateNoStoreJson({ error: 'Solicitud JSON no válida' }, { status: 400 });
       const { currentPassword, newPassword } = body;
 
-      if (!currentPassword || !newPassword) {
-        return privateNoStoreJson({ error: 'Se requieren ambos campos' }, { status: 400 });
+      if (typeof currentPassword !== 'string' || !currentPassword || typeof newPassword !== 'string' || !newPassword) {
+        return privateNoStoreJson({ error: 'Se requieren ambos campos como texto' }, { status: 400 });
       }
 
       if (!isStrongEnoughPassword(newPassword)) {
@@ -85,14 +99,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await readObjectBody(request);
+    if (!body) return privateNoStoreJson({ error: 'Credenciales incorrectas' }, { status: 401 });
     const { email, password } = body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
       return privateNoStoreJson({ error: 'Credenciales incorrectas' }, { status: 401 });
     }
 
-    const normalizedEmail = String(email).toLowerCase().trim();
+    const normalizedEmail = email.toLowerCase().trim();
     let user;
     try {
       user = await db.user.findUnique({ where: { email: normalizedEmail } });
