@@ -195,8 +195,6 @@ test('firma pending se revoca dentro de la misma transacción cuando cambia cont
   });
   expect(edited.status).toBe(200);
 
-  // This assertion happens before any GET /api/signatures, proving that revocation
-  // is no longer the lazy read-side normalization implemented by the old route.
   const immediatelyAfterCommit = await db.budgetSignatureRequest.findUnique({ where: { id: signature.id }, select: { status: true } });
   expect(immediatelyAfterCommit?.status).toBe('revoked');
   const revocationHistory = await db.budgetHistory.findFirst({
@@ -284,6 +282,10 @@ test('tras supersesión verified la UI, PDF y firma nueva sobreviven reload/back
   await page.goBack();
   await expect(page.getByRole('heading', { name: `Presupuesto ${edited.body.budget.code}` })).toBeVisible();
 
+  // Los enlaces públicos pueden usar el origen público configurado y, por diseño,
+  // no deben heredar la sesión administrativa. Restauramos la sesión antes de
+  // comprobar el documento privado para mantener separadas ambas fronteras.
+  await login(page);
   const clientPdf = await page.evaluate(async (budgetId) => {
     const response = await fetch(`/api/pdf?id=${encodeURIComponent(budgetId)}&mode=client`, { credentials: 'same-origin' });
     return { status: response.status, html: await response.text() };
