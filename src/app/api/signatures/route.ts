@@ -43,13 +43,26 @@ export async function GET(request: NextRequest) {
   }
   const budgetId = request.nextUrl.searchParams.get('budgetId');
   if (!budgetId) return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
-  const budget = await db.budget.findUnique({ where: { id: budgetId }, select: { createdById: true } });
+  const budget = await db.budget.findUnique({ where: { id: budgetId }, include: includeBudget });
   if (!budget || !canUseBudget(auth, budget)) return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
   const requests = await db.budgetSignatureRequest.findMany({
-    where: { budgetId }, select: { id: true, status: true, recipientEmail: true, expiresAt: true, signerName: true, signerEmail: true, acceptedAt: true, createdAt: true },
+    where: { budgetId }, select: { id: true, status: true, recipientEmail: true, expiresAt: true, signerName: true, signerEmail: true, acceptedAt: true, createdAt: true, documentHash: true },
     orderBy: { createdAt: 'desc' }, take: 20,
   });
-  return privateNoStoreJson({ requests });
+  const stalePendingIds = requests
+    .filter((row) => row.status === 'pending' && !signatureDocumentIsCurrent(budget, row.documentHash))
+    .map((row) => row.id);
+  if (stalePendingIds.length) {
+    await db.budgetSignatureRequest.updateMany({
+      where: { id: { in: stalePendingIds }, status: 'pending' },
+      data: { status: 'revoked' },
+    });
+  }
+  const staleSet = new Set(stalePendingIds);
+  return privateNoStoreJson({ requests: requests.map(({ documentHash: _documentHash, ...row }) => ({
+    ...row,
+    status: staleSet.has(row.id) ? 'revoked' : row.status,
+  })) });
 }
 
 export async function POST(request: NextRequest) {
