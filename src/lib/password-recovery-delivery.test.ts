@@ -78,17 +78,23 @@ describe('buildPasswordRecoveryEmail', () => {
     expect(result.message).toContain('Auto-Submitted: auto-generated')
   })
 
-  it('rejects recipient header injection and non-http reset URLs', () => {
+  it('rejects recipient header injection and any non-HTTPS reset URL', () => {
     expect(() => buildPasswordRecoveryEmail({
       recipient: 'synthetic@example.invalid\r\nBcc:attacker@example.invalid',
       resetUrl: 'https://mediquote.example.invalid/restablecer-password?token=x',
       expiresAt: new Date('2026-09-12T03:00:00Z'),
     }, 'recovery@example.invalid')).toThrow(/Destinatario/)
 
-    expect(() => buildPasswordRecoveryEmail({
-      recipient: 'synthetic@example.invalid',
-      resetUrl: 'javascript:alert(1)',
-      expiresAt: new Date('2026-09-12T03:00:00Z'),
-    }, 'recovery@example.invalid')).toThrow(/URL/)
+    for (const resetUrl of [
+      'http://mediquote.example.invalid/restablecer-password?token=x',
+      'javascript:alert(1)',
+      'ftp://mediquote.example.invalid/token',
+    ]) {
+      expect(() => buildPasswordRecoveryEmail({
+        recipient: 'synthetic@example.invalid',
+        resetUrl,
+        expiresAt: new Date('2026-09-12T03:00:00Z'),
+      }, 'recovery@example.invalid')).toThrow(/URL/)
+    }
   })
 })
