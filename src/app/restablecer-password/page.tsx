@@ -6,7 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy'
+import {
+  isStrongEnoughPassword,
+  MAXIMUM_PASSWORD_BYTES,
+  MINIMUM_PASSWORD_LENGTH,
+  passwordUtf8Bytes,
+} from '@/lib/password-policy'
 
 export default function RestablecerPasswordPage() {
   const [token, setToken] = useState('')
@@ -32,8 +37,11 @@ export default function RestablecerPasswordPage() {
       setError('Las contraseñas no coinciden.')
       return
     }
-    if (password.length < MINIMUM_PASSWORD_LENGTH) {
-      setError(`La contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres.`)
+    if (!isStrongEnoughPassword(password)) {
+      const bytes = passwordUtf8Bytes(password)
+      setError(bytes > MAXIMUM_PASSWORD_BYTES
+        ? `La contraseña no puede superar ${MAXIMUM_PASSWORD_BYTES} bytes en UTF-8.`
+        : `La contraseña debe tener al menos ${MINIMUM_PASSWORD_LENGTH} caracteres.`)
       return
     }
 
@@ -83,6 +91,7 @@ export default function RestablecerPasswordPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="new-password"
+                  minLength={MINIMUM_PASSWORD_LENGTH}
                   required
                 />
               </div>
@@ -94,9 +103,11 @@ export default function RestablecerPasswordPage() {
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.target.value)}
                   autoComplete="new-password"
+                  minLength={MINIMUM_PASSWORD_LENGTH}
                   required
                 />
               </div>
+              <p className="text-xs text-gray-500">Mínimo {MINIMUM_PASSWORD_LENGTH} caracteres y máximo {MAXIMUM_PASSWORD_BYTES} bytes UTF-8.</p>
               <Button className="w-full" type="submit" disabled={loading || !token}>
                 {loading ? 'Actualizando…' : 'Actualizar contraseña'}
               </Button>
