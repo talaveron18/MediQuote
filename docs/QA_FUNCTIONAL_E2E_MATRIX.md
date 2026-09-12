@@ -100,7 +100,13 @@ Tras cambios no guardados: refresh, back/forward y navegación a otra vista. Ver
 - token expirado rechazado;
 - nueva contraseña cumple política;
 - después del reset las sesiones anteriores dejan de ser válidas;
-- rate limit de solicitud y login.
+- rate limit de solicitud y login;
+- dos emisiones concurrentes para la misma cuenta dejan exactamente un único enlace utilizable;
+- dos confirmaciones concurrentes del mismo token producen una sola contraseña ganadora y el segundo intento queda bloqueado;
+- si la cuenta se desactiva después de emitir el token, el token deja de poder consumirse sin reactivar ni modificar la cuenta;
+- refresh y navegación back/forward conservan un enlace válido antes de consumirlo, pero no lo reactivan después de su uso.
+
+Regresiones ejecutables: `e2e/password-recovery-lifecycle.spec.ts` y `e2e/password-recovery-concurrency-and-state.spec.ts`. Estas pruebas usan usuarios y contraseñas exclusivamente sintéticos y no sustituyen la prueba final de entrega real por Don Dominio exigida para cerrar readiness de recuperación.
 
 ## E2E-12 — vigencias históricas de costes verificados
 Usar exclusivamente fixtures sintéticos `verified` con dos vigencias no solapadas (`v1` y `v2`) para la misma categoría, territorio, modalidad contractual y conceptos obligatorios.
