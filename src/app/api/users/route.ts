@@ -3,6 +3,11 @@ import { db } from '@/lib/db';
 import { requireRole, hashPassword, logAudit } from '@/lib/auth';
 import { generateTemporaryPassword } from '@/lib/password';
 import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
+import { privateNoStoreJson } from '@/lib/private-api-response';
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 // ─── GET — List users ────────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -191,34 +196,45 @@ export async function PATCH(request: NextRequest) {
     const auth = await requireRole(request, ['maestro', 'admin']);
     if (auth instanceof NextResponse) return auth;
 
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return privateNoStoreJson({ error: 'El cuerpo de la solicitud debe ser un objeto JSON válido' }, { status: 400 });
+    }
+    if (!isJsonObject(body)) {
+      return privateNoStoreJson({ error: 'El cuerpo de la solicitud debe ser un objeto JSON válido' }, { status: 400 });
+    }
     const { id, action } = body;
 
-    if (!id) {
-      return NextResponse.json({ error: 'Se requiere ID' }, { status: 400 });
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      return privateNoStoreJson({ error: 'Se requiere ID' }, { status: 400 });
+    }
+    if (action !== 'toggleActive' && action !== 'resetPassword') {
+      return privateNoStoreJson({ error: 'Acción de administración de usuario no válida' }, { status: 400 });
     }
 
-    const target = await db.user.findUnique({ where: { id } });
+    const target = await db.user.findUnique({ where: { id: id.trim() } });
     if (!target) {
-      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
+      return privateNoStoreJson({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
     // ── Toggle active ────────────────────────────────────────────
     if (action === 'toggleActive') {
       if (target.role === 'maestro' && auth.role !== 'maestro') {
-        return NextResponse.json({ error: 'No se puede desactivar al titular' }, { status: 403 });
+        return privateNoStoreJson({ error: 'No se puede desactivar al titular' }, { status: 403 });
       }
 
       const newActive = !target.active;
       await db.user.update({
-        where: { id },
+        where: { id: target.id },
         data: { active: newActive },
       });
 
       await logAudit({
         action: newActive ? 'user_activated' : 'user_deactivated',
         entity: 'user',
-        entityId: id,
+        entityId: target.id,
         userId: auth.id,
         userName: auth.name,
         userRole: auth.role,
@@ -227,39 +243,39 @@ export async function PATCH(request: NextRequest) {
         newData: JSON.stringify({ active: newActive }),
       });
 
-      return NextResponse.json({ success: true, active: newActive });
+      return privateNoStoreJson({ success: true, active: newActive });
     }
 
     // ── Reset password ───────────────────────────────────────────
     if (target.role === 'maestro' && auth.role !== 'maestro') {
-      return NextResponse.json({ error: 'No se puede resetear la contraseña del titular' }, { status: 403 });
+      return privateNoStoreJson({ error: 'No se puede resetear la contraseña del titular' }, { status: 403 });
     }
 
     const tempPassword = generateTemporaryPassword();
     const hashed = await hashPassword(tempPassword);
 
     await db.user.update({
-      where: { id },
+      where: { id: target.id },
       data: { password: hashed, mustChangePassword: true },
     });
 
     await logAudit({
       action: 'password_reset',
       entity: 'user',
-      entityId: id,
+      entityId: target.id,
       userId: auth.id,
       userName: auth.name,
       userRole: auth.role,
       summary: `Contraseña reseteada para: ${target.email}`,
     });
 
-    return NextResponse.json({
+    return privateNoStoreJson({
       success: true,
       temporaryPassword: tempPassword,
       message: `Contraseña temporal para ${target.email}. mustChangePassword activado.`,
     });
   } catch (error) {
     console.error('[PATCH /api/users] Error:', error);
-    return NextResponse.json({ error: 'Error' }, { status: 500 });
+    return privateNoStoreJson({ error: 'Error' }, { status: 500 });
   }
 }
