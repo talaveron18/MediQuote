@@ -114,8 +114,24 @@ export async function POST(request: NextRequest) {
   if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
     return noStoreJson({ error: 'El cuerpo debe ser un objeto JSON válido' }, { status: 400 });
   }
-  const body = parsedBody as { token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean };
-  const signature = await findRequest(body.token ?? '');
+  const body = parsedBody as Record<string, unknown>;
+  if (typeof body.token !== 'string' || !body.token) {
+    return noStoreJson({ error: 'El token de firma debe ser texto' }, { status: 400 });
+  }
+  if (typeof body.signerName !== 'string') {
+    return noStoreJson({ error: 'El nombre del firmante debe ser texto' }, { status: 400 });
+  }
+  if (typeof body.signerEmail !== 'string') {
+    return noStoreJson({ error: 'El correo del firmante debe ser texto' }, { status: 400 });
+  }
+  if (body.signatureData !== undefined && typeof body.signatureData !== 'string') {
+    return noStoreJson({ error: 'La firma debe enviarse como imagen válida' }, { status: 400 });
+  }
+  if (body.consent !== true) {
+    return noStoreJson({ error: 'Debe aceptar la declaración de firma' }, { status: 400 });
+  }
+
+  const signature = await findRequest(body.token);
   if (!signature) return noStoreJson({ error: 'Enlace no válido' }, { status: 404 });
   if (signature.status !== 'pending') return noStoreJson({ error: 'Esta solicitud ya no está pendiente', status: signature.status }, { status: 409 });
   if (signature.expiresAt.getTime() < Date.now()) {
@@ -125,11 +141,10 @@ export async function POST(request: NextRequest) {
     });
     return noStoreJson({ error: 'Este enlace ha caducado' }, { status: 410 });
   }
-  const signerName = body.signerName?.trim() ?? '';
-  const signerEmail = body.signerEmail?.trim().toLowerCase() ?? '';
+  const signerName = body.signerName.trim();
+  const signerEmail = body.signerEmail.trim().toLowerCase();
   if (signerName.length < 3 || signerName.length > 160) return noStoreJson({ error: 'Indique el nombre completo del firmante' }, { status: 400 });
   if (signerEmail !== signature.recipientEmail.toLowerCase()) return noStoreJson({ error: 'El correo del firmante debe coincidir con el destinatario' }, { status: 400 });
-  if (!body.consent) return noStoreJson({ error: 'Debe aceptar la declaración de firma' }, { status: 400 });
   if (!isValidSignaturePngDataUrl(body.signatureData)) {
     return noStoreJson({ error: 'La firma no es válida o es demasiado grande' }, { status: 400 });
   }
