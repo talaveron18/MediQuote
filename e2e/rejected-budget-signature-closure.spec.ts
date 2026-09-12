@@ -146,7 +146,7 @@ test('3 · rechazar después de emitir impide aceptar el enlace antiguo', async 
     },
   });
   expect(response.status).toBe(409);
-  expect(response.body.status).toBe('revoked');
+  expect(response.body.error).toContain('presupuesto ha cambiado');
   expectPrivateNoStore(response);
   expect((await db.budget.findUniqueOrThrow({ where: { id: budget.id }, select: { status: true } })).status).toBe('rechazado');
   const signature = await db.budgetSignatureRequest.findUniqueOrThrow({
