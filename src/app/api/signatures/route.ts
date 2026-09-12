@@ -80,12 +80,16 @@ export async function POST(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
-  let body: { budgetId?: string; recipientEmail?: string };
+  let parsedBody: unknown;
   try {
-    body = await request.json() as { budgetId?: string; recipientEmail?: string };
+    parsedBody = await request.json();
   } catch {
     return privateNoStoreJson({ error: 'El cuerpo debe ser JSON válido' }, { status: 400 });
   }
+  if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+    return privateNoStoreJson({ error: 'El cuerpo debe ser un objeto JSON válido' }, { status: 400 });
+  }
+  const body = parsedBody as { budgetId?: string; recipientEmail?: string };
   if (!body.budgetId) return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
 
   const token = randomBytes(32).toString('base64url');
