@@ -18,9 +18,9 @@ export function canonicalBudgetForSignature(budget: any) {
     // El estado ordinario es metadato de workflow, no contenido aceptado. Al
     // emitir un enlace MediQuote cambia borrador -> enviado; incluir el estado
     // completo rompería la huella sin que el documento económico hubiese
-    // cambiado. Sí sellamos el cierre por caducidad: un presupuesto caducado
-    // no puede conservar un enlace de aceptación todavía utilizable.
-    lifecycleClosed: budget.status === 'caducado',
+    // cambiado. Sí sellamos estados terminales: un presupuesto caducado o
+    // rechazado no puede conservar un enlace de aceptación todavía utilizable.
+    lifecycleClosed: budget.status === 'caducado' || budget.status === 'rechazado',
     validUntil: budget.validUntil, description: budget.description,
     subtotal: budget.subtotal, discountPercent: budget.discountPercent, discountAmount: budget.discountAmount,
     ivaAmount: budget.ivaAmount, totalFinal: budget.totalFinal,
