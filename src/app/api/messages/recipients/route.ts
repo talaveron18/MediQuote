@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { privateNoStoreJson } from '@/lib/private-api-response';
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -10,6 +11,5 @@ export async function GET(request: NextRequest) {
     select: { id: true, name: true, email: true, role: true },
     orderBy: [{ name: 'asc' }, { email: 'asc' }],
   });
-  return NextResponse.json({ users });
+  return privateNoStoreJson({ users });
 }
-
