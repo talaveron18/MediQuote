@@ -55,8 +55,8 @@ function validateRequestRecord(record: Record<string, unknown>): Array<{ field: 
     }
   }
 
-  if (typeof record.value !== 'number' || !Number.isFinite(record.value) || record.value < 0) {
-    issues.push({ field: 'value', kind: 'invalid', message: 'value debe ser un número finito y no negativo; no se aplican conversiones implícitas.' })
+  if (typeof record.value !== 'number' || !Number.isFinite(record.value)) {
+    issues.push({ field: 'value', kind: 'invalid', message: 'value debe ser un número JSON finito; no se aplican conversiones implícitas.' })
   }
 
   for (const field of ['effectiveFrom', 'sourceDate'] as const) {
