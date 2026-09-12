@@ -33,6 +33,16 @@ describe('firma de presupuesto', () => {
     expect(signatureDocumentIsCurrent(fixture({ status: 'enviado' }), documentHash)).toBe(true);
   });
 
+  it('invalida el enlace cuando el presupuesto pasa a caducado', () => {
+    const documentHash = hashBudgetForSignature(fixture({ status: 'enviado' }));
+    expect(signatureDocumentIsCurrent(fixture({ status: 'caducado' }), documentHash)).toBe(false);
+  });
+
+  it('mantiene verificable el documento aceptado porque aceptado no equivale a caducado', () => {
+    const documentHash = hashBudgetForSignature(fixture({ status: 'enviado' }));
+    expect(signatureDocumentIsCurrent(fixture({ status: 'aceptado' }), documentHash)).toBe(true);
+  });
+
   it('sí invalida el enlace cuando cambia contenido económico o documental', () => {
     const documentHash = hashBudgetForSignature(fixture());
     expect(signatureDocumentIsCurrent(fixture({ totalFinal: 150 }), documentHash)).toBe(false);
