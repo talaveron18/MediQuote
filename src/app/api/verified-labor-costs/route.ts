@@ -11,6 +11,10 @@ import {
 
 export const runtime = 'nodejs'
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireRole(request, ['admin', 'maestro'])
@@ -55,17 +59,20 @@ export async function POST(request: NextRequest) {
     const auth = await requireRole(request, ['admin', 'maestro'])
     if (auth instanceof NextResponse) return auth
 
-    let body: { record?: LaborInputDraft }
+    let body: unknown
     try {
       body = await request.json()
     } catch {
       return privateNoStoreJson({ error: 'El cuerpo debe ser JSON válido.' }, { status: 400 })
     }
-    if (!body.record || typeof body.record !== 'object') {
-      return privateNoStoreJson({ error: 'Falta record.' }, { status: 400 })
+    if (!isJsonObject(body)) {
+      return privateNoStoreJson({ error: 'El cuerpo debe ser un objeto JSON.' }, { status: 400 })
+    }
+    if (!isJsonObject(body.record)) {
+      return privateNoStoreJson({ error: 'Falta record o no es un objeto válido.' }, { status: 400 })
     }
 
-    const result = await appendWithRetry(body.record, auth.id)
+    const result = await appendWithRetry(body.record as unknown as LaborInputDraft, auth.id)
     if (result.status === 'invalid') {
       return privateNoStoreJson({ status: 'invalid', issues: result.issues }, { status: 422 })
     }
