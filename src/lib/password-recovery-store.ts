@@ -9,6 +9,7 @@ import {
 
 const RESET_PREFIX = 'password_reset:'
 const SESSION_PREFIX = 'session_generation:'
+const ISSUE_GENERATION_PREFIX = 'password_recovery_issue_generation:'
 
 type StoredReset = {
   userId: string
@@ -23,6 +24,31 @@ function resetKey(tokenHash: string): string {
 
 function sessionKey(userId: string): string {
   return `${SESSION_PREFIX}${userId}`
+}
+
+function issueGenerationKey(userId: string): string {
+  return `${ISSUE_GENERATION_PREFIX}${userId}`
+}
+
+function isRetryableTransactionError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'P2034',
+  )
+}
+
+async function serializableWithRetry<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await db.$transaction(operation, { isolationLevel: 'Serializable' })
+    } catch (error) {
+      if (!isRetryableTransactionError(error) || attempt === attempts) throw error
+    }
+  }
+  throw new Error('unreachable transaction retry state')
 }
 
 function parseStoredReset(value: string): StoredReset | null {
@@ -61,19 +87,30 @@ async function invalidatePreviousRecoveries(
   }
 }
 
+async function advanceIssueGeneration(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  const key = issueGenerationKey(userId)
+  const row = await tx.appConfig.findUnique({ where: { key } })
+  const current = Number(row?.value ?? '0')
+  const normalized = Number.isSafeInteger(current) && current >= 0 ? current : 0
+  const next = normalized + 1
+  await tx.appConfig.upsert({
+    where: { key },
+    create: { key, value: String(next) },
+    update: { value: String(next) },
+  })
+}
+
 export async function createStoredPasswordRecovery(email: string, now = new Date()) {
   const normalized = normalizeRecoveryIdentifier(email)
   const user = await db.user.findUnique({ where: { email: normalized }, select: { id: true, active: true } })
   // The caller must always return the same generic response whether this is null or not.
   if (!user?.active) return null
 
-  return db.$transaction(async (tx) => {
-    // Serialize issuance per user. Without this lock, two concurrent requests can
-    // both invalidate the previous generation and then each create a fresh usable
-    // token, leaving two valid reset links for the same account.
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`
-
-    // A later request must invalidate every earlier unused token for the same user.
+  return serializableWithRetry(async (tx) => {
+    // A deterministic per-user row is a serializable write fence. Concurrent
+    // issuances contend on it; the aborted transaction retries only after the
+    // winner commits, then invalidates the earlier token before issuing its own.
+    await advanceIssueGeneration(tx, user.id)
     await invalidatePreviousRecoveries(tx, user.id, now)
 
     const token = createPasswordRecoveryToken(now)
