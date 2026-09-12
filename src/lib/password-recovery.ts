@@ -1,7 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
 export const PASSWORD_RECOVERY_TOKEN_BYTES = 32
+export const PASSWORD_RECOVERY_TOKEN_CHARACTERS = 43
 export const PASSWORD_RECOVERY_TTL_MS = 20 * 60 * 1000
+export const MAXIMUM_RECOVERY_IDENTIFIER_LENGTH = 254
 
 export type PasswordRecoveryToken = {
   rawToken: string
@@ -18,6 +20,18 @@ export type PasswordRecoveryRecordState = {
 
 export function normalizeRecoveryIdentifier(email: string): string {
   return email.trim().toLowerCase()
+}
+
+export function isValidRecoveryIdentifier(email: string): boolean {
+  const normalized = normalizeRecoveryIdentifier(email)
+  return normalized.length > 0
+    && normalized.length <= MAXIMUM_RECOVERY_IDENTIFIER_LENGTH
+    && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized)
+}
+
+export function isCanonicalPasswordRecoveryToken(rawToken: string): boolean {
+  return rawToken.length === PASSWORD_RECOVERY_TOKEN_CHARACTERS
+    && /^[A-Za-z0-9_-]+$/.test(rawToken)
 }
 
 export function hashRecoveryToken(rawToken: string): string {
