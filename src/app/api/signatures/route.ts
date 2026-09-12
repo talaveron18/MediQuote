@@ -75,6 +75,9 @@ export async function POST(request: NextRequest) {
   if (budget.status === 'aceptado') {
     return privateNoStoreJson({ error: 'Un presupuesto aceptado no puede volver a enviarse para firma. Cree una nueva versión si necesita cambios.' }, { status: 409 });
   }
+  if (budget.status === 'caducado') {
+    return privateNoStoreJson({ error: 'Un presupuesto caducado no puede enviarse para firma. Cree una nueva versión vigente.' }, { status: 409 });
+  }
   const recipientEmail = (body.recipientEmail || budget.client.email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail)) {
     return privateNoStoreJson({ error: 'El cliente necesita un correo válido' }, { status: 400 });
