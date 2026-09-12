@@ -69,10 +69,7 @@ export async function POST(request: NextRequest) {
     if (!budget) return privateNoStoreJson({ error: 'Presupuesto no accesible' }, { status: 404 });
   }
   if (clientId) {
-    const client = await db.client.findFirst({
-      where: auth.role === 'comercial' ? { id: clientId, createdById: auth.id } : { id: clientId },
-      select: { id: true },
-    });
+    const client = await db.client.findUnique({ where: { id: clientId }, select: { id: true } });
     if (!client) return privateNoStoreJson({ error: 'Cliente no accesible' }, { status: 404 });
   }
 
