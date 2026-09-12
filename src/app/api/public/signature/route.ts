@@ -105,9 +105,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json() as {
-    token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean;
-  };
+  let body: { token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean };
+  try {
+    body = await request.json() as {
+      token?: string; signerName?: string; signerEmail?: string; signatureData?: string; consent?: boolean;
+    };
+  } catch {
+    return noStoreJson({ error: 'El cuerpo debe ser JSON válido' }, { status: 400 });
+  }
   const signature = await findRequest(body.token ?? '');
   if (!signature) return noStoreJson({ error: 'Enlace no válido' }, { status: 404 });
   if (signature.status !== 'pending') return noStoreJson({ error: 'Esta solicitud ya no está pendiente', status: signature.status }, { status: 409 });
