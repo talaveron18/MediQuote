@@ -55,8 +55,10 @@ export async function GET(request: NextRequest) {
     };
 
     // El PDF cliente no contiene coste, margen, comisión ni avisos internos.
+    // Tampoco ofrece una acción que la API rechazaría para presupuestos ya cerrados.
+    const signatureSendAllowed = mode === 'client' && budget.status !== 'aceptado' && budget.status !== 'caducado';
     let html = generateBudgetHTML(printableBudget, companyConfig, {
-      enableSignatureSend: mode === 'client',
+      enableSignatureSend: signatureSendAllowed,
     });
     if (mode === 'commercial') {
       const quote = await db.costingQuote.findFirst({
@@ -67,8 +69,11 @@ export async function GET(request: NextRequest) {
       if (!quote) {
         return privateNoStoreJson({ error: 'No hay cálculo comercial guardado para este presupuesto' }, { status: 409 });
       }
-      const snapshot = JSON.parse(quote.snapshot) as { commercial?: Record<string, unknown> };
-      html = generateCommercialBudgetHTML(html, snapshot.commercial ?? {});
+      const commercial = parseCommercialSnapshot(quote.snapshot);
+      if (commercial === null) {
+        return privateNoStoreJson({ error: 'El cálculo comercial guardado no es válido' }, { status: 409 });
+      }
+      html = generateCommercialBudgetHTML(html, commercial);
     }
 
     return new NextResponse(html, {
@@ -98,6 +103,36 @@ function fmtDate(d: string): string {
   return new Date(d).toLocaleDateString('es-ES');
 }
 
+type SurchargeBreakdownRow = { name?: unknown; hours?: unknown; amount?: unknown };
+
+function parseSurchargeBreakdown(value: unknown): SurchargeBreakdownRow[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((row): row is SurchargeBreakdownRow => Boolean(row) && typeof row === 'object' && !Array.isArray(row));
+  } catch {
+    return [];
+  }
+}
+
+function parseCommercialSnapshot(snapshot: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(snapshot) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const commercial = (parsed as { commercial?: unknown }).commercial;
+    if (commercial === undefined || commercial === null) return {};
+    if (typeof commercial !== 'object' || Array.isArray(commercial)) return null;
+    const record = commercial as Record<string, unknown>;
+    const rate = Number(record.commissionRatePercent ?? 0);
+    const amount = Number(record.commissionAmount ?? 0);
+    if (!Number.isFinite(rate) || !Number.isFinite(amount)) return null;
+    return record;
+  } catch {
+    return null;
+  }
+}
+
 export function generateBudgetHTML(
   budget: any,
   company: Record<string, string>,
@@ -112,10 +147,13 @@ export function generateBudgetHTML(
   let blockNum = 0;
   for (const block of budget.serviceBlocks) {
     blockNum++;
-    const breakdown = block.surchargeBreakdown ? JSON.parse(block.surchargeBreakdown) : [];
+    const breakdown = parseSurchargeBreakdown(block.surchargeBreakdown);
     let surchargeRows = '';
     for (const s of breakdown) {
-      surchargeRows += `<tr><td style="padding:4px 12px;font-size:12px;color:#666;">  ${esc(s.name)}</td><td style="padding:4px 12px;font-size:12px;text-align:right;">${fmt(s.hours)}h</td><td style="padding:4px 12px;font-size:12px;text-align:right;">${fmtEur(s.amount)}</td></tr>`;
+      const hours = Number(s.hours);
+      const amount = Number(s.amount);
+      if (!Number.isFinite(hours) || !Number.isFinite(amount)) continue;
+      surchargeRows += `<tr><td style="padding:4px 12px;font-size:12px;color:#666;">  ${esc(String(s.name ?? ''))}</td><td style="padding:4px 12px;font-size:12px;text-align:right;">${fmt(hours)}h</td><td style="padding:4px 12px;font-size:12px;text-align:right;">${fmtEur(amount)}</td></tr>`;
     }
 
     blocksHTML += `
@@ -143,12 +181,12 @@ export function generateBudgetHTML(
   const baseImponible = budget.subtotal + budget.totalSurcharges - budget.discountAmount;
 
   const signatureControls = options.enableSignatureSend ? `
-  <button type="button" onclick="sendBudgetForSignature()" style="padding:8px 18px;background:#07579b;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700;">Enviar al cliente para firma</button>` : '';
+  <button type="button" onclick="sendBudgetForSignature(event)" style="padding:8px 18px;background:#07579b;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700;">Enviar al cliente para firma</button>` : '';
   const signatureScript = options.enableSignatureSend ? `<script>
-async function sendBudgetForSignature(){
+async function sendBudgetForSignature(event){
   const email=window.prompt('Correo del cliente',${JSON.stringify(budget.client.email ?? '')});
   if(!email)return;
-  const button=event && event.currentTarget; if(button){button.disabled=true;button.textContent='Preparando envío…';}
+  const button=event?.currentTarget; if(button){button.disabled=true;button.textContent='Preparando envío…';}
   try{
     const response=await fetch('/api/signatures',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({budgetId:${JSON.stringify(budget.id)},recipientEmail:email})});
     const data=await response.json();
