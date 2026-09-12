@@ -70,7 +70,8 @@ export async function POST(request: NextRequest) {
         action: 'password_reset_email_queued',
         entity: 'user',
         entityId: issued.userId,
-        summary: 'Enlace de recuperación entregado al adaptador transaccional',
+        // SMTP acceptance is not proof of delivery to the recipient mailbox.
+        summary: 'Correo de recuperación aceptado por el transporte SMTP configurado; recepción final no verificada',
       })
     } catch (deliveryError) {
       // Fail closed: never leave a usable token behind if the delivery channel failed.
@@ -82,6 +83,8 @@ export async function POST(request: NextRequest) {
         entityId: issued.userId,
         summary: 'No se pudo entregar el enlace de recuperación; token invalidado',
         result: 'error',
+        // Delivery errors are deliberately credential-free; never record the
+        // raw token/reset URL or SMTP password in audit data.
         errorMessage: deliveryError instanceof Error ? deliveryError.message : 'Error de entrega',
       })
     }
@@ -92,7 +95,7 @@ export async function POST(request: NextRequest) {
     if (issuedRawToken) {
       await consumeStoredPasswordRecovery(issuedRawToken).catch(() => null)
     }
-    console.error('[POST /api/recovery/password/request] Error:', error)
+    console.error('[POST /api/recovery/password/request] Internal recovery error')
     // Enumeration-safe response even on internal failures.
     return genericResponse()
   }
