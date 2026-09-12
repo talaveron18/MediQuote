@@ -58,6 +58,10 @@ export function signableProjectionFromBudgetArtifactPayload(payload: Record<stri
     id: nullable(payload.budgetId),
     code: nullable(payload.code),
     clientId: nullable(client?.id),
+    // borrador/enviado/aceptado son estados de workflow. Caducado, en cambio,
+    // cierra la posibilidad de aceptación y debe revocar enlaces pendientes en
+    // la misma transacción que sella el nuevo artefacto.
+    lifecycleClosed: service.status === 'caducado',
     validUntil: nullable(service.validUntil),
     description: nullable(service.description),
     subtotal: nullable(calculation.subtotal),
