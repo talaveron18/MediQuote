@@ -79,31 +79,32 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  const body = await request.json() as { budgetId?: string; recipientEmail?: string };
+
+  let body: { budgetId?: string; recipientEmail?: string };
+  try {
+    body = await request.json() as { budgetId?: string; recipientEmail?: string };
+  } catch {
+    return privateNoStoreJson({ error: 'El cuerpo debe ser JSON válido' }, { status: 400 });
+  }
   if (!body.budgetId) return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
-  const budget = await db.budget.findUnique({ where: { id: body.budgetId }, include: includeBudget });
-  if (!budget || !canUseBudget(auth, budget)) return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
-  if (budget.status === 'aceptado') {
-    return privateNoStoreJson({ error: 'Un presupuesto aceptado no puede volver a enviarse para firma. Cree una nueva versión si necesita cambios.' }, { status: 409 });
-  }
-  if (budget.status === 'caducado') {
-    return privateNoStoreJson({ error: 'Un presupuesto caducado no puede enviarse para firma. Cree una nueva versión vigente.' }, { status: 409 });
-  }
-  const recipientEmail = (body.recipientEmail || budget.client.email || '').trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail)) {
-    return privateNoStoreJson({ error: 'El cliente necesita un correo válido' }, { status: 400 });
-  }
+
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  const signingUrl = buildTrustedPublicUrl({
-    path: `/firmar/${token}`,
-    requestOrigin: request.nextUrl.origin,
-    configuredOrigin: process.env.MEDIQUOTE_PUBLIC_ORIGIN,
-  }).toString();
-  const subject = `Presupuesto ${budget.code} de GASI para revisión y firma`;
-  const emailBody = `Buenos días,\n\nPuede revisar y aceptar electrónicamente el presupuesto ${budget.code} de GASI mediante este enlace seguro:\n\n${signingUrl}\n\nEl enlace es personal y caduca el ${expiresAt.toLocaleDateString('es-ES')}.\n\nUn saludo.`;
 
-  const signatureRequest = await db.$transaction(async (tx) => {
+  const issuance = await db.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Budget" WHERE "id" = ${body.budgetId} FOR UPDATE
+    `;
+    const budget = await tx.budget.findUnique({ where: { id: body.budgetId }, include: includeBudget });
+    if (!budget || !canUseBudget(auth, budget)) return { status: 'not_found' as const };
+    if (budget.status === 'aceptado') return { status: 'accepted' as const };
+    if (budget.status === 'caducado') return { status: 'expired' as const };
+
+    const recipientEmail = (body.recipientEmail || budget.client.email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail)) {
+      return { status: 'invalid_email' as const };
+    }
+
     await tx.budgetSignatureRequest.updateMany({
       where: { budgetId: budget.id, status: 'pending' },
       data: { status: 'revoked' },
@@ -116,9 +117,28 @@ export async function POST(request: NextRequest) {
       status: 'enviado',
       history: { create: { userId: auth.id, action: 'signature_requested', oldStatus: budget.status, newStatus: 'enviado', notes: `Enviado para firma a ${recipientEmail}` } },
     } });
-    return created;
+    return { status: 'created' as const, created, budgetCode: budget.code, budgetId: budget.id, recipientEmail };
   });
 
-  await logAudit({ action: 'budget_signature_requested', entity: 'budget', entityId: budget.id, userId: auth.id, userName: auth.name, userRole: auth.role, summary: `${budget.code} enviado para firma a ${recipientEmail}` });
-  return privateNoStoreJson({ id: signatureRequest.id, signingUrl, mailtoUrl: `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}` }, { status: 201 });
+  if (issuance.status === 'not_found') return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
+  if (issuance.status === 'accepted') {
+    return privateNoStoreJson({ error: 'Un presupuesto aceptado no puede volver a enviarse para firma. Cree una nueva versión si necesita cambios.' }, { status: 409 });
+  }
+  if (issuance.status === 'expired') {
+    return privateNoStoreJson({ error: 'Un presupuesto caducado no puede enviarse para firma. Cree una nueva versión vigente.' }, { status: 409 });
+  }
+  if (issuance.status === 'invalid_email') {
+    return privateNoStoreJson({ error: 'El cliente necesita un correo válido' }, { status: 400 });
+  }
+
+  const signingUrl = buildTrustedPublicUrl({
+    path: `/firmar/${token}`,
+    requestOrigin: request.nextUrl.origin,
+    configuredOrigin: process.env.MEDIQUOTE_PUBLIC_ORIGIN,
+  }).toString();
+  const subject = `Presupuesto ${issuance.budgetCode} de GASI para revisión y firma`;
+  const emailBody = `Buenos días,\n\nPuede revisar y aceptar electrónicamente el presupuesto ${issuance.budgetCode} de GASI mediante este enlace seguro:\n\n${signingUrl}\n\nEl enlace es personal y caduca el ${expiresAt.toLocaleDateString('es-ES')}.\n\nUn saludo.`;
+
+  await logAudit({ action: 'budget_signature_requested', entity: 'budget', entityId: issuance.budgetId, userId: auth.id, userName: auth.name, userRole: auth.role, summary: `${issuance.budgetCode} enviado para firma a ${issuance.recipientEmail}` });
+  return privateNoStoreJson({ id: issuance.created.id, signingUrl, mailtoUrl: `mailto:${encodeURIComponent(issuance.recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}` }, { status: 201 });
 }
