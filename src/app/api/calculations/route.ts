@@ -18,6 +18,7 @@ import { getConventionProfileForProvince, resolveServiceLocation } from '@/lib/s
 import { filterHolidaysForLocation } from '@/lib/holiday-location';
 import { getLocalHolidayCalendar, getMunicipalHolidays } from '@/lib/local-holidays';
 import { allocateBlockPricing } from '@/lib/block-pricing';
+import { privateNoStoreJson } from '@/lib/private-api-response';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,16 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
-    const body = await request.json() as {
+    let parsedBody: unknown;
+    try {
+      parsedBody = await request.json();
+    } catch {
+      return privateNoStoreJson({ error: 'El cuerpo JSON no es válido' }, { status: 400 });
+    }
+    if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+      return privateNoStoreJson({ error: 'El cuerpo de cálculo debe ser un objeto JSON' }, { status: 400 });
+    }
+    const body = parsedBody as {
       blocks?: ServiceBlockInput[];
       discountPercent?: number;
       ivaPercent?: number;
@@ -47,7 +57,20 @@ export async function POST(request: NextRequest) {
     };
     const blocks = body.blocks;
     if (!Array.isArray(blocks) || blocks.length === 0) {
-      return NextResponse.json({ error: 'Se requiere al menos un bloque de servicio' }, { status: 400 });
+      return privateNoStoreJson({ error: 'Se requiere al menos un bloque de servicio' }, { status: 400 });
+    }
+    if (blocks.some((block) => !block || typeof block !== 'object' || Array.isArray(block))) {
+      return privateNoStoreJson({ error: 'Cada bloque de servicio debe ser un objeto válido' }, { status: 400 });
+    }
+    for (const block of blocks) {
+      if (block.specificDates !== undefined
+        && (!Array.isArray(block.specificDates) || block.specificDates.some((value) => typeof value !== 'string'))) {
+        return privateNoStoreJson({ error: 'Las fechas específicas deben enviarse como una lista de fechas válidas' }, { status: 400 });
+      }
+      if ((block.dateRangeStart !== undefined && typeof block.dateRangeStart !== 'string')
+        || (block.dateRangeEnd !== undefined && typeof block.dateRangeEnd !== 'string')) {
+        return privateNoStoreJson({ error: 'El rango de fechas debe enviarse como texto de fecha válido' }, { status: 400 });
+      }
     }
 
     const [dbSurcharges, laborRule, categories, legalParameterRows, appConfigRows] = await Promise.all([
