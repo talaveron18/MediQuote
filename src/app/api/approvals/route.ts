@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAuth, requireMaestro } from '@/lib/auth';
+import { privateNoStoreJson } from '@/lib/private-api-response';
 
 const include = {
   budget: { select: { id: true, code: true, totalFinal: true, client: { select: { businessName: true } } } },
   requester: { select: { id: true, name: true, email: true, role: true } },
   reviewer: { select: { id: true, name: true } },
 } as const;
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readJsonObject(request: NextRequest): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await request.json();
+    return isJsonObject(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -21,25 +35,36 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: 'desc' },
     take: 200,
   });
-  return NextResponse.json({ approvals });
+  return privateNoStoreJson({ approvals });
 }
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  const body = await request.json() as { budgetId?: string; reason?: string };
-  if (!body.budgetId) return NextResponse.json({ error: 'Selecciona un presupuesto' }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return privateNoStoreJson({ error: 'El cuerpo de la solicitud debe ser un objeto JSON válido' }, { status: 400 });
+  }
+  if (typeof body.budgetId !== 'string' || body.budgetId.trim().length === 0) {
+    return privateNoStoreJson({ error: 'Selecciona un presupuesto' }, { status: 400 });
+  }
+  if (body.reason !== undefined && body.reason !== null && typeof body.reason !== 'string') {
+    return privateNoStoreJson({ error: 'El motivo debe ser texto' }, { status: 400 });
+  }
+  const budgetId = body.budgetId.trim();
   const budget = await db.budget.findUnique({
-    where: { id: body.budgetId },
+    where: { id: budgetId },
     select: { id: true, code: true, createdById: true, discountPercent: true, totalFinal: true },
   });
-  if (!budget) return NextResponse.json({ error: 'Presupuesto no encontrado' }, { status: 404 });
+  if (!budget) return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
   if (auth.role === 'comercial' && budget.createdById !== auth.id) {
-    return NextResponse.json({ error: 'Solo puedes enviar tus propios presupuestos' }, { status: 403 });
+    return privateNoStoreJson({ error: 'Solo puedes enviar tus propios presupuestos' }, { status: 403 });
   }
   const pending = await db.budgetApproval.findFirst({ where: { budgetId: budget.id, status: 'pending' }, include });
-  if (pending) return NextResponse.json({ approval: pending, alreadyPending: true });
-  const reason = body.reason?.trim() || 'Validación general solicitada por el creador del presupuesto';
+  if (pending) return privateNoStoreJson({ approval: pending, alreadyPending: true });
+  const reason = typeof body.reason === 'string' && body.reason.trim()
+    ? body.reason.trim()
+    : 'Validación general solicitada por el creador del presupuesto';
   const approval = await db.budgetApproval.create({
     data: {
       budgetId: budget.id, requesterId: auth.id, reason,
@@ -55,26 +80,34 @@ export async function POST(request: NextRequest) {
   await db.budgetHistory.create({
     data: { budgetId: budget.id, userId: auth.id, action: 'approval_requested', notes: reason },
   });
-  return NextResponse.json({ approval }, { status: 201 });
+  return privateNoStoreJson({ approval }, { status: 201 });
 }
 
 export async function PATCH(request: NextRequest) {
   const auth = await requireMaestro(request);
   if (auth instanceof NextResponse) return auth;
-  const body = await request.json() as { id?: string; decision?: 'approved' | 'rejected'; comment?: string };
-  if (!body.id || !['approved', 'rejected'].includes(body.decision ?? '')) {
-    return NextResponse.json({ error: 'La aprobación y la decisión son obligatorias' }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return privateNoStoreJson({ error: 'El cuerpo de la solicitud debe ser un objeto JSON válido' }, { status: 400 });
   }
-  const existing = await db.budgetApproval.findUnique({ where: { id: body.id }, include: { budget: true } });
+  if (typeof body.id !== 'string' || body.id.trim().length === 0 || !['approved', 'rejected'].includes(String(body.decision ?? ''))) {
+    return privateNoStoreJson({ error: 'La aprobación y la decisión son obligatorias' }, { status: 400 });
+  }
+  if (body.comment !== undefined && body.comment !== null && typeof body.comment !== 'string') {
+    return privateNoStoreJson({ error: 'El comentario debe ser texto' }, { status: 400 });
+  }
+  const decision = body.decision as 'approved' | 'rejected';
+  const existing = await db.budgetApproval.findUnique({ where: { id: body.id.trim() }, include: { budget: true } });
   if (!existing || existing.status !== 'pending') {
-    return NextResponse.json({ error: 'La solicitud ya no está pendiente' }, { status: 409 });
+    return privateNoStoreJson({ error: 'La solicitud ya no está pendiente' }, { status: 409 });
   }
+  const comment = typeof body.comment === 'string' ? body.comment.trim() || null : null;
   const approval = await db.budgetApproval.update({
     where: { id: existing.id },
     data: {
-      status: body.decision,
+      status: decision,
       reviewerId: auth.id,
-      decisionComment: body.comment?.trim() || null,
+      decisionComment: comment,
       decidedAt: new Date(),
     },
     include,
@@ -82,9 +115,9 @@ export async function PATCH(request: NextRequest) {
   await db.notification.create({
     data: {
       userId: existing.requesterId,
-      type: `approval_${body.decision}`,
-      title: `Presupuesto ${existing.budget.code} ${body.decision === 'approved' ? 'aprobado' : 'rechazado'}`,
-      body: body.comment?.trim() || null,
+      type: `approval_${decision}`,
+      title: `Presupuesto ${existing.budget.code} ${decision === 'approved' ? 'aprobado' : 'rechazado'}`,
+      body: comment,
       linkView: 'communications',
       entityId: existing.budgetId,
     },
@@ -93,9 +126,9 @@ export async function PATCH(request: NextRequest) {
     data: {
       budgetId: existing.budgetId,
       userId: auth.id,
-      action: body.decision === 'approved' ? 'approval_granted' : 'approval_rejected',
-      notes: body.comment?.trim() || null,
+      action: decision === 'approved' ? 'approval_granted' : 'approval_rejected',
+      notes: comment,
     },
   });
-  return NextResponse.json({ approval });
+  return privateNoStoreJson({ approval });
 }
