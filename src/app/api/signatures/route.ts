@@ -22,7 +22,7 @@ function privateNoStoreJson(body: unknown, init: ResponseInit = {}) {
   return NextResponse.json(body, { ...init, headers });
 }
 
-function esc(value: unknown) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function esc(value: unknown) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;'); }
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -89,23 +89,30 @@ export async function POST(request: NextRequest) {
   if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
     return privateNoStoreJson({ error: 'El cuerpo debe ser un objeto JSON válido' }, { status: 400 });
   }
-  const body = parsedBody as { budgetId?: string; recipientEmail?: string };
-  if (!body.budgetId) return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
+  const body = parsedBody as Record<string, unknown>;
+  if (typeof body.budgetId !== 'string' || !body.budgetId.trim()) {
+    return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
+  }
+  if (body.recipientEmail !== undefined && typeof body.recipientEmail !== 'string') {
+    return privateNoStoreJson({ error: 'El correo del destinatario debe ser texto' }, { status: 400 });
+  }
+  const budgetId = body.budgetId.trim();
+  const requestedRecipientEmail = typeof body.recipientEmail === 'string' ? body.recipientEmail : undefined;
 
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   const issuance = await db.$transaction(async (tx) => {
     await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "Budget" WHERE "id" = ${body.budgetId} FOR UPDATE
+      SELECT "id" FROM "Budget" WHERE "id" = ${budgetId} FOR UPDATE
     `;
-    const budget = await tx.budget.findUnique({ where: { id: body.budgetId }, include: includeBudget });
+    const budget = await tx.budget.findUnique({ where: { id: budgetId }, include: includeBudget });
     if (!budget || !canUseBudget(auth, budget)) return { status: 'not_found' as const };
     if (budget.status === 'aceptado') return { status: 'accepted' as const };
     if (budget.status === 'rechazado') return { status: 'rejected' as const };
     if (budget.status === 'caducado') return { status: 'expired' as const };
 
-    const recipientEmail = (body.recipientEmail || budget.client.email || '').trim().toLowerCase();
+    const recipientEmail = (requestedRecipientEmail || budget.client.email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail)) {
       return { status: 'invalid_email' as const };
     }
