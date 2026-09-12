@@ -6,7 +6,7 @@ import {
 } from '@/lib/password-recovery-store'
 import { recordPasswordRecoveryAttempt } from '@/lib/password-recovery-rate-limit'
 import { deliverPasswordRecoveryLink } from '@/lib/password-recovery-delivery'
-import { normalizeRecoveryIdentifier } from '@/lib/password-recovery'
+import { isValidRecoveryIdentifier, normalizeRecoveryIdentifier } from '@/lib/password-recovery'
 import { buildTrustedPublicUrl } from '@/lib/public-origin'
 
 export const runtime = 'nodejs'
@@ -29,10 +29,13 @@ export async function POST(request: NextRequest) {
   let issuedRawToken: string | null = null
   try {
     const body = await request.json().catch(() => ({})) as { email?: unknown }
-    const email = typeof body.email === 'string' ? normalizeRecoveryIdentifier(body.email) : ''
+    const rawEmail = typeof body.email === 'string' ? body.email : ''
+    const email = normalizeRecoveryIdentifier(rawEmail)
 
     // Keep the public response indistinguishable for malformed, unknown and known accounts.
-    if (!email) {
+    // Malformed identifiers are rejected before persistent rate-limit/DB work so arbitrary
+    // oversized garbage cannot consume the shared IP recovery quota.
+    if (!isValidRecoveryIdentifier(email)) {
       await logAudit({ action: 'password_reset_requested', entity: 'user', summary: 'Solicitud de recuperación recibida' })
       return genericResponse()
     }
@@ -90,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     return genericResponse()
-  } catch (error) {
+  } catch {
     // If an unexpected error happens after issuance, consume the token whenever possible.
     if (issuedRawToken) {
       await consumeStoredPasswordRecovery(issuedRawToken).catch(() => null)
