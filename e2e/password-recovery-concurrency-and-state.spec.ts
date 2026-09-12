@@ -24,7 +24,10 @@ async function createRecoveryUser(label: string) {
 
 async function cleanup(userId: string) {
   await db.appConfig.deleteMany({ where: { key: { startsWith: 'password_reset:' }, value: { contains: userId } } })
-  await db.appConfig.deleteMany({ where: { key: `session_generation:${userId}` } })
+  await db.appConfig.deleteMany({ where: { key: { in: [
+    `session_generation:${userId}`,
+    `password_recovery_issue_generation:${userId}`,
+  ] } } })
   await db.auditLog.deleteMany({ where: { userId } })
   await db.user.deleteMany({ where: { id: userId } })
 }
