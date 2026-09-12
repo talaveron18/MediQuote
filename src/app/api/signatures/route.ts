@@ -49,9 +49,20 @@ export async function GET(request: NextRequest) {
     where: { budgetId }, select: { id: true, status: true, recipientEmail: true, expiresAt: true, signerName: true, signerEmail: true, acceptedAt: true, createdAt: true, documentHash: true },
     orderBy: { createdAt: 'desc' }, take: 20,
   });
-  const stalePendingIds = requests
-    .filter((row) => row.status === 'pending' && !signatureDocumentIsCurrent(budget, row.documentHash))
+  const now = Date.now();
+  const expiredPendingIds = requests
+    .filter((row) => row.status === 'pending' && row.expiresAt.getTime() < now)
     .map((row) => row.id);
+  const expiredSet = new Set(expiredPendingIds);
+  const stalePendingIds = requests
+    .filter((row) => row.status === 'pending' && !expiredSet.has(row.id) && !signatureDocumentIsCurrent(budget, row.documentHash))
+    .map((row) => row.id);
+  if (expiredPendingIds.length) {
+    await db.budgetSignatureRequest.updateMany({
+      where: { id: { in: expiredPendingIds }, status: 'pending' },
+      data: { status: 'expired' },
+    });
+  }
   if (stalePendingIds.length) {
     await db.budgetSignatureRequest.updateMany({
       where: { id: { in: stalePendingIds }, status: 'pending' },
@@ -61,7 +72,7 @@ export async function GET(request: NextRequest) {
   const staleSet = new Set(stalePendingIds);
   return privateNoStoreJson({ requests: requests.map(({ documentHash: _documentHash, ...row }) => ({
     ...row,
-    status: staleSet.has(row.id) ? 'revoked' : row.status,
+    status: expiredSet.has(row.id) ? 'expired' : staleSet.has(row.id) ? 'revoked' : row.status,
   })) });
 }
 
