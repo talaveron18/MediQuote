@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { db } from './db'
 import {
   createPasswordRecoveryToken,
@@ -39,8 +40,12 @@ function parseStoredReset(value: string): StoredReset | null {
   }
 }
 
-async function invalidatePreviousRecoveries(userId: string, now: Date): Promise<void> {
-  const rows = await db.appConfig.findMany({
+async function invalidatePreviousRecoveries(
+  client: Prisma.TransactionClient | typeof db,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  const rows = await client.appConfig.findMany({
     where: { key: { startsWith: RESET_PREFIX } },
     select: { key: true, value: true },
   })
@@ -49,7 +54,7 @@ async function invalidatePreviousRecoveries(userId: string, now: Date): Promise<
     const stored = parseStoredReset(row.value)
     if (!stored || stored.userId !== userId || stored.usedAt) continue
     const invalidated: StoredReset = { ...stored, usedAt: now.toISOString() }
-    await db.appConfig.updateMany({
+    await client.appConfig.updateMany({
       where: { key: row.key, value: row.value },
       data: { value: JSON.stringify(invalidated) },
     })
@@ -62,20 +67,27 @@ export async function createStoredPasswordRecovery(email: string, now = new Date
   // The caller must always return the same generic response whether this is null or not.
   if (!user?.active) return null
 
-  // A later request must invalidate every earlier unused token for the same user.
-  await invalidatePreviousRecoveries(user.id, now)
+  return db.$transaction(async (tx) => {
+    // Serialize issuance per user. Without this lock, two concurrent requests can
+    // both invalidate the previous generation and then each create a fresh usable
+    // token, leaving two valid reset links for the same account.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`
 
-  const token = createPasswordRecoveryToken(now)
-  const stored: StoredReset = {
-    userId: user.id,
-    tokenHash: token.tokenHash,
-    expiresAt: token.expiresAt.toISOString(),
-    usedAt: null,
-  }
-  await db.appConfig.create({
-    data: { key: resetKey(token.tokenHash), value: JSON.stringify(stored) },
+    // A later request must invalidate every earlier unused token for the same user.
+    await invalidatePreviousRecoveries(tx, user.id, now)
+
+    const token = createPasswordRecoveryToken(now)
+    const stored: StoredReset = {
+      userId: user.id,
+      tokenHash: token.tokenHash,
+      expiresAt: token.expiresAt.toISOString(),
+      usedAt: null,
+    }
+    await tx.appConfig.create({
+      data: { key: resetKey(token.tokenHash), value: JSON.stringify(stored) },
+    })
+    return { rawToken: token.rawToken, expiresAt: token.expiresAt, userId: user.id }
   })
-  return { rawToken: token.rawToken, expiresAt: token.expiresAt, userId: user.id }
 }
 
 export async function consumeStoredPasswordRecovery(rawToken: string, now = new Date()): Promise<string | null> {
