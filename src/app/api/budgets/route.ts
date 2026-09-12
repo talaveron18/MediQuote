@@ -242,6 +242,10 @@ function rejectedBudgetConflict(): BudgetAcceptedConflict {
   return new BudgetAcceptedConflict('Un presupuesto rechazado está cerrado y no puede modificarse.')
 }
 
+function expiredBudgetConflict(): BudgetAcceptedConflict {
+  return new BudgetAcceptedConflict('Un presupuesto caducado está cerrado y no puede modificarse. Cree una nueva versión vigente.')
+}
+
 async function lockMutableBudget(tx: any, budgetId: string) {
   const rows = await tx.$queryRaw<Array<{ status: string }>>`
     SELECT "status" FROM "Budget" WHERE "id" = ${budgetId} FOR UPDATE
@@ -251,6 +255,7 @@ async function lockMutableBudget(tx: any, budgetId: string) {
     throw new BudgetAcceptedConflict('Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.')
   }
   if (rows[0].status === 'rechazado') throw rejectedBudgetConflict()
+  if (rows[0].status === 'caducado') throw expiredBudgetConflict()
 }
 
 async function sealPersistedBudget(
@@ -460,6 +465,9 @@ export async function PUT(request: NextRequest) {
     if (existing.status === 'rechazado') {
       return NextResponse.json({ error: rejectedBudgetConflict().message }, { status: 409 })
     }
+    if (existing.status === 'caducado') {
+      return NextResponse.json({ error: expiredBudgetConflict().message }, { status: 409 })
+    }
 
     const updatesEconomicData = serviceBlocks !== undefined || [
       'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
@@ -601,6 +609,9 @@ export async function DELETE(request: NextRequest) {
     }
     if (existing.status === 'rechazado') {
       return NextResponse.json({ error: rejectedBudgetConflict().message }, { status: 409 })
+    }
+    if (existing.status === 'caducado') {
+      return NextResponse.json({ error: expiredBudgetConflict().message }, { status: 409 })
     }
     const sealedAt = new Date()
 
