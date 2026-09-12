@@ -68,11 +68,16 @@ async function issue(page: Page, budgetId: string) {
 
 function tokenFrom(url: string) { return new URL(url).pathname.split('/').filter(Boolean).pop()!; }
 
-function expectPrivateBadRequest(response: ApiResult<{ error?: string }>) {
+function expectPrivate400(response: ApiResult<{ error?: string }>) {
   expect(response.status).toBe(400);
   expect(response.cacheControl).toContain('private');
   expect(response.cacheControl).toContain('no-store');
   expect(response.pragma).toBe('no-cache');
+  expect(typeof response.body.error).toBe('string');
+}
+
+function expectPrivateBadRequest(response: ApiResult<{ error?: string }>) {
+  expectPrivate400(response);
   expect(response.body.error).toContain('objeto JSON válido');
 }
 
@@ -95,6 +100,27 @@ test('emisión privada rechaza arrays y escalares JSON sin crear ni revocar soli
   expect(listed.body.requests).toHaveLength(1);
 });
 
+test('emisión privada rechaza tipos inválidos de budgetId y recipientEmail sin mutar firmas existentes', async ({ page }) => {
+  const budgetId = await createBudget(page, `Firma campos privada ${Date.now()}`);
+  const issued = await issue(page, budgetId);
+
+  const invalidBodies = [
+    { budgetId: 42, recipientEmail: 'cliente@example.invalid' },
+    { budgetId: true, recipientEmail: 'cliente@example.invalid' },
+    { budgetId: [], recipientEmail: 'cliente@example.invalid' },
+    { budgetId, recipientEmail: 42 },
+    { budgetId, recipientEmail: {} },
+    { budgetId, recipientEmail: [] },
+  ];
+  for (const body of invalidBodies) {
+    expectPrivate400(await api<{ error?: string }>(page, '/api/signatures', 'POST', body));
+  }
+
+  const listed = await api<{ requests: Array<{ id: string; status: string }> }>(page, `/api/signatures?budgetId=${budgetId}`);
+  expect(listed.body.requests).toHaveLength(1);
+  expect(listed.body.requests[0]).toEqual(expect.objectContaining({ id: issued.id, status: 'pending' }));
+});
+
 test('aceptación pública rechaza JSON null sin consumir un enlace válido', async ({ page }) => {
   const budgetId = await createBudget(page, `Firma null pública ${Date.now()}`);
   const issued = await issue(page, budgetId);
@@ -110,6 +136,35 @@ test('aceptación pública rechaza arrays y escalares JSON sin invalidar el toke
   const issued = await issue(page, budgetId);
   const token = tokenFrom(issued.signingUrl);
   for (const raw of ['[]', '"texto"', '42', 'false']) expectPrivateBadRequest(await rawJson<{ error?: string }>(page, '/api/public/signature', raw));
+  const pending = await api<{ status: string }>(page, `/api/public/signature?token=${encodeURIComponent(token)}`);
+  expect(pending.status).toBe(200);
+  expect(pending.body.status).toBe('pending');
+});
+
+test('aceptación pública exige tipos exactos y consentimiento booleano sin consumir el token', async ({ page }) => {
+  const budgetId = await createBudget(page, `Firma campos pública ${Date.now()}`);
+  const issued = await issue(page, budgetId);
+  const token = tokenFrom(issued.signingUrl);
+  const base = {
+    token,
+    signerName: 'Cliente E2E',
+    signerEmail: 'cliente@example.invalid',
+    signatureData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    consent: true,
+  };
+
+  const invalidBodies = [
+    { ...base, token: { value: token } },
+    { ...base, signerName: { value: 'Cliente' } },
+    { ...base, signerEmail: ['cliente@example.invalid'] },
+    { ...base, signatureData: { png: base.signatureData } },
+    { ...base, consent: 'true' },
+    { ...base, consent: 1 },
+  ];
+  for (const body of invalidBodies) {
+    expectPrivate400(await api<{ error?: string }>(page, '/api/public/signature', 'POST', body));
+  }
+
   const pending = await api<{ status: string }>(page, `/api/public/signature?token=${encodeURIComponent(token)}`);
   expect(pending.status).toBe(200);
   expect(pending.body.status).toBe('pending');
