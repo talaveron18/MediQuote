@@ -198,4 +198,4 @@ test('4 · backoffice conserva una sola aceptación y mantiene la solicitud ante
   expect(currentRow?.status).toBe('accepted');
   expect(currentRow?.acceptedAt).toBeTruthy();
   expect(list.body.requests.filter((item) => item.status === 'accepted')).toHaveLength(1);
-}
+});
