@@ -12,6 +12,27 @@ type StoredReset = {
   usedAt: string | null
 }
 
+function isRetryableTransactionError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'P2034',
+  )
+}
+
+async function serializableWithRetry<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await db.$transaction(operation, { isolationLevel: 'Serializable' })
+    } catch (error) {
+      if (!isRetryableTransactionError(error) || attempt === attempts) throw error
+    }
+  }
+  throw new Error('unreachable transaction retry state')
+}
+
 function parseStoredReset(value: string): StoredReset | null {
   try {
     const parsed = JSON.parse(value) as Partial<StoredReset>
@@ -65,7 +86,9 @@ async function invalidateOtherRecoveriesTx(
 /**
  * Completes a reset atomically: token consumption, password replacement,
  * invalidation of sibling recovery tokens and session revocation either all
- * commit together or none of them do.
+ * commit together or none of them do. Serializable conflicts are retried so a
+ * concurrent double-submit resolves as one success and one already-used token,
+ * not an infrastructure error.
  */
 export async function completePasswordRecovery(
   rawToken: string,
@@ -75,7 +98,7 @@ export async function completePasswordRecovery(
   const tokenHash = hashRecoveryToken(rawToken)
   const key = `${RESET_PREFIX}${tokenHash}`
 
-  return db.$transaction(async (tx) => {
+  return serializableWithRetry(async (tx) => {
     const row = await tx.appConfig.findUnique({ where: { key } })
     const stored = parseStoredReset(row?.value ?? '')
     if (!row || !stored) return null
@@ -107,7 +130,7 @@ export async function completePasswordRecovery(
     await invalidateOtherRecoveriesTx(tx, user.id, now, key)
     const sessionGeneration = await bumpSessionGenerationTx(tx, user.id)
     return { ...user, sessionGeneration }
-  }, { isolationLevel: 'Serializable' })
+  })
 }
 
 /**
@@ -119,12 +142,12 @@ export async function changePasswordAndRevokeRecovery(
   passwordHash: string,
   now = new Date(),
 ) {
-  return db.$transaction(async (tx) => {
+  return serializableWithRetry(async (tx) => {
     await tx.user.update({
       where: { id: userId },
       data: { password: passwordHash, mustChangePassword: false },
     })
     await invalidateOtherRecoveriesTx(tx, userId, now)
     return bumpSessionGenerationTx(tx, userId)
-  }, { isolationLevel: 'Serializable' })
+  })
 }
