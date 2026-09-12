@@ -30,6 +30,7 @@ type Calculation = {
 };
 type Saved = { budget: { id: string; code: string; totalFinal: number }; immutableArtifact: { version: number; artifactHash: string } };
 type CostAudit = { verifiedLaborSources: Array<{ sources: Array<{ id: string }> }> };
+type Signature = { id: string; signingUrl: string };
 
 async function api<T = unknown>(page: Page, path: string, method = 'GET', body?: unknown): Promise<ApiResult<T>> {
   return page.evaluate(async ({ requestPath, requestMethod, requestBody }) => {
@@ -118,12 +119,19 @@ async function save(page: Page, calculation: Calculation, description: string) {
   return result.body;
 }
 
+async function issueSignature(page: Page, budgetId: string, recipientEmail = 'supersession.signature@example.invalid') {
+  const result = await api<Signature>(page, '/api/signatures', 'POST', { budgetId, recipientEmail });
+  expect(result.status).toBe(201);
+  return result.body;
+}
+
 async function sourceIds(page: Page, budgetId: string) {
   const result = await api<CostAudit>(page, `/api/costing?budgetId=${encodeURIComponent(budgetId)}`);
   expect(result.status).toBe(200);
   return result.body.verifiedLaborSources.flatMap((row) => row.sources.map((source) => source.id));
 }
 
+function tokenFrom(url: string) { return new URL(url).pathname.split('/').filter(Boolean).pop()!; }
 function unique(label: string) { return `e2e-sup-edit-${Date.now()}-${Math.random().toString(36).slice(2)}-${label}`; }
 
 test.afterAll(async () => { await db.$disconnect(); });
@@ -171,16 +179,15 @@ test('editar/recalcular con sucesora verified crea v2 usando solo la reemplazant
   expect(ids).not.toContain(`gestoria:${baselineId(categoryId, 'productive_hour_gross')}`);
 });
 
-test('un enlace de firma pendiente anterior a una edición económica se normaliza como revocado', async ({ page }) => {
-  const categoryId = unique('signature');
+test('firma pending se revoca dentro de la misma transacción cuando cambia contenido firmable', async ({ page }) => {
+  const categoryId = unique('signature-atomic');
   await ensureCategory(categoryId); await login(page); await addBaseline(page, categoryId);
   const initial = await calculate(page, categoryId); const created = await save(page, initial.body, `V1 firma ${categoryId}`);
-  const signature = await api<{ id: string; signingUrl: string }>(page, '/api/signatures', 'POST', {
-    budgetId: created.budget.id, recipientEmail: 'stale.signature@example.invalid',
-  });
-  expect(signature.status).toBe(201);
-  const replacementId = await supersede(page, categoryId, 'verified', 29);
-  expect(replacementId).toBeTruthy();
+  const signature = await issueSignature(page, created.budget.id, 'atomic.signature@example.invalid');
+  const before = await db.budgetSignatureRequest.findUnique({ where: { id: signature.id }, select: { status: true } });
+  expect(before?.status).toBe('pending');
+
+  await supersede(page, categoryId, 'verified', 29);
   const recalculation = await calculate(page, categoryId);
   const edited = await api<Saved>(page, '/api/budgets', 'PUT', {
     id: created.budget.id, serviceBlocks: [], description: `V2 firma ${categoryId}`,
@@ -188,12 +195,103 @@ test('un enlace de firma pendiente anterior a una edición económica se normali
   });
   expect(edited.status).toBe(200);
 
-  const staleToken = new URL(signature.body.signingUrl).pathname.split('/').filter(Boolean).pop()!;
+  // This assertion happens before any GET /api/signatures, proving that revocation
+  // is no longer the lazy read-side normalization implemented by the old route.
+  const immediatelyAfterCommit = await db.budgetSignatureRequest.findUnique({ where: { id: signature.id }, select: { status: true } });
+  expect(immediatelyAfterCommit?.status).toBe('revoked');
+  const revocationHistory = await db.budgetHistory.findFirst({
+    where: { budgetId: created.budget.id, action: 'signature_requests_revoked' },
+    orderBy: { createdAt: 'desc' }, select: { notes: true },
+  });
+  expect(revocationHistory?.notes).toBe('reason=signable_document_changed;count=1');
+
+  const staleToken = tokenFrom(signature.signingUrl);
   const publicReview = await api(page, `/api/public/signature?token=${encodeURIComponent(staleToken)}`);
   expect(publicReview.status).toBe(409);
-  const list = await api<{ requests: Array<{ id: string; status: string }> }>(page, `/api/signatures?budgetId=${created.budget.id}`);
-  expect(list.status).toBe(200);
-  expect(list.body.requests.find((row) => row.id === signature.body.id)?.status).toBe('revoked');
+});
+
+test('cambios internos o de workflow que no alteran lo firmado conservan la firma pending', async ({ page }) => {
+  const categoryId = unique('non-signable');
+  await ensureCategory(categoryId); await login(page); await addBaseline(page, categoryId);
+  const initial = await calculate(page, categoryId); const created = await save(page, initial.body, `V1 no firmable ${categoryId}`);
+  const signature = await issueSignature(page, created.budget.id, 'non.signable@example.invalid');
+
+  const edit = await api<Saved>(page, '/api/budgets', 'PUT', {
+    id: created.budget.id,
+    status: 'enviado',
+    clientNotes: 'Nota operativa que no forma parte de la huella firmable.',
+    internalNotes: 'Nota interna sintética E2E.',
+  });
+  expect(edit.status).toBe(200);
+  const persisted = await db.budgetSignatureRequest.findUnique({ where: { id: signature.id }, select: { status: true } });
+  expect(persisted?.status).toBe('pending');
+  const revocations = await db.budgetHistory.count({
+    where: { budgetId: created.budget.id, action: 'signature_requests_revoked' },
+  });
+  expect(revocations).toBe(0);
+  expect((await api(page, `/api/public/signature?token=${encodeURIComponent(tokenFrom(signature.signingUrl))}`)).status).toBe(200);
+});
+
+test('una edición rechazada no revoca la firma pendiente ni deja trazas de revocación', async ({ page }) => {
+  const categoryId = unique('failed-edit');
+  await ensureCategory(categoryId); await login(page); await addBaseline(page, categoryId);
+  const initial = await calculate(page, categoryId); const created = await save(page, initial.body, `V1 fallo ${categoryId}`);
+  const signature = await issueSignature(page, created.budget.id, 'failed.edit@example.invalid');
+  await supersede(page, categoryId, 'pending');
+
+  const rejected = await api(page, '/api/budgets', 'PUT', {
+    id: created.budget.id, serviceBlocks: [], description: 'NO_APLICAR_SIN_TOKEN',
+  });
+  expect(rejected.status).toBe(409);
+  const persisted = await db.budgetSignatureRequest.findUnique({ where: { id: signature.id }, select: { status: true } });
+  expect(persisted?.status).toBe('pending');
+  expect(await db.budgetHistory.count({ where: { budgetId: created.budget.id, action: 'signature_requests_revoked' } })).toBe(0);
+});
+
+test('tras supersesión verified la UI, PDF y firma nueva sobreviven reload/back-forward y usan v2', async ({ page }) => {
+  const categoryId = unique('ui-lifecycle');
+  await ensureCategory(categoryId); await login(page); await addBaseline(page, categoryId);
+  const initial = await calculate(page, categoryId); const created = await save(page, initial.body, `V1 UI ${categoryId}`);
+  const oldSignature = await issueSignature(page, created.budget.id, 'ui.lifecycle@example.invalid');
+  const oldTotal = created.budget.totalFinal;
+
+  await supersede(page, categoryId, 'verified', 31);
+  const recalculation = await calculate(page, categoryId);
+  const edited = await api<Saved>(page, '/api/budgets', 'PUT', {
+    id: created.budget.id, serviceBlocks: [], description: `V2 UI ${categoryId}`,
+    calculationToken: recalculation.body.totals!.calculationToken,
+  });
+  expect(edited.status).toBe(200);
+  expect(edited.body.budget.totalFinal).toBe(recalculation.body.totals!.totalFinal);
+  expect(edited.body.budget.totalFinal).not.toBe(oldTotal);
+  expect((await db.budgetSignatureRequest.findUnique({ where: { id: oldSignature.id }, select: { status: true } }))?.status).toBe('revoked');
+
+  await page.goto(oldSignature.signingUrl);
+  await expect(page.getByRole('heading', { name: 'No se puede abrir el presupuesto' })).toBeVisible();
+
+  await page.goto('/');
+  const fresh = await issueSignature(page, created.budget.id, 'ui.lifecycle@example.invalid');
+  await page.goto(fresh.signingUrl);
+  await expect(page.getByRole('heading', { name: `Presupuesto ${edited.body.budget.code}` })).toBeVisible();
+  await expect(page.getByText('E2E Edición supersesión')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: `Presupuesto ${edited.body.budget.code}` })).toBeVisible();
+  await page.goto('/recuperar-password');
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: `Presupuesto ${edited.body.budget.code}` })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/\/recuperar-password$/);
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: `Presupuesto ${edited.body.budget.code}` })).toBeVisible();
+
+  const clientPdf = await page.evaluate(async (budgetId) => {
+    const response = await fetch(`/api/pdf?id=${encodeURIComponent(budgetId)}&mode=client`, { credentials: 'same-origin' });
+    return { status: response.status, html: await response.text() };
+  }, created.budget.id);
+  expect(clientPdf.status).toBe(200);
+  expect(clientPdf.html).toContain(edited.body.budget.code);
+  expect(clientPdf.html).toContain('E2E Edición supersesión');
+  expect(clientPdf.html).not.toMatch(/coste interno|margen interno|comisión comercial/i);
 });
 
 test('doble guardado concurrente de la misma recalculación deja una única v2', async ({ page }) => {
