@@ -7,6 +7,10 @@ import { genericInternalErrorResponse, privateNoStoreJson } from '@/lib/private-
 
 export const runtime = 'nodejs';
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireRole(request, ['admin', 'maestro']);
@@ -78,7 +82,7 @@ export async function POST(request: NextRequest) {
     const auth = await requireRole(request, ['admin', 'maestro']);
     if (auth instanceof NextResponse) return auth;
 
-    let body: { input?: CostingInput };
+    let body: unknown;
     try {
       body = await request.json();
     } catch {
@@ -89,7 +93,16 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    if (!body.input || typeof body.input !== 'object') {
+    if (!isJsonObject(body)) {
+      return privateNoStoreJson({
+        status: 'pending_configuration',
+        action: 'complete_in_administration',
+        issues: [{ field: 'request', kind: 'invalid', message: 'El cuerpo de la solicitud debe ser un objeto JSON.' }],
+      }, { status: 400 });
+    }
+
+    const input = body.input;
+    if (!isJsonObject(input)) {
       return privateNoStoreJson({
         status: 'pending_configuration',
         action: 'complete_in_administration',
@@ -97,12 +110,12 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const result = calculateCosting(body.input);
+    const result = calculateCosting(input as unknown as CostingInput);
 
     await logAudit({
       action: 'costing_calculated',
       entity: 'CostEngine',
-      entityId: body.input.serviceId,
+      entityId: (input as unknown as CostingInput).serviceId,
       userId: auth.id,
       userName: auth.name,
       userRole: auth.role,
