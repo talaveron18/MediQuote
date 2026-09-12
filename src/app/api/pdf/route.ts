@@ -55,8 +55,8 @@ export async function GET(request: NextRequest) {
     };
 
     // El PDF cliente no contiene coste, margen, comisión ni avisos internos.
-    // Tampoco ofrece una acción que la API rechazaría para presupuestos ya cerrados.
-    const signatureSendAllowed = mode === 'client' && budget.status !== 'aceptado' && budget.status !== 'caducado';
+    // Solo ofrece firma en estados que POST /api/signatures admite de forma autoritativa.
+    const signatureSendAllowed = mode === 'client' && ['borrador', 'enviado'].includes(budget.status);
     let html = generateBudgetHTML(printableBudget, companyConfig, {
       enableSignatureSend: signatureSendAllowed,
     });
@@ -84,6 +84,8 @@ export async function GET(request: NextRequest) {
         'Pragma': 'no-cache',
         'Expires': '0',
         'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
       },
     });
   } catch (error: unknown) {
