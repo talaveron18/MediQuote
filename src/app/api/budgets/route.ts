@@ -34,6 +34,10 @@ function hasInvalidBudgetStatus(status: unknown): boolean {
   return status !== undefined && (typeof status !== 'string' || !validBudgetStatuses.has(status as BudgetStatus))
 }
 
+function hasInvalidInitialBudgetStatus(status: unknown): boolean {
+  return status !== undefined && status !== 'borrador'
+}
+
 function generateBudgetCode(existingCount: number): string {
   const now = new Date()
   const y = now.getFullYear()
@@ -369,6 +373,9 @@ export async function POST(request: NextRequest) {
     const body = await readBudgetBody(request)
     if (!body) return badBudgetRequest('El cuerpo JSON del presupuesto no es válido')
     if (hasInvalidBudgetStatus(body.status)) return badBudgetRequest('Estado de presupuesto no válido')
+    if (hasInvalidInitialBudgetStatus(body.status)) {
+      return badBudgetRequest('Los presupuestos nuevos solo pueden crearse en estado borrador')
+    }
     const {
       clientId,
       status = 'borrador' as BudgetStatus,
@@ -494,6 +501,15 @@ export async function PUT(request: NextRequest) {
     }
     if (existing.status === 'caducado') {
       return NextResponse.json({ error: expiredBudgetConflict().message }, { status: 409 })
+    }
+    if (updateData.status === 'aceptado' && existing.status !== 'aceptado') {
+      return NextResponse.json({ error: 'La aceptación solo puede registrarse mediante el circuito de firma electrónica.' }, { status: 409 })
+    }
+    if (updateData.status === 'enviado' && existing.status !== 'enviado') {
+      return NextResponse.json({ error: 'El estado enviado solo puede registrarse al emitir una solicitud de firma.' }, { status: 409 })
+    }
+    if (updateData.status === 'caducado' && existing.status !== 'caducado') {
+      return NextResponse.json({ error: 'La caducidad debe registrarse mediante el cierre controlado del presupuesto.' }, { status: 409 })
     }
 
     const updatesEconomicData = serviceBlocks !== undefined || [
