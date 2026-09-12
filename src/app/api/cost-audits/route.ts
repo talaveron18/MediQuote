@@ -32,6 +32,19 @@ type BreakdownParseResult =
   | { ok: true; value: GestoriaBreakdown }
   | { ok: false; error: string };
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readJsonObject(request: NextRequest): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await request.json();
+    return isJsonObject(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseBreakdown(value: unknown): BreakdownParseResult {
   if (value === undefined || value === null) return { ok: true, value: {} };
   if (typeof value !== 'object' || Array.isArray(value)) {
@@ -117,15 +130,33 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireRole(request, ['admin']);
     if (auth instanceof NextResponse) return auth;
-    const body = await request.json() as {
-      budgetId?: string; actualCost?: number; actualBreakdown?: AuditBreakdown; notes?: string;
-      documentName?: string; documentType?: string; documentBase64?: string;
-    };
-    const actualCost = Number(body.actualCost);
-    if (!body.budgetId || !Number.isFinite(actualCost) || actualCost < 0) {
+    const body = await readJsonObject(request);
+    if (!body) {
+      return privateNoStoreJson({ error: 'El cuerpo de la solicitud debe ser un objeto JSON válido' }, { status: 400 });
+    }
+    if (typeof body.budgetId !== 'string' || body.budgetId.trim().length === 0) {
       return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
     }
-    const parsedBreakdown = parseBreakdown(body.actualBreakdown);
+    if (body.actualCost === '' || body.actualCost === null || body.actualCost === undefined || typeof body.actualCost === 'boolean') {
+      return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
+    }
+    const actualCost = Number(body.actualCost);
+    if (!Number.isFinite(actualCost) || actualCost < 0) {
+      return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
+    }
+    if (body.notes !== undefined && body.notes !== null && typeof body.notes !== 'string') {
+      return privateNoStoreJson({ error: 'Las notas deben ser texto' }, { status: 400 });
+    }
+    if (body.documentName !== undefined && typeof body.documentName !== 'string') {
+      return privateNoStoreJson({ error: 'El nombre del justificante debe ser texto' }, { status: 400 });
+    }
+    if (body.documentType !== undefined && typeof body.documentType !== 'string') {
+      return privateNoStoreJson({ error: 'El tipo del justificante debe ser texto' }, { status: 400 });
+    }
+    if (body.documentBase64 !== undefined && typeof body.documentBase64 !== 'string') {
+      return privateNoStoreJson({ error: 'El justificante debe codificarse como Base64' }, { status: 400 });
+    }
+    const parsedBreakdown = parseBreakdown(body.actualBreakdown as AuditBreakdown | undefined);
     if (!parsedBreakdown.ok) {
       return privateNoStoreJson({ error: parsedBreakdown.error }, { status: 400 });
     }
@@ -184,6 +215,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const notes = typeof body.notes === 'string' ? body.notes.trim() || null : null;
+    const documentName = typeof body.documentName === 'string' ? body.documentName : undefined;
+    const documentType = typeof body.documentType === 'string' ? body.documentType : undefined;
     const { audit, auditArtifact } = await db.$transaction(async (tx) => {
       const audit = await tx.costAudit.create({
         data: {
@@ -194,9 +228,9 @@ export async function POST(request: NextRequest) {
           estimatedBreakdown: JSON.stringify(estimated.breakdown),
           actualBreakdown: JSON.stringify(actualBreakdown),
           analysis: JSON.stringify({ reconciliation: deviation.analysis, internal: deviation.internalAnalysis }),
-          notes: body.notes?.trim() || null,
-          documentName: documentData ? (body.documentName?.slice(0, 240) || 'justificante') : null,
-          documentType: documentData ? (body.documentType?.slice(0, 120) || 'application/octet-stream') : null,
+          notes,
+          documentName: documentData ? (documentName?.slice(0, 240) || 'justificante') : null,
+          documentType: documentData ? (documentType?.slice(0, 120) || 'application/octet-stream') : null,
           documentData: documentData ? Uint8Array.from(documentData) : undefined,
         },
       });
