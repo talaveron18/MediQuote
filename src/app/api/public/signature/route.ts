@@ -79,6 +79,12 @@ export async function GET(request: NextRequest) {
         { status: 409 },
       );
     }
+    if (signature.status === 'revoked') {
+      return noStoreJson(
+        { error: 'El presupuesto ha cambiado. Solicite un enlace de firma nuevo.', status: 'revoked' },
+        { status: 409 },
+      );
+    }
     return noStoreJson({ status: signature.status, acceptedAt: signature.acceptedAt });
   }
   if (await revokeIfDocumentChanged(signature)) {
