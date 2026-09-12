@@ -238,6 +238,10 @@ function canAccessBudget(auth: { id: string; role: string }, budget: { createdBy
   return canAccessAllBudgets(auth.role) || budget.createdById === auth.id
 }
 
+function rejectedBudgetConflict(): BudgetAcceptedConflict {
+  return new BudgetAcceptedConflict('Un presupuesto rechazado está cerrado y no puede modificarse.')
+}
+
 async function lockMutableBudget(tx: any, budgetId: string) {
   const rows = await tx.$queryRaw<Array<{ status: string }>>`
     SELECT "status" FROM "Budget" WHERE "id" = ${budgetId} FOR UPDATE
@@ -246,6 +250,7 @@ async function lockMutableBudget(tx: any, budgetId: string) {
   if (rows[0].status === 'aceptado') {
     throw new BudgetAcceptedConflict('Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.')
   }
+  if (rows[0].status === 'rechazado') throw rejectedBudgetConflict()
 }
 
 async function sealPersistedBudget(
@@ -452,6 +457,9 @@ export async function PUT(request: NextRequest) {
     if (existing.status === 'aceptado') {
       return NextResponse.json({ error: 'Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.' }, { status: 409 })
     }
+    if (existing.status === 'rechazado') {
+      return NextResponse.json({ error: rejectedBudgetConflict().message }, { status: 409 })
+    }
 
     const updatesEconomicData = serviceBlocks !== undefined || [
       'subtotal', 'totalSurcharges', 'discountPercent', 'discountAmount',
@@ -590,6 +598,9 @@ export async function DELETE(request: NextRequest) {
     }
     if (existing.status === 'aceptado') {
       return NextResponse.json({ error: 'Un presupuesto aceptado es inmutable. Cree una nueva versión para realizar cambios.' }, { status: 409 })
+    }
+    if (existing.status === 'rechazado') {
+      return NextResponse.json({ error: rejectedBudgetConflict().message }, { status: 409 })
     }
     const sealedAt = new Date()
 
