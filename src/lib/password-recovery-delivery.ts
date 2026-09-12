@@ -65,7 +65,9 @@ export function buildPasswordRecoveryEmail(input: PasswordRecoveryDeliveryInput,
   } catch {
     throw new Error('URL de recuperación no válida')
   }
-  if (!['https:', 'http:'].includes(resetUrl.protocol)) throw new Error('URL de recuperación no válida')
+  // A recovery token is a bearer credential. Never put it in an email over
+  // clear-text HTTP, even if a caller accidentally supplies such an origin.
+  if (resetUrl.protocol !== 'https:') throw new Error('URL de recuperación no segura')
 
   const subject = 'Restablecimiento de contraseña de MediQuote'
   const body = [
