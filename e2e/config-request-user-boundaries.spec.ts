@@ -1,4 +1,4 @@
-// QA retrigger 2026-09-12: non-functional marker after transient runner allocation failure.
+// QA retrigger 2026-09-12 18:25 ART: non-functional marker after transient runner allocation failure.
 import { PrismaClient } from '@prisma/client';
 import { expect, test, type Page } from '@playwright/test';
 
