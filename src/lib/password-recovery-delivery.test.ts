@@ -1,60 +1,94 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deliverPasswordRecoveryLink, validatePasswordRecoveryDeliveryConfig } from './password-recovery-delivery'
+import { afterEach, describe, expect, it } from 'vitest'
+import { buildPasswordRecoveryEmail, validatePasswordRecoveryDeliveryConfig } from './password-recovery-delivery'
 
 afterEach(() => {
-  vi.unstubAllGlobals()
-  delete process.env.PASSWORD_RESET_DELIVERY_WEBHOOK_URL
-  delete process.env.PASSWORD_RESET_DELIVERY_BEARER_TOKEN
+  delete process.env.GASI_RECOVERY_SMTP_HOST
+  delete process.env.GASI_RECOVERY_SMTP_PORT
+  delete process.env.GASI_RECOVERY_SMTP_FROM
+  delete process.env.GASI_RECOVERY_SMTP_PASSWORD
 })
 
 describe('validatePasswordRecoveryDeliveryConfig', () => {
-  it('requires an authenticated HTTPS webhook in production', () => {
+  it('requires every non-public SMTP parameter instead of guessing defaults', () => {
     expect(() => validatePasswordRecoveryDeliveryConfig({
-      webhookUrl: 'https://mail.example.invalid/recovery',
-      bearerToken: '',
-      production: true,
-    })).toThrow(/BEARER_TOKEN/)
+      host: '', port: '', from: '', password: '',
+    })).toThrow(/SMTP_HOST/)
 
-    expect(validatePasswordRecoveryDeliveryConfig({
-      webhookUrl: 'https://mail.example.invalid/recovery',
-      bearerToken: 'secret-token',
-      production: true,
-    }).url.toString()).toBe('https://mail.example.invalid/recovery')
+    expect(() => validatePasswordRecoveryDeliveryConfig({
+      host: 'smtp.example.invalid', port: '', from: 'recovery@example.invalid', password: 'secret',
+    })).toThrow(/SMTP_PORT/)
+
+    expect(() => validatePasswordRecoveryDeliveryConfig({
+      host: 'smtp.example.invalid', port: '587', from: '', password: 'secret',
+    })).toThrow(/SMTP_FROM/)
+
+    expect(() => validatePasswordRecoveryDeliveryConfig({
+      host: 'smtp.example.invalid', port: '587', from: 'recovery@example.invalid', password: '',
+    })).toThrow(/SMTP_PASSWORD/)
   })
 
-  it('rejects non-HTTPS and embedded credentials in production', () => {
-    expect(() => validatePasswordRecoveryDeliveryConfig({
-      webhookUrl: 'http://mail.example.invalid/recovery', bearerToken: 'secret', production: true,
-    })).toThrow(/HTTPS/)
-    expect(() => validatePasswordRecoveryDeliveryConfig({
-      webhookUrl: 'https://user:pass@mail.example.invalid/recovery', bearerToken: 'secret', production: true,
-    })).toThrow(/credenciales/)
-  })
-
-  it('keeps development/test delivery flexible without weakening production', () => {
+  it('uses the complete corporate mailbox as SMTP username without exposing the password', () => {
+    const password = 'Synthetic-Smtp-Secret-2026!'
     const config = validatePasswordRecoveryDeliveryConfig({
-      webhookUrl: 'http://127.0.0.1:9999/recovery', bearerToken: '', production: false,
+      host: 'smtp.example.invalid',
+      port: '587',
+      from: 'Recovery@Example.invalid',
+      password,
     })
-    expect(config.url.hostname).toBe('127.0.0.1')
-    expect(config.bearerToken).toBeNull()
+    expect(config).toEqual({
+      host: 'smtp.example.invalid',
+      port: 587,
+      from: 'recovery@example.invalid',
+      username: 'recovery@example.invalid',
+      password,
+    })
+    expect(JSON.stringify({ ...config, password: '[redacted]' })).not.toContain(password)
   })
 
-  it('forbids redirects when delivering a reset token', async () => {
-    process.env.PASSWORD_RESET_DELIVERY_WEBHOOK_URL = 'http://127.0.0.1:9999/recovery'
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
-    vi.stubGlobal('fetch', fetchMock)
+  it('rejects hosts, ports and mailboxes that could inject SMTP commands', () => {
+    expect(() => validatePasswordRecoveryDeliveryConfig({
+      host: 'smtp.example.invalid\r\nRCPT TO:x@example.invalid',
+      port: '587',
+      from: 'recovery@example.invalid',
+      password: 'secret',
+    })).toThrow(/servidor válido/)
 
-    await deliverPasswordRecoveryLink({
+    expect(() => validatePasswordRecoveryDeliveryConfig({
+      host: 'smtp.example.invalid', port: '70000', from: 'recovery@example.invalid', password: 'secret',
+    })).toThrow(/PORT/)
+
+    expect(() => validatePasswordRecoveryDeliveryConfig({
+      host: 'smtp.example.invalid', port: '587', from: 'recovery@example.invalid\r\nBcc:x@example.invalid', password: 'secret',
+    })).toThrow(/dirección válida/)
+  })
+})
+
+describe('buildPasswordRecoveryEmail', () => {
+  it('builds a plain-text one-use-link message without user-controlled headers', () => {
+    const result = buildPasswordRecoveryEmail({
       recipient: 'synthetic@example.invalid',
-      resetUrl: 'http://127.0.0.1:3000/restablecer-password?token=synthetic',
-      expiresAt: new Date('2026-09-11T00:00:00Z'),
-    })
+      resetUrl: 'https://mediquote.example.invalid/restablecer-password?token=synthetic-token',
+      expiresAt: new Date('2026-09-12T03:00:00Z'),
+    }, 'recovery@example.invalid')
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: 'POST',
-      cache: 'no-store',
-      redirect: 'error',
-    })
+    expect(result.recipient).toBe('synthetic@example.invalid')
+    expect(result.message).toContain('From: GASI MediQuote <recovery@example.invalid>')
+    expect(result.message).toContain('To: synthetic@example.invalid')
+    expect(result.message).toContain('https://mediquote.example.invalid/restablecer-password?token=synthetic-token')
+    expect(result.message).toContain('Auto-Submitted: auto-generated')
+  })
+
+  it('rejects recipient header injection and non-http reset URLs', () => {
+    expect(() => buildPasswordRecoveryEmail({
+      recipient: 'synthetic@example.invalid\r\nBcc:attacker@example.invalid',
+      resetUrl: 'https://mediquote.example.invalid/restablecer-password?token=x',
+      expiresAt: new Date('2026-09-12T03:00:00Z'),
+    }, 'recovery@example.invalid')).toThrow(/Destinatario/)
+
+    expect(() => buildPasswordRecoveryEmail({
+      recipient: 'synthetic@example.invalid',
+      resetUrl: 'javascript:alert(1)',
+      expiresAt: new Date('2026-09-12T03:00:00Z'),
+    }, 'recovery@example.invalid')).toThrow(/URL/)
   })
 })
