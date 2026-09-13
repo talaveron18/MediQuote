@@ -4,17 +4,21 @@ import { completePasswordRecovery } from '@/lib/password-recovery-transaction';
 import { isCanonicalPasswordRecoveryToken } from '@/lib/password-recovery';
 import { isStrongEnoughPassword, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-policy';
 import { privateNoStoreJson } from '@/lib/private-api-response';
+import { parsePasswordRecoveryConfirmBody } from '@/lib/password-recovery-request-contract';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({})) as { token?: unknown; password?: unknown };
-    const token = typeof body.token === 'string' ? body.token.trim() : '';
-    const password = typeof body.password === 'string' ? body.password : '';
+    const rawBody = await request.json().catch(() => null);
+    const body = parsePasswordRecoveryConfirmBody(rawBody);
+    const token = body?.token.trim() ?? '';
+    const password = body?.password ?? '';
 
-    // Validate the opaque token before doing bcrypt work or touching recovery storage.
-    if (!isCanonicalPasswordRecoveryToken(token) || !isStrongEnoughPassword(password)) {
+    // Validate the exact request contract and opaque token before doing bcrypt
+    // work or touching recovery storage. Unknown fields fail closed so future
+    // model/internal fields cannot become mass-assignable by accident.
+    if (!body || !isCanonicalPasswordRecoveryToken(token) || !isStrongEnoughPassword(password)) {
       return privateNoStoreJson(
         { error: `Enlace inválido o contraseña fuera de la política (${MINIMUM_PASSWORD_LENGTH} caracteres mínimo, ${MAXIMUM_PASSWORD_BYTES} bytes máximo)` },
         { status: 400 },
