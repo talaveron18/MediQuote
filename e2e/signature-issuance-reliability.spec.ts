@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? 'E2E-Maestro-Only-2026!';
+const maestroPassword = process.env.E2E_MAESTRO_PASSWORD ?? '';
 const validPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 type ApiResult<T = unknown> = {
@@ -113,10 +113,11 @@ test('emisión y listado de firma son privados y no cacheables', async ({ page }
   expect(listed.headers.pragma).toBe('no-cache');
 });
 
-test('reemisión conserva una sola solicitud pendiente y deja presupuesto enviado', async ({ page }) => {
+test('reemisión intencional tras la ventana anti-doble-clic conserva una sola solicitud pendiente y deja presupuesto enviado', async ({ page }) => {
   await login(page);
   const budgetId = await createBudget(page);
   const first = await issue(page, budgetId);
+  await page.waitForTimeout(2100);
   const second = await issue(page, budgetId);
 
   const listed = await api<{ requests: Array<{ id: string; status: string }> }>(page, `/api/signatures?budgetId=${budgetId}`);
