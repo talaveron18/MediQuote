@@ -47,11 +47,13 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   const timeStr = [
     String(now.getHours()).padStart(2, '0'),
     String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+    String(now.getMilliseconds()).padStart(3, '0'),
   ].join('-');
   const folderName = `gasi-auditoria-${dateStr}-${timeStr}`;
 
   const auditDir = path.join(BASE, 'exports', 'auditoria', folderName);
-  mkdirSync(auditDir, { recursive: true });
+  mkdirSync(auditDir, { recursive: false });
 
   const pdfSubDir = path.join(auditDir, 'presupuestos_pdf');
   const jsonSubDir = path.join(auditDir, 'presupuestos_json');
@@ -72,11 +74,12 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
     try {
       const pdfFiles = await fs.readdir(srcPdfDir);
       for (const f of pdfFiles) {
+        if (path.extname(f).toLowerCase() !== '.pdf') continue;
         const src = path.join(srcPdfDir, f);
-        const stat = await fs.stat(src);
-        if (stat.isFile()) {
-          copyFileSync(src, path.join(pdfSubDir, f));
-          copiedFiles.push(`presupuestos_pdf/${f}`);
+        const stat = await fs.lstat(src);
+        if (stat.isFile() && !stat.isSymbolicLink()) {
+          copyFileSync(src, path.join(pdfSubDir, path.basename(f)));
+          copiedFiles.push(`presupuestos_pdf/${path.basename(f)}`);
         }
       }
     } catch {
@@ -90,11 +93,12 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
     try {
       const jsonFiles = await fs.readdir(srcJsonDir);
       for (const f of jsonFiles) {
+        if (path.extname(f).toLowerCase() !== '.json') continue;
         const src = path.join(srcJsonDir, f);
-        const stat = await fs.stat(src);
-        if (stat.isFile()) {
-          copyFileSync(src, path.join(jsonSubDir, f));
-          copiedFiles.push(`presupuestos_json/${f}`);
+        const stat = await fs.lstat(src);
+        if (stat.isFile() && !stat.isSymbolicLink()) {
+          copyFileSync(src, path.join(jsonSubDir, path.basename(f)));
+          copiedFiles.push(`presupuestos_json/${path.basename(f)}`);
         }
       }
     } catch {
@@ -116,7 +120,6 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
 
   const auditLogs = await db.auditLog.findMany({
     orderBy: { createdAt: 'asc' },
-    take: 10000,
   });
 
   const csvHeader = 'date,user,role,action,entity,result,message';
@@ -191,8 +194,9 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
 
 function csvEscape(value: string): string {
   if (!value) return '""';
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
+  const spreadsheetSafe = /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value;
+  if (spreadsheetSafe.includes(',') || spreadsheetSafe.includes('"') || spreadsheetSafe.includes('\n')) {
+    return `"${spreadsheetSafe.replace(/"/g, '""')}"`;
   }
-  return value;
+  return spreadsheetSafe;
 }
