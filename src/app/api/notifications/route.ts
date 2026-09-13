@@ -3,16 +3,28 @@ import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { privateNoStoreJson } from '@/lib/private-api-response';
 
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]) {
+  const allowedSet = new Set(allowed);
+  return Object.keys(value).every((key) => allowedSet.has(key));
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  const notifications = await db.notification.findMany({
-    where: { userId: auth.id }, orderBy: { createdAt: 'desc' }, take: 100,
-  });
-  return privateNoStoreJson({
-    notifications,
-    unreadCount: notifications.filter((item) => !item.readAt).length,
-  });
+
+  const params = request.nextUrl.searchParams;
+  if ([...params.keys()].length > 0) {
+    return privateNoStoreJson({ error: 'Parámetros no admitidos' }, { status: 400 });
+  }
+
+  const [notifications, unreadCount] = await Promise.all([
+    db.notification.findMany({
+      where: { userId: auth.id }, orderBy: { createdAt: 'desc' }, take: 100,
+    }),
+    db.notification.count({ where: { userId: auth.id, readAt: null } }),
+  ]);
+
+  return privateNoStoreJson({ notifications, unreadCount });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -29,19 +41,32 @@ export async function PATCH(request: NextRequest) {
     return privateNoStoreJson({ error: 'Solicitud no válida' }, { status: 400 });
   }
 
-  const { id, all } = body as { id?: unknown; all?: unknown };
+  const input = body as Record<string, unknown>;
+  if (!hasOnlyKeys(input, ['id', 'all'])) {
+    return privateNoStoreJson({ error: 'Solicitud no válida' }, { status: 400 });
+  }
+
+  const { id, all } = input;
   if (id !== undefined && (typeof id !== 'string' || !id.trim())) {
     return privateNoStoreJson({ error: 'Identificador de notificación no válido' }, { status: 400 });
   }
   if (all !== undefined && typeof all !== 'boolean') {
     return privateNoStoreJson({ error: 'Indicador all no válido' }, { status: 400 });
   }
-  if (!id && all !== true) {
-    return privateNoStoreJson({ error: 'Falta la notificación' }, { status: 400 });
+
+  const markOne = typeof id === 'string' && id.trim().length > 0 && all === undefined;
+  const markAll = id === undefined && all === true;
+  if (!markOne && !markAll) {
+    return privateNoStoreJson({ error: 'Selector de notificación no válido' }, { status: 400 });
   }
 
   await db.notification.updateMany({
-    where: { userId: auth.id, ...(all === true ? {} : { id: id as string }), readAt: null }, data: { readAt: new Date() },
+    where: {
+      userId: auth.id,
+      ...(markAll ? {} : { id: (id as string).trim() }),
+      readAt: null,
+    },
+    data: { readAt: new Date() },
   });
   return privateNoStoreJson({ success: true });
 }
