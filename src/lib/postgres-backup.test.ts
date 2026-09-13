@@ -21,14 +21,15 @@ vi.mock('@/lib/db', () => ({ db: { ...mocks.delegates, $transaction: mocks.trans
 
 import { exportCentralDatabase, importCentralDatabase } from '@/lib/postgres-backup';
 
+const rows = () => [] as unknown[];
 const emptyBackup = () => ({
   format: 'gasi-mediquote-postgres-v2',
   createdAt: '2026-09-13T00:00:00.000Z',
   data: {
-    users: [], clients: [], budgets: [], serviceBlocks: [], budgetHistory: [], internalMessages: [], budgetApprovals: [],
-    notifications: [], costAudits: [], budgetSignatureRequests: [], professionalCategories: [], surchargeConfigs: [],
-    holidays: [], laborRules: [], appConfigs: [], costingQuotes: [], auditLogs: [], legalRecords: [], legalParameters: [],
-    configAuditLogs: [],
+    users: rows(), clients: rows(), budgets: rows(), serviceBlocks: rows(), budgetHistory: rows(), internalMessages: rows(), budgetApprovals: rows(),
+    notifications: rows(), costAudits: rows(), budgetSignatureRequests: rows(), professionalCategories: rows(), surchargeConfigs: rows(),
+    holidays: rows(), laborRules: rows(), appConfigs: rows(), costingQuotes: rows(), auditLogs: rows(), legalRecords: rows(), legalParameters: rows(),
+    configAuditLogs: rows(),
   },
 });
 
