@@ -25,11 +25,16 @@ const REQUIRED_COLLECTIONS = [
   'configAuditLogs',
 ] as const;
 
-type BackupData = Record<(typeof REQUIRED_COLLECTIONS)[number], unknown[]>;
+type BackupCollection = (typeof REQUIRED_COLLECTIONS)[number];
+type BackupData = Record<BackupCollection, unknown[]>;
 
-function assertCompleteBackup(value: unknown): asserts value is { format: string; data: BackupData } {
-  if (!value || typeof value !== 'object') throw new Error('La copia no es una exportación válida de GASI');
-  const backup = value as { format?: unknown; data?: unknown };
+function isBackupCollection(key: string): key is BackupCollection {
+  return (REQUIRED_COLLECTIONS as readonly string[]).includes(key);
+}
+
+function assertCompleteBackup(value: unknown): asserts value is { format: string; createdAt?: string; data: BackupData } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('La copia no es una exportación válida de GASI');
+  const backup = value as { format?: unknown; createdAt?: unknown; data?: unknown };
   if (backup.format !== FORMAT || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) {
     throw new Error('La copia no es una exportación válida de GASI');
   }
@@ -37,6 +42,10 @@ function assertCompleteBackup(value: unknown): asserts value is { format: string
   const missing = REQUIRED_COLLECTIONS.filter((key) => !Array.isArray(data[key]));
   if (missing.length) {
     throw new Error(`La copia está incompleta y no se restaurará: faltan ${missing.join(', ')}`);
+  }
+  const unexpected = Object.keys(data).filter((key) => !isBackupCollection(key));
+  if (unexpected.length) {
+    throw new Error(`La copia contiene colecciones no reconocidas y no se restaurará: ${unexpected.join(', ')}`);
   }
 }
 
@@ -115,8 +124,8 @@ export async function importCentralDatabase(value: unknown) {
     await tx.appConfig.deleteMany();
     await tx.user.deleteMany();
 
-    const create = async (rows: unknown[] | undefined, fn: (args: { data: never[] }) => Promise<unknown>) => {
-      if (rows?.length) await fn({ data: rows as never[] });
+    const create = async (rows: unknown[] | undefined, fn: (args: { data: any[] }) => Promise<unknown>) => {
+      if (rows?.length) await fn({ data: rows });
     };
 
     // Principals first, then their dependant workflow/evidence records.
@@ -142,5 +151,12 @@ export async function importCentralDatabase(value: unknown) {
     await create(d.configAuditLogs, tx.configAuditLog.createMany.bind(tx.configAuditLog));
   }, { timeout: 120_000 });
 
-  return { restored: REQUIRED_COLLECTIONS.reduce((n, key) => n + d[key].length, 0) };
+  const restoredByCollection = Object.fromEntries(
+    REQUIRED_COLLECTIONS.map((key) => [key, d[key].length]),
+  ) as Record<BackupCollection, number>;
+
+  return {
+    restored: Object.values(restoredByCollection).reduce((total, count) => total + count, 0),
+    restoredByCollection,
+  };
 }
