@@ -5,6 +5,7 @@ import { verifySessionToken } from '@/lib/session';
 import { getSessionGeneration } from '@/lib/password-recovery-store';
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 import { privateNoStoreJson } from '@/lib/private-api-response';
+import { validateBudgetCreateBody, validateBudgetUpdateBody } from '@/lib/budget-request-contract';
 
 export const SESSION_COOKIE = 'gasi_session';
 
@@ -24,8 +25,32 @@ function passwordChangeRequired(): NextResponse {
   );
 }
 
+async function validateBudgetMutation(request: Request): Promise<NextResponse | null> {
+  const method = request.method.toUpperCase();
+  if (!['POST', 'PUT'].includes(method)) return null;
+  if (new URL(request.url).pathname !== '/api/budgets') return null;
+
+  let body: unknown;
+  try {
+    body = await request.clone().json();
+  } catch {
+    // El propio handler conserva la respuesta uniforme para JSON malformado.
+    return null;
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+
+  const error = method === 'POST'
+    ? validateBudgetCreateBody(body as Record<string, unknown>)
+    : validateBudgetUpdateBody(body as Record<string, unknown>);
+  return error ? privateNoStoreJson({ error }, { status: 400 }) : null;
+}
+
 async function protectMutation(request: Request): Promise<NextResponse | null> {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) return null;
+
+  const budgetContractError = await validateBudgetMutation(request);
+  if (budgetContractError) return budgetContractError;
+
   if (new URL(request.url).pathname === '/api/backup') return null;
   // Netlify Database/PostgreSQL se protege en la plataforma. La copia SQLite
   // previa a escritura solo corresponde al modo local heredado.
