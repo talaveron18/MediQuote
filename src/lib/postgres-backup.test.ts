@@ -76,7 +76,7 @@ describe('central PostgreSQL backup integrity', () => {
     backup.data.costAudits.push({ id: 'audit-1', budgetId: 'b-1', createdById: 'u-1', documentData: null });
     backup.data.budgetSignatureRequests.push({ id: 'sig-1', budgetId: 'b-1', createdById: 'u-1' });
 
-    await importCentralDatabase(backup);
+    const result = await importCentralDatabase(backup);
 
     const budgetCreateOrder = mocks.delegates.budget.createMany.mock.invocationCallOrder[0];
     expect(mocks.delegates.budgetApproval.createMany.mock.invocationCallOrder[0]).toBeGreaterThan(budgetCreateOrder);
@@ -87,6 +87,16 @@ describe('central PostgreSQL backup integrity', () => {
     expect(mocks.delegates.budgetApproval.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(budgetDeleteOrder);
     expect(mocks.delegates.costAudit.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(budgetDeleteOrder);
     expect(mocks.delegates.budgetSignatureRequest.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(budgetDeleteOrder);
+
+    expect(result.restored).toBe(6);
+    expect(result.restoredByCollection).toMatchObject({
+      users: 1,
+      clients: 1,
+      budgets: 1,
+      budgetApprovals: 1,
+      costAudits: 1,
+      budgetSignatureRequests: 1,
+    });
   });
 
   it('fails closed before any destructive transaction when a backup is legacy or incomplete', async () => {
@@ -97,6 +107,16 @@ describe('central PostgreSQL backup integrity', () => {
     const incomplete = emptyBackup();
     delete (incomplete.data as Partial<typeof incomplete.data>).budgetSignatureRequests;
     await expect(importCentralDatabase(incomplete)).rejects.toThrow('copia está incompleta');
+
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    for (const delegate of Object.values(mocks.delegates)) expect(delegate.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on schema drift instead of silently ignoring an unknown collection', async () => {
+    const drifted = emptyBackup() as ReturnType<typeof emptyBackup> & { data: ReturnType<typeof emptyBackup>['data'] & Record<string, unknown[]> };
+    drifted.data.futureCriticalEvidence = [{ id: 'future-1' }];
+
+    await expect(importCentralDatabase(drifted)).rejects.toThrow('colecciones no reconocidas');
 
     expect(mocks.transaction).not.toHaveBeenCalled();
     for (const delegate of Object.values(mocks.delegates)) expect(delegate.deleteMany).not.toHaveBeenCalled();
