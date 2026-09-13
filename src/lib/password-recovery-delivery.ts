@@ -2,6 +2,7 @@ import net from 'node:net'
 import tls from 'node:tls'
 import type { Socket } from 'node:net'
 import type { TLSSocket } from 'node:tls'
+import { parseSmtpResponseBuffer } from './smtp-response'
 
 export type PasswordRecoveryDeliveryInput = {
   recipient: string
@@ -116,12 +117,15 @@ function smtpResponse(socket: SmtpSocket): Promise<{ code: number; text: string 
     }
     const onData = (chunk: Buffer | string) => {
       buffer += chunk.toString()
-      const lines = buffer.split(/\r?\n/).filter(Boolean)
-      const last = lines.at(-1)
-      const match = last?.match(/^(\d{3})\s/)
-      if (!match) return
-      cleanup()
-      resolve({ code: Number(match[1]), text: lines.join('\n') })
+      try {
+        const parsed = parseSmtpResponseBuffer(buffer)
+        if (!parsed) return
+        cleanup()
+        resolve(parsed)
+      } catch (error) {
+        cleanup()
+        reject(error instanceof Error ? error : new Error('Respuesta SMTP no válida'))
+      }
     }
     socket.on('data', onData)
     socket.once('error', onError)
