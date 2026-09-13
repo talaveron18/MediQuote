@@ -16,5 +16,9 @@ export const config = {
     '/api/cost-audits/:path*',
     '/api/audit-package/:path*',
     '/api/config/:path*',
+    '/api/signatures/:path*',
+    '/api/recovery/:path*',
+    '/api/clients/:path*',
+    '/api/users/:path*',
   ],
 };
