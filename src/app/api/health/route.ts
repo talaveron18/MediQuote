@@ -1,8 +1,12 @@
 import { db } from '@/lib/db';
 import { genericInternalErrorResponse, privateNoStoreJson } from '@/lib/private-api-response';
 
-export async function GET() {
+export async function GET(request: Request) {
   const timestamp = new Date().toISOString();
+
+  if (new URL(request.url).searchParams.size > 0) {
+    return privateNoStoreJson({ error: 'Parámetros de consulta no admitidos' }, { status: 400 });
+  }
 
   try {
     // The public health contract only proves database reachability. Internal
