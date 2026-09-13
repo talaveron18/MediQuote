@@ -12,6 +12,7 @@ const includeBudget = {
 } as const;
 
 const signaturePostFields = new Set(['budgetId', 'recipientEmail']);
+const SIGNATURE_DUPLICATE_WINDOW_MS = 2_000;
 
 function canUseBudget(auth: { id: string; role: string }, budget: { createdById: string }) {
   return auth.role !== 'comercial' || budget.createdById === auth.id;
@@ -151,19 +152,21 @@ export async function POST(request: NextRequest) {
     }
 
     const documentHash = hashBudgetForSignature(budget);
-    const existingPending = await tx.budgetSignatureRequest.findFirst({
+    const duplicateSince = new Date(Date.now() - SIGNATURE_DUPLICATE_WINDOW_MS);
+    const rapidDuplicate = await tx.budgetSignatureRequest.findFirst({
       where: {
         budgetId: budget.id,
         status: 'pending',
         recipientEmail,
         documentHash,
         expiresAt: { gt: new Date() },
+        createdAt: { gte: duplicateSince },
       },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     });
-    if (existingPending) {
-      return { status: 'already_pending' as const, existingId: existingPending.id };
+    if (rapidDuplicate) {
+      return { status: 'already_pending' as const, existingId: rapidDuplicate.id };
     }
 
     await tx.budgetSignatureRequest.updateMany({
@@ -196,7 +199,7 @@ export async function POST(request: NextRequest) {
   }
   if (issuance.status === 'already_pending') {
     return privateNoStoreJson({
-      error: 'Ya existe una solicitud de firma pendiente para esta versión y destinatario.',
+      error: 'Ya existe una solicitud de firma pendiente recién emitida para esta versión y destinatario.',
       requestId: issuance.existingId,
     }, { status: 409 });
   }
