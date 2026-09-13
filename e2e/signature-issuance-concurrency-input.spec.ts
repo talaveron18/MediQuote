@@ -55,9 +55,9 @@ async function createBudget(page: Page, label: string) {
   return created.body.budget.id;
 }
 
-async function issue(page: Page, budgetId: string) {
+async function issue(page: Page, budgetId: string, recipientEmail = 'cliente@example.invalid') {
   return api<SignatureRequest>(page, '/api/signatures', 'POST', {
-    budgetId, recipientEmail: 'cliente@example.invalid',
+    budgetId, recipientEmail,
   });
 }
 
@@ -67,7 +67,28 @@ function tokenFrom(url: string) {
 
 test.beforeEach(async ({ page }) => { await login(page); });
 
-test('dos emisiones simultáneas dejan exactamente una solicitud pendiente', async ({ page }) => {
+test('doble envío secuencial de la misma versión y destinatario no crea ni revoca otra solicitud', async ({ page }) => {
+  const budgetId = await createBudget(page, `Firma duplicada secuencial ${Date.now()}`);
+  const first = await issue(page, budgetId);
+  expect(first.status).toBe(201);
+
+  const duplicate = await api<{ error: string; requestId: string }>(page, '/api/signatures', 'POST', {
+    budgetId, recipientEmail: 'cliente@example.invalid',
+  });
+  expect(duplicate.status).toBe(409);
+  expect(duplicate.body.requestId).toBe(first.body.id);
+  expect(duplicate.body.error).toContain('Ya existe una solicitud de firma pendiente');
+  expect(duplicate.headers['cache-control']).toContain('private');
+  expect(duplicate.headers['cache-control']).toContain('no-store');
+  expect(JSON.stringify(duplicate.body)).not.toContain('/firmar/');
+
+  const listed = await api<{ requests: Array<{ id: string; status: string }> }>(page, `/api/signatures?budgetId=${budgetId}`);
+  expect(listed.status).toBe(200);
+  expect(listed.body.requests).toHaveLength(1);
+  expect(listed.body.requests[0]).toMatchObject({ id: first.body.id, status: 'pending' });
+});
+
+test('dos emisiones simultáneas de la misma versión dejan una sola solicitud y una respuesta conflictiva', async ({ page }) => {
   const budgetId = await createBudget(page, `Firma concurrente ${Date.now()}`);
   const results = await page.evaluate(async (id) => {
     const payload = JSON.stringify({ budgetId: id, recipientEmail: 'cliente@example.invalid' });
@@ -75,16 +96,37 @@ test('dos emisiones simultáneas dejan exactamente una solicitud pendiente', asy
       const response = await fetch('/api/signatures', {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: payload,
       });
-      return { status: response.status, body: await response.json() as { id?: string } };
+      return { status: response.status, body: await response.json() as { id?: string; requestId?: string } };
     }));
   }, budgetId);
-  expect(results.map((result) => result.status)).toEqual([201, 201]);
+  expect(results.map((result) => result.status).sort((a, b) => a - b)).toEqual([201, 409]);
+
+  const created = results.find((result) => result.status === 201)!;
+  const duplicate = results.find((result) => result.status === 409)!;
+  expect(duplicate.body.requestId).toBe(created.body.id);
 
   const listed = await api<{ requests: Array<{ id: string; status: string }> }>(page, `/api/signatures?budgetId=${budgetId}`);
   expect(listed.status).toBe(200);
   expect(listed.body.requests.filter((row) => row.status === 'pending')).toHaveLength(1);
-  expect(listed.body.requests.filter((row) => row.status === 'revoked')).toHaveLength(1);
-  expect(new Set(results.map((result) => result.body.id)).size).toBe(2);
+  expect(listed.body.requests.filter((row) => row.status === 'revoked')).toHaveLength(0);
+  expect(listed.body.requests).toHaveLength(1);
+});
+
+test('cambiar el destinatario sigue siendo una reemisión explícita y revoca la solicitud anterior', async ({ page }) => {
+  const budgetId = await createBudget(page, `Firma destinatario nuevo ${Date.now()}`);
+  const first = await issue(page, budgetId, 'cliente@example.invalid');
+  expect(first.status).toBe(201);
+
+  const second = await issue(page, budgetId, 'otro-cliente@example.invalid');
+  expect(second.status).toBe(201);
+  expect(second.body.id).not.toBe(first.body.id);
+
+  const listed = await api<{ requests: Array<{ id: string; status: string; recipientEmail: string }> }>(page, `/api/signatures?budgetId=${budgetId}`);
+  expect(listed.status).toBe(200);
+  expect(listed.body.requests.find((row) => row.id === first.body.id)?.status).toBe('revoked');
+  expect(listed.body.requests.find((row) => row.id === second.body.id)).toMatchObject({
+    status: 'pending', recipientEmail: 'otro-cliente@example.invalid',
+  });
 });
 
 test('aceptación y reemisión concurrentes nunca degradan un presupuesto aceptado ni dejan dos estados activos', async ({ page }) => {
@@ -106,20 +148,15 @@ test('aceptación y reemisión concurrentes nunca degradan un presupuesto acepta
     return { accept: accept.status, reissue: reissue.status };
   }, { id: budgetId, signatureToken: token, png: validPng });
 
-  expect([[200, 409], [409, 201]]).toContainEqual([race.accept, race.reissue]);
+  expect(race.accept).toBe(200);
+  expect(race.reissue).toBe(409);
 
   const listed = await api<{ requests: Array<{ id: string; status: string }> }>(page, `/api/signatures?budgetId=${budgetId}`);
   const budgets = await api<{ budgets: Array<{ id: string; status: string }> }>(page, '/api/budgets');
   const status = budgets.body.budgets.find((row) => row.id === budgetId)?.status;
-  if (race.accept === 200) {
-    expect(status).toBe('aceptado');
-    expect(listed.body.requests.filter((row) => row.status === 'pending')).toHaveLength(0);
-    expect(listed.body.requests.filter((row) => row.status === 'accepted')).toHaveLength(1);
-  } else {
-    expect(status).toBe('enviado');
-    expect(listed.body.requests.filter((row) => row.status === 'pending')).toHaveLength(1);
-    expect(listed.body.requests.find((row) => row.id === first.body.id)?.status).toBe('revoked');
-  }
+  expect(status).toBe('aceptado');
+  expect(listed.body.requests.filter((row) => row.status === 'pending')).toHaveLength(0);
+  expect(listed.body.requests.filter((row) => row.status === 'accepted')).toHaveLength(1);
 });
 
 test('emisión privada rechaza JSON malformado sin mutar solicitudes y con no-store', async ({ page }) => {
