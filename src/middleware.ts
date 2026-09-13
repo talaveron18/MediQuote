@@ -20,5 +20,9 @@ export const config = {
     '/api/recovery/:path*',
     '/api/clients/:path*',
     '/api/users/:path*',
+    '/api/pdf/:path*',
+    '/api/audit-logs/:path*',
+    '/api/messages/:path*',
+    '/api/backup/:path*',
   ],
 };
