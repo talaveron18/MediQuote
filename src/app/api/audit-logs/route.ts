@@ -7,6 +7,10 @@ export async function GET(request: Request) {
   const auth = await requireRole(request, ['admin', 'maestro']);
   if (auth instanceof NextResponse) return auth;
 
+  if (new URL(request.url).searchParams.size > 0) {
+    return privateNoStoreJson({ error: 'Parámetros de consulta no admitidos' }, { status: 400 });
+  }
+
   try {
     const logs = await db.auditLog.findMany({
       orderBy: { createdAt: 'desc' },
