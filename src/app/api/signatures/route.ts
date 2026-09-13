@@ -11,6 +11,8 @@ const includeBudget = {
   serviceBlocks: { orderBy: { sortOrder: 'asc' as const } },
 } as const;
 
+const signaturePostFields = new Set(['budgetId', 'recipientEmail']);
+
 function canUseBudget(auth: { id: string; role: string }, budget: { createdById: string }) {
   return auth.role !== 'comercial' || budget.createdById === auth.id;
 }
@@ -24,13 +26,30 @@ function privateNoStoreJson(body: unknown, init: ResponseInit = {}) {
 
 function esc(value: unknown) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;'); }
 
+function readSignatureSelector(request: NextRequest):
+  | { kind: 'certificate' | 'budget'; value: string }
+  | { error: string } {
+  const certificates = request.nextUrl.searchParams.getAll('certificate');
+  const budgetIds = request.nextUrl.searchParams.getAll('budgetId');
+  if (certificates.length + budgetIds.length !== 1) {
+    return { error: 'Debe indicar exactamente un certificate o un budgetId' };
+  }
+  const kind = certificates.length === 1 ? 'certificate' as const : 'budget' as const;
+  const value = (kind === 'certificate' ? certificates[0] : budgetIds[0]).trim();
+  if (!value) return { error: 'El identificador no puede estar vacío' };
+  return { kind, value };
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  const certificate = request.nextUrl.searchParams.get('certificate');
-  if (certificate) {
+
+  const selector = readSignatureSelector(request);
+  if ('error' in selector) return privateNoStoreJson({ error: selector.error }, { status: 400 });
+
+  if (selector.kind === 'certificate') {
     const signed = await db.budgetSignatureRequest.findUnique({
-      where: { id: certificate }, include: { budget: { include: includeBudget }, createdBy: { select: { name: true } } },
+      where: { id: selector.value }, include: { budget: { include: includeBudget }, createdBy: { select: { name: true } } },
     });
     if (!signed || !canUseBudget(auth, signed.budget) || signed.status !== 'accepted') {
       return privateNoStoreJson({ error: 'Certificado no encontrado' }, { status: 404 });
@@ -41,8 +60,8 @@ export async function GET(request: NextRequest) {
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Certificado ${esc(signed.budget.code)}</title><style>@page{size:A4;margin:16mm}body{font-family:Arial;color:#172033;max-width:800px;margin:30px auto}.row{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:8px 0}.box{border:1px solid #ccd5e0;border-radius:8px;padding:18px;margin:20px 0}.no-print{text-align:right}@media print{.no-print{display:none}}</style></head><body><div class="no-print"><button onclick="window.print()">Imprimir / Guardar PDF</button></div><h1>Certificado de aceptación electrónica</h1><div class="box"><div class="row"><b>Presupuesto</b><span>${esc(signed.budget.code)}</span></div><div class="row"><b>Cliente</b><span>${esc(signed.budget.client.businessName)} · ${esc(signed.budget.client.cif)}</span></div><div class="row"><b>Total aceptado</b><span>${signed.budget.totalFinal.toLocaleString('es-ES',{style:'currency',currency:'EUR'})}</span></div><div class="row"><b>Firmante</b><span>${esc(signed.signerName)} · ${esc(signed.signerEmail)}</span></div><div class="row"><b>Fecha UTC</b><span>${esc(signed.acceptedAt?.toISOString())}</span></div><div class="row"><b>Huella SHA-256</b><span style="font-family:monospace;font-size:10px">${esc(signed.documentHash)}</span></div></div><p>${esc(signed.consentText || SIGNATURE_CONSENT)}</p>${signed.signatureData ? `<div class="box"><h3>Firma manuscrita</h3><img src="${esc(signed.signatureData)}" alt="Firma" style="max-width:420px;max-height:180px"></div>` : ''}<p style="font-size:11px;color:#667">Trazabilidad: solicitud ${esc(signed.id)} · IP ${esc(signed.acceptedIp)} · agente ${esc(signed.userAgent)}</p></body></html>`;
     return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' } });
   }
-  const budgetId = request.nextUrl.searchParams.get('budgetId');
-  if (!budgetId) return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
+
+  const budgetId = selector.value;
   const budget = await db.budget.findUnique({ where: { id: budgetId }, include: includeBudget });
   if (!budget || !canUseBudget(auth, budget)) return privateNoStoreJson({ error: 'Presupuesto no encontrado' }, { status: 404 });
   const requests = await db.budgetSignatureRequest.findMany({
@@ -90,14 +109,26 @@ export async function POST(request: NextRequest) {
     return privateNoStoreJson({ error: 'El cuerpo debe ser un objeto JSON válido' }, { status: 400 });
   }
   const body = parsedBody as Record<string, unknown>;
+  const unknownFields = Object.keys(body).filter((field) => !signaturePostFields.has(field));
+  if (unknownFields.length) {
+    return privateNoStoreJson({ error: `Campos no permitidos: ${unknownFields.sort().join(', ')}` }, { status: 400 });
+  }
   if (typeof body.budgetId !== 'string' || !body.budgetId.trim()) {
     return privateNoStoreJson({ error: 'Falta el presupuesto' }, { status: 400 });
   }
-  if (body.recipientEmail !== undefined && typeof body.recipientEmail !== 'string') {
-    return privateNoStoreJson({ error: 'El correo del destinatario debe ser texto' }, { status: 400 });
+
+  const recipientProvided = Object.prototype.hasOwnProperty.call(body, 'recipientEmail');
+  let requestedRecipientEmail: string | undefined;
+  if (recipientProvided) {
+    if (typeof body.recipientEmail !== 'string') {
+      return privateNoStoreJson({ error: 'El correo del destinatario debe ser texto' }, { status: 400 });
+    }
+    requestedRecipientEmail = body.recipientEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(requestedRecipientEmail)) {
+      return privateNoStoreJson({ error: 'El correo del destinatario no es válido' }, { status: 400 });
+    }
   }
   const budgetId = body.budgetId.trim();
-  const requestedRecipientEmail = typeof body.recipientEmail === 'string' ? body.recipientEmail : undefined;
 
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -112,7 +143,9 @@ export async function POST(request: NextRequest) {
     if (budget.status === 'rechazado') return { status: 'rejected' as const };
     if (budget.status === 'caducado') return { status: 'expired' as const };
 
-    const recipientEmail = (requestedRecipientEmail || budget.client.email || '').trim().toLowerCase();
+    const recipientEmail = recipientProvided
+      ? requestedRecipientEmail!
+      : (budget.client.email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail)) {
       return { status: 'invalid_email' as const };
     }
