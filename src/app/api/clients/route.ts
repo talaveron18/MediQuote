@@ -115,13 +115,39 @@ export async function PUT(request: NextRequest) {
     const allowedFields = new Set([
       'businessName', 'cif', 'fiscalAddress', 'contactPerson', 'email', 'phone', 'sector', 'paymentTerms', 'notes',
     ])
+    const unsupportedFields = Object.keys(fields).filter((field) => !allowedFields.has(field))
+    if (unsupportedFields.length > 0) {
+      return privateNoStoreJson(
+        { error: `Campos no permitidos: ${unsupportedFields.join(', ')}` },
+        { status: 400 },
+      )
+    }
+
+    const requiredFields = new Set(['businessName', 'cif', 'fiscalAddress'])
     const data: Record<string, string | null> = {}
     for (const [field, value] of Object.entries(fields)) {
-      if (!allowedFields.has(field)) continue
+      if (requiredFields.has(field)) {
+        if (typeof value !== 'string' || !value.trim()) {
+          return privateNoStoreJson(
+            { error: `El campo ${field} es obligatorio y debe ser texto no vacío` },
+            { status: 400 },
+          )
+        }
+        data[field] = value.trim()
+        continue
+      }
+
       if (value !== null && typeof value !== 'string') {
         return privateNoStoreJson({ error: `El campo ${field} debe ser texto` }, { status: 400 })
       }
       data[field] = typeof value === 'string' ? value : null
+    }
+
+    if (Object.keys(data).length === 0) {
+      return privateNoStoreJson(
+        { error: 'Se requiere al menos un campo editable' },
+        { status: 400 },
+      )
     }
 
     const client = await db.client.update({
