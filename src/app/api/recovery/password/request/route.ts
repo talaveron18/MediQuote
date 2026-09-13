@@ -17,13 +17,31 @@ const GENERIC_MESSAGE = 'Si existe una cuenta activa con ese correo, recibirás 
 function genericResponse() {
   return NextResponse.json(
     { success: true, message: GENERIC_MESSAGE },
-    { status: 202, headers: { 'Cache-Control': 'no-store' } },
+    {
+      status: 202,
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        Pragma: 'no-cache',
+        'Referrer-Policy': 'no-referrer',
+      },
+    },
   )
+}
+
+function hasUnexpectedQuery(request: NextRequest): boolean {
+  return Array.from(request.nextUrl.searchParams.keys()).length > 0
 }
 
 export async function POST(request: NextRequest) {
   let issuedRawToken: string | null = null
   try {
+    // Recovery requests have no query-string contract. Keep the public response
+    // indistinguishable while refusing ambiguous/lateral selectors before DB work.
+    if (hasUnexpectedQuery(request)) {
+      await logAudit({ action: 'password_reset_requested', entity: 'user', summary: 'Solicitud de recuperación recibida' })
+      return genericResponse()
+    }
+
     const rawBody = await request.json().catch(() => null)
     const body = parsePasswordRecoveryRequestBody(rawBody)
     const email = normalizeRecoveryIdentifier(body?.email ?? '')
@@ -72,7 +90,7 @@ export async function POST(request: NextRequest) {
         // SMTP acceptance is not proof of delivery to the recipient mailbox.
         summary: 'Correo de recuperación aceptado por el transporte SMTP configurado; recepción final no verificada',
       })
-    } catch (deliveryError) {
+    } catch {
       // Fail closed: never leave a usable token behind if the delivery channel failed.
       await consumeStoredPasswordRecovery(issued.rawToken)
       issuedRawToken = null
@@ -82,9 +100,9 @@ export async function POST(request: NextRequest) {
         entityId: issued.userId,
         summary: 'No se pudo entregar el enlace de recuperación; token invalidado',
         result: 'error',
-        // Delivery errors are deliberately credential-free; never record the
-        // raw token/reset URL or SMTP password in audit data.
-        errorMessage: deliveryError instanceof Error ? deliveryError.message : 'Error de entrega',
+        // Do not persist transport exception text: SMTP libraries can include
+        // server details or other operational metadata not needed for audit evidence.
+        errorMessage: 'Error de entrega SMTP',
       })
     }
 
