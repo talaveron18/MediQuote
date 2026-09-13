@@ -6,6 +6,12 @@ import { seedDatabase } from '../../../../../scripts/seed';
 
 export const runtime = 'nodejs';
 
+function readBearerToken(authorization: string | null): string | null {
+  if (!authorization) return null;
+  const match = /^Bearer ([^\s]+)$/.exec(authorization);
+  return match?.[1] ?? null;
+}
+
 function matchesBootstrapToken(received: string | null): boolean {
   const expected = process.env.GASI_BOOTSTRAP_TOKEN?.trim();
   if (!expected || !received) return false;
@@ -15,7 +21,11 @@ function matchesBootstrapToken(received: string | null): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null;
+  if (new URL(request.url).searchParams.size > 0) {
+    return privateNoStoreJson({ error: 'Parámetros de consulta no admitidos' }, { status: 400 });
+  }
+
+  const token = readBearerToken(request.headers.get('authorization'));
   if (!matchesBootstrapToken(token)) {
     return privateNoStoreJson({ error: 'No autorizado' }, { status: 401 });
   }
