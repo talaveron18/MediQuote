@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, logAudit } from '@/lib/auth';
 import { calculateCosting } from '@/lib/costing/cost-engine';
-import type { CostingInput } from '@/lib/costing/cost-types';
+import { validateCostingRequestBody } from '@/lib/costing/validate-costing-input';
 import { db } from '@/lib/db';
 import { genericInternalErrorResponse, privateNoStoreJson } from '@/lib/private-api-response';
 
 export const runtime = 'nodejs';
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -93,29 +89,22 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    if (!isJsonObject(body)) {
+    const validation = validateCostingRequestBody(body);
+    if (!validation.ok) {
       return privateNoStoreJson({
         status: 'pending_configuration',
         action: 'complete_in_administration',
-        issues: [{ field: 'request', kind: 'invalid', message: 'El cuerpo de la solicitud debe ser un objeto JSON.' }],
+        issues: [validation.issue],
       }, { status: 400 });
     }
 
-    const input = body.input;
-    if (!isJsonObject(input)) {
-      return privateNoStoreJson({
-        status: 'pending_configuration',
-        action: 'complete_in_administration',
-        issues: [{ field: 'input', kind: 'missing', message: 'Faltan los datos del cálculo económico.' }],
-      }, { status: 400 });
-    }
-
-    const result = calculateCosting(input as unknown as CostingInput);
+    const input = validation.input;
+    const result = calculateCosting(input);
 
     await logAudit({
       action: 'costing_calculated',
       entity: 'CostEngine',
-      entityId: (input as unknown as CostingInput).serviceId,
+      entityId: input.serviceId,
       userId: auth.id,
       userName: auth.name,
       userRole: auth.role,
