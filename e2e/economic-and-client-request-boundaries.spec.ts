@@ -116,3 +116,59 @@ test('edición de cliente rechaza JSON no-objeto y tipos inválidos sin mutar el
   const after = JSON.parse(afterResponse.text) as Array<{ id: string; notes?: string | null }>;
   expect(after.find((client) => client.id === target.id)?.notes ?? null).toBe(target.notes ?? null);
 });
+
+test('edición de cliente rechaza campos fuera de allowlist sin mutar el registro', async ({ page }) => {
+  const clientsResponse = await browserJsonRequest(page, '/api/clients', 'GET');
+  expect(clientsResponse.status).toBe(200);
+  const clients = JSON.parse(clientsResponse.text) as Array<{ id: string; businessName: string }>;
+  expect(clients.length).toBeGreaterThan(0);
+  const target = clients[0];
+
+  const response = await browserJsonRequest(page, '/api/clients', 'PUT', JSON.stringify({
+    id: target.id,
+    businessName: 'NO-DEBE-PERSISTIR',
+    createdAt: '2000-01-01T00:00:00.000Z',
+  }));
+  expect(response.status).toBe(400);
+  expectPrivateNoStore(response);
+  expect(response.text).toContain('Campos no permitidos');
+
+  const afterResponse = await browserJsonRequest(page, '/api/clients', 'GET');
+  const after = JSON.parse(afterResponse.text) as Array<{ id: string; businessName: string }>;
+  expect(after.find((client) => client.id === target.id)?.businessName).toBe(target.businessName);
+});
+
+test('edición de cliente no permite vaciar identidad obligatoria', async ({ page }) => {
+  const clientsResponse = await browserJsonRequest(page, '/api/clients', 'GET');
+  expect(clientsResponse.status).toBe(200);
+  const clients = JSON.parse(clientsResponse.text) as Array<{
+    id: string;
+    businessName: string;
+    cif: string;
+    fiscalAddress: string;
+  }>;
+  expect(clients.length).toBeGreaterThan(0);
+  const target = clients[0];
+
+  for (const patch of [
+    { businessName: '   ' },
+    { cif: null },
+    { fiscalAddress: '' },
+  ]) {
+    const response = await browserJsonRequest(page, '/api/clients', 'PUT', JSON.stringify({ id: target.id, ...patch }));
+    expect(response.status).toBe(400);
+    expectPrivateNoStore(response);
+  }
+
+  const afterResponse = await browserJsonRequest(page, '/api/clients', 'GET');
+  const after = JSON.parse(afterResponse.text) as Array<{
+    id: string;
+    businessName: string;
+    cif: string;
+    fiscalAddress: string;
+  }>;
+  const persisted = after.find((client) => client.id === target.id);
+  expect(persisted?.businessName).toBe(target.businessName);
+  expect(persisted?.cif).toBe(target.cif);
+  expect(persisted?.fiscalAddress).toBe(target.fiscalAddress);
+});
