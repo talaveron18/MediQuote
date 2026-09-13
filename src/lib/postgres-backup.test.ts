@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => {
   const delegate = () => ({
     findMany: vi.fn(async () => [] as unknown[]),
     deleteMany: vi.fn(async () => ({ count: 0 })),
-    createMany: vi.fn(async () => ({ count: 0 })),
+    createMany: vi.fn(async (_args: { data: unknown[] }) => ({ count: 0 })),
   });
   const delegates = {
     user: delegate(), client: delegate(), budget: delegate(), serviceBlock: delegate(), budgetHistory: delegate(),
@@ -60,9 +60,11 @@ describe('central PostgreSQL backup integrity', () => {
     await importCentralDatabase(roundTripped);
 
     expect(mocks.delegates.costAudit.createMany).toHaveBeenCalledTimes(1);
-    const args = mocks.delegates.costAudit.createMany.mock.calls[0][0] as { data: Array<{ documentData: Buffer }> };
-    expect(Buffer.isBuffer(args.data[0].documentData)).toBe(true);
-    expect([...args.data[0].documentData]).toEqual([1, 2, 3, 255]);
+    const args = mocks.delegates.costAudit.createMany.mock.calls[0]?.[0];
+    expect(args).toBeDefined();
+    const restored = (args as { data: Array<{ documentData: Buffer }> }).data[0];
+    expect(Buffer.isBuffer(restored.documentData)).toBe(true);
+    expect([...restored.documentData]).toEqual([1, 2, 3, 255]);
   });
 
   it('restores approval, cost-audit and signature evidence only after their budget principal exists', async () => {
