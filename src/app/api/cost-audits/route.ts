@@ -5,7 +5,6 @@ import {
   calculateAuditDeviation,
   estimatedBreakdownFromSnapshot,
   GESTORIA_COMPONENT_LABELS,
-  type AuditBreakdown,
   type GestoriaBreakdown,
   type GestoriaComponentKey,
 } from '@/lib/continuous-audit';
@@ -25,6 +24,15 @@ const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 const GESTORIA_KEYS = new Set<GestoriaComponentKey>(
   Object.keys(GESTORIA_COMPONENT_LABELS) as GestoriaComponentKey[],
 );
+const POST_KEYS = new Set([
+  'budgetId',
+  'actualCost',
+  'actualBreakdown',
+  'notes',
+  'documentName',
+  'documentType',
+  'documentBase64',
+]);
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MONEY_TOLERANCE = 0.01;
 
@@ -45,25 +53,28 @@ async function readJsonObject(request: NextRequest): Promise<Record<string, unkn
   }
 }
 
+function firstUnknownKey(body: Record<string, unknown>): string | null {
+  for (const key of Object.keys(body)) {
+    if (!POST_KEYS.has(key)) return key;
+  }
+  return null;
+}
+
 function parseBreakdown(value: unknown): BreakdownParseResult {
   if (value === undefined || value === null) return { ok: true, value: {} };
-  if (typeof value !== 'object' || Array.isArray(value)) {
+  if (!isJsonObject(value)) {
     return { ok: false, error: 'El desglose de gestoría debe ser un objeto de conceptos e importes' };
   }
 
   const result: GestoriaBreakdown = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, item] of Object.entries(value)) {
     if (!GESTORIA_KEYS.has(key as GestoriaComponentKey)) {
       return { ok: false, error: `Concepto de gestoría no reconocido: ${key}` };
     }
-    if (item === '' || item === null || item === undefined) {
-      return { ok: false, error: `El concepto ${key} no contiene un importe válido` };
-    }
-    const amount = Number(item);
-    if (!Number.isFinite(amount) || amount < 0) {
+    if (typeof item !== 'number' || !Number.isFinite(item) || item < 0) {
       return { ok: false, error: `El concepto ${key} debe contener un importe numérico no negativo` };
     }
-    result[key as GestoriaComponentKey] = amount;
+    result[key as GestoriaComponentKey] = item;
   }
   return { ok: true, value: result };
 }
@@ -72,7 +83,7 @@ function validateBreakdownTotal(actualCost: number, breakdown: GestoriaBreakdown
   const entries = Object.entries(breakdown);
   if (entries.length === 0) return null;
 
-  const suppliedTotal = entries.reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  const suppliedTotal = entries.reduce((sum, [, value]) => sum + (value ?? 0), 0);
   if (suppliedTotal - actualCost > MONEY_TOLERANCE) {
     return 'La suma del desglose de gestoría no puede superar el coste real total';
   }
@@ -134,16 +145,17 @@ export async function POST(request: NextRequest) {
     if (!body) {
       return privateNoStoreJson({ error: 'El cuerpo de la solicitud debe ser un objeto JSON válido' }, { status: 400 });
     }
+    const unknownKey = firstUnknownKey(body);
+    if (unknownKey) {
+      return privateNoStoreJson({ error: `Campo de auditoría no reconocido: ${unknownKey}` }, { status: 400 });
+    }
     if (typeof body.budgetId !== 'string' || body.budgetId.trim().length === 0) {
       return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
     }
-    if (body.actualCost === '' || body.actualCost === null || body.actualCost === undefined || typeof body.actualCost === 'boolean') {
+    if (typeof body.actualCost !== 'number' || !Number.isFinite(body.actualCost) || body.actualCost < 0) {
       return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
     }
-    const actualCost = Number(body.actualCost);
-    if (!Number.isFinite(actualCost) || actualCost < 0) {
-      return privateNoStoreJson({ error: 'Presupuesto y coste real válido de gestoría son obligatorios' }, { status: 400 });
-    }
+    const actualCost = body.actualCost;
     if (body.notes !== undefined && body.notes !== null && typeof body.notes !== 'string') {
       return privateNoStoreJson({ error: 'Las notas deben ser texto' }, { status: 400 });
     }
@@ -156,7 +168,10 @@ export async function POST(request: NextRequest) {
     if (body.documentBase64 !== undefined && typeof body.documentBase64 !== 'string') {
       return privateNoStoreJson({ error: 'El justificante debe codificarse como Base64' }, { status: 400 });
     }
-    const parsedBreakdown = parseBreakdown(body.actualBreakdown as AuditBreakdown | undefined);
+    if (body.documentBase64 === undefined && (body.documentName !== undefined || body.documentType !== undefined)) {
+      return privateNoStoreJson({ error: 'Los metadatos del justificante requieren un archivo adjunto' }, { status: 400 });
+    }
+    const parsedBreakdown = parseBreakdown(body.actualBreakdown);
     if (!parsedBreakdown.ok) {
       return privateNoStoreJson({ error: parsedBreakdown.error }, { status: 400 });
     }
