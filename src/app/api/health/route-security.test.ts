@@ -8,12 +8,14 @@ vi.mock('@/lib/db', () => ({
 
 import { GET } from './route';
 
+const request = (suffix = '') => new Request(`http://localhost/api/health${suffix}`);
+
 describe('GET /api/health disclosure boundary', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('solo expone salud mínima y nunca cardinalidades internas', async () => {
     mocks.userCount.mockResolvedValue(37);
-    const response = await GET();
+    const response = await GET(request());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -26,10 +28,16 @@ describe('GET /api/health disclosure boundary', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
   });
 
+  it('rechaza parámetros de consulta antes de tocar la base de datos', async () => {
+    const response = await GET(request('?debug=true'));
+    expect(response.status).toBe(400);
+    expect(mocks.userCount).not.toHaveBeenCalled();
+  });
+
   it('no expone detalles internos cuando falla la base de datos', async () => {
     const secret = 'postgres://internal-host/private-db';
     mocks.userCount.mockRejectedValue(new Error(secret));
-    const response = await GET();
+    const response = await GET(request());
     const text = await response.text();
 
     expect(response.status).toBe(500);
