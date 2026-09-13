@@ -8,6 +8,19 @@ import { isStrongEnoughPassword, MINIMUM_PASSWORD_LENGTH } from '@/lib/password-
 import { ensureDailyAutomaticBackup } from '@/lib/sqlite-backup';
 import { privateNoStoreJson } from '@/lib/private-api-response';
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readObjectBody(request: NextRequest): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await request.json();
+    return isPlainObject(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
@@ -19,10 +32,13 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const body = await request.json().catch(() => ({}));
+      const body = await readObjectBody(request);
+      if (!body) {
+        return privateNoStoreJson({ error: 'Solicitud no válida' }, { status: 400 });
+      }
       const { currentPassword, newPassword } = body;
 
-      if (!currentPassword || !newPassword) {
+      if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
         return privateNoStoreJson({ error: 'Se requieren ambos campos' }, { status: 400 });
       }
 
@@ -85,14 +101,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await readObjectBody(request);
+    if (!body) {
+      return privateNoStoreJson({ error: 'Credenciales incorrectas' }, { status: 401 });
+    }
     const { email, password } = body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
       return privateNoStoreJson({ error: 'Credenciales incorrectas' }, { status: 401 });
     }
 
-    const normalizedEmail = String(email).toLowerCase().trim();
+    const normalizedEmail = email.toLowerCase().trim();
     let user;
     try {
       user = await db.user.findUnique({ where: { email: normalizedEmail } });
