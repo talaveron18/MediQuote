@@ -52,7 +52,9 @@ async function handleAuditPackage(userId: string, userName: string, userRole: st
   ].join('-');
   const folderName = `gasi-auditoria-${dateStr}-${timeStr}`;
 
-  const auditDir = path.join(BASE, 'exports', 'auditoria', folderName);
+  const auditRoot = path.join(BASE, 'exports', 'auditoria');
+  mkdirSync(auditRoot, { recursive: true });
+  const auditDir = path.join(auditRoot, folderName);
   mkdirSync(auditDir, { recursive: false });
 
   const pdfSubDir = path.join(auditDir, 'presupuestos_pdf');
