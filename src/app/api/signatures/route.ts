@@ -150,13 +150,29 @@ export async function POST(request: NextRequest) {
       return { status: 'invalid_email' as const };
     }
 
+    const documentHash = hashBudgetForSignature(budget);
+    const existingPending = await tx.budgetSignatureRequest.findFirst({
+      where: {
+        budgetId: budget.id,
+        status: 'pending',
+        recipientEmail,
+        documentHash,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existingPending) {
+      return { status: 'already_pending' as const, existingId: existingPending.id };
+    }
+
     await tx.budgetSignatureRequest.updateMany({
       where: { budgetId: budget.id, status: 'pending' },
       data: { status: 'revoked' },
     });
     const created = await tx.budgetSignatureRequest.create({ data: {
       budgetId: budget.id, createdById: auth.id, tokenHash: hashSignatureToken(token), status: 'pending',
-      recipientEmail, documentHash: hashBudgetForSignature(budget), expiresAt,
+      recipientEmail, documentHash, expiresAt,
     } });
     await tx.budget.update({ where: { id: budget.id }, data: {
       status: 'enviado',
@@ -177,6 +193,12 @@ export async function POST(request: NextRequest) {
   }
   if (issuance.status === 'invalid_email') {
     return privateNoStoreJson({ error: 'El cliente necesita un correo válido' }, { status: 400 });
+  }
+  if (issuance.status === 'already_pending') {
+    return privateNoStoreJson({
+      error: 'Ya existe una solicitud de firma pendiente para esta versión y destinatario.',
+      requestId: issuance.existingId,
+    }, { status: 409 });
   }
 
   const signingUrl = buildTrustedPublicUrl({
