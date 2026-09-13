@@ -7,6 +7,7 @@ import {
 } from '@/lib/remote-config';
 import { db } from '@/lib/db';
 import { requireAuth, requireRole } from '@/lib/auth';
+import { genericInternalErrorResponse, privateNoStoreJson } from '@/lib/private-api-response';
 
 // ─── GET /api/remote-config?type=export|check|audit ─────────
 export async function GET(request: Request) {
@@ -20,9 +21,10 @@ export async function GET(request: Request) {
 
     try {
       const result = await checkForNewConfig();
-      return NextResponse.json(result);
-    } catch (error: any) {
-      return NextResponse.json({ hasNewConfig: false, error: error.message }, { status: 500 });
+      return privateNoStoreJson(result);
+    } catch (error) {
+      console.error('[GET /api/remote-config?type=check] Error:', error);
+      return genericInternalErrorResponse('No se pudo comprobar la configuración remota');
     }
   }
 
@@ -36,9 +38,10 @@ export async function GET(request: Request) {
         orderBy: { createdAt: 'desc' },
         take: 50,
       });
-      return NextResponse.json(logs);
-    } catch (error: any) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return privateNoStoreJson(logs);
+    } catch (error) {
+      console.error('[GET /api/remote-config?type=audit] Error:', error);
+      return genericInternalErrorResponse('No se pudo obtener la auditoría de configuración');
     }
   }
 
@@ -60,32 +63,30 @@ export async function GET(request: Request) {
         result: 'success',
       });
 
-      return NextResponse.json({
+      return privateNoStoreJson({
         success: true,
         message: 'Configuración exportada correctamente.',
         path: getRemoteConfigPath(),
         version: config._meta.version,
         exportedAt: config._meta.exportedAt,
       });
-    } catch (error: any) {
+    } catch (error) {
+      console.error('[GET /api/remote-config?type=export] Error:', error);
       try {
         await logConfigAudit({
           action: 'export',
           userEmail: auth.email,
           role: auth.role,
           result: 'error',
-          errorMessage: error.message,
+          errorMessage: error instanceof Error ? error.message : 'Error no identificado',
           fileSource: REMOTE_CONFIG_PATH,
         });
       } catch { /* audit logging failed, not critical */ }
-      return NextResponse.json(
-        { error: `Error al exportar: ${error.message}` },
-        { status: 500 },
-      );
+      return genericInternalErrorResponse('No se pudo exportar la configuración');
     }
   }
 
-  return NextResponse.json({ error: 'Tipo no válido. Usa: export, check, audit' }, { status: 400 });
+  return privateNoStoreJson({ error: 'Tipo no válido. Usa: export, check, audit' }, { status: 400 });
 }
 
 // ─── POST /api/remote-config?type=import ────────────────────
@@ -94,13 +95,14 @@ export async function POST(request: Request) {
   const type = searchParams.get('type');
 
   if (type === 'import') {
-    const auth = await requireAuth(request);
+    // Importar configuración puede alterar parámetros que afectan al cálculo.
+    // Debe tener la misma barrera administrativa que exportar y auditar.
+    const auth = await requireRole(request, ['admin']);
     if (auth instanceof NextResponse) return auth;
 
     try {
-      const body = await request.json();
-
-      // Read file
+      // El cuerpo de la petición no es fuente de identidad ni de configuración.
+      // La identidad procede de la sesión y la configuración se lee del fichero controlado.
       const { data, error: readError } = await readRemoteConfigFile();
       if (readError || !data) {
         await logConfigAudit({
@@ -112,17 +114,15 @@ export async function POST(request: Request) {
           errorMessage: readError || 'No se pudo leer el archivo.',
           fileSource: REMOTE_CONFIG_PATH,
         });
-        return NextResponse.json({ error: readError || 'No se pudo leer el archivo.' }, { status: 400 });
+        return privateNoStoreJson({ error: 'No se pudo leer la configuración remota.' }, { status: 400 });
       }
 
-      // Get current version from DB for audit
       let oldVersion: string | undefined;
       try {
         const currentEngine = await db.appConfig.findUnique({ where: { key: 'calculationEngineVersion' } });
         oldVersion = currentEngine?.value || undefined;
       } catch { /* ignore */ }
 
-      // Validate
       const validation = validateRemoteConfig(data);
       if (!validation.valid) {
         await logConfigAudit({
@@ -136,14 +136,13 @@ export async function POST(request: Request) {
           errorMessage: validation.errors.join('; '),
           fileSource: REMOTE_CONFIG_PATH,
         });
-        return NextResponse.json({
+        return privateNoStoreJson({
           error: 'Validación fallida.',
           errors: validation.errors,
           warnings: validation.warnings,
         }, { status: 422 });
       }
 
-      // Apply
       const result = await applyRemoteConfig(data);
 
       if (result.success) {
@@ -173,14 +172,15 @@ export async function POST(request: Request) {
         });
       }
 
-      return NextResponse.json({
+      return privateNoStoreJson({
         success: result.success,
         changesApplied: result.changesApplied,
         errors: result.errors,
         warnings: validation.warnings,
         version: data._meta?.version,
       });
-    } catch (error: any) {
+    } catch (error) {
+      console.error('[POST /api/remote-config?type=import] Error:', error);
       try {
         await logConfigAudit({
           action: 'import',
@@ -188,13 +188,13 @@ export async function POST(request: Request) {
           userName: auth.name,
           role: auth.role,
           result: 'error',
-          errorMessage: error.message,
+          errorMessage: error instanceof Error ? error.message : 'Error no identificado',
           fileSource: REMOTE_CONFIG_PATH,
         });
       } catch { /* audit logging failed */ }
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return genericInternalErrorResponse('No se pudo importar la configuración');
     }
   }
 
-  return NextResponse.json({ error: 'Tipo no válido. Usa: import' }, { status: 400 });
+  return privateNoStoreJson({ error: 'Tipo no válido. Usa: import' }, { status: 400 });
 }
