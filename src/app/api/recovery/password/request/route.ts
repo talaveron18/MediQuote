@@ -8,6 +8,7 @@ import { recordPasswordRecoveryAttempt } from '@/lib/password-recovery-rate-limi
 import { deliverPasswordRecoveryLink } from '@/lib/password-recovery-delivery'
 import { isValidRecoveryIdentifier, normalizeRecoveryIdentifier } from '@/lib/password-recovery'
 import { buildTrustedPublicUrl } from '@/lib/public-origin'
+import { parsePasswordRecoveryRequestBody, trustedRecoverySourceIp } from '@/lib/password-recovery-request-contract'
 
 export const runtime = 'nodejs'
 
@@ -20,27 +21,22 @@ function genericResponse() {
   )
 }
 
-function sourceIp(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return forwarded || request.headers.get('x-real-ip')?.trim() || 'unknown'
-}
-
 export async function POST(request: NextRequest) {
   let issuedRawToken: string | null = null
   try {
-    const body = await request.json().catch(() => ({})) as { email?: unknown }
-    const rawEmail = typeof body.email === 'string' ? body.email : ''
-    const email = normalizeRecoveryIdentifier(rawEmail)
+    const rawBody = await request.json().catch(() => null)
+    const body = parsePasswordRecoveryRequestBody(rawBody)
+    const email = normalizeRecoveryIdentifier(body?.email ?? '')
 
     // Keep the public response indistinguishable for malformed, unknown and known accounts.
-    // Malformed identifiers are rejected before persistent rate-limit/DB work so arbitrary
-    // oversized garbage cannot consume the shared IP recovery quota.
-    if (!isValidRecoveryIdentifier(email)) {
+    // Malformed payloads/identifiers are rejected before persistent rate-limit/DB work so
+    // arbitrary garbage or extra fields cannot consume the shared recovery quota.
+    if (!body || !isValidRecoveryIdentifier(email)) {
       await logAudit({ action: 'password_reset_requested', entity: 'user', summary: 'Solicitud de recuperación recibida' })
       return genericResponse()
     }
 
-    const rate = await recordPasswordRecoveryAttempt(email, sourceIp(request))
+    const rate = await recordPasswordRecoveryAttempt(email, trustedRecoverySourceIp(request.headers))
     if (!rate.allowed) {
       await logAudit({
         action: 'password_reset_rate_limited',
