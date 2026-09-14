@@ -74,6 +74,11 @@ jobs:
       - name: Seed only synthetic E2E records
         run: npx tsx scripts/seed-e2e.ts
 
+      - name: Synthetic backup and destructive restore drill
+        id: restore_drill
+        continue-on-error: true
+        run: bash scripts/qa-synthetic-backup-restore.sh
+
       - name: TypeScript check
         id: typecheck
         continue-on-error: true
@@ -121,6 +126,10 @@ jobs:
             playwright-report/
             test-results/
           if-no-files-found: ignore
+
+      - name: Enforce restore drill gate
+        if: always()
+        run: test '${{ steps.restore_drill.outcome }}' = 'success'
 
       - name: Enforce TypeScript gate
         if: always()
