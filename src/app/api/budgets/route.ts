@@ -205,7 +205,7 @@ function approvalTriggerFromSnapshot(snapshot: string): {
   }
 }
 
-async function ensureBudgetApproval(params: {
+async function ensureBudgetApproval(tx: any, params: {
   budgetId: string
   budgetCode: string
   requesterId: string
@@ -215,11 +215,11 @@ async function ensureBudgetApproval(params: {
   if (params.requesterRole === 'maestro') return
   const trigger = approvalTriggerFromSnapshot(params.snapshot)
   if (!trigger.required) return
-  const existing = await db.budgetApproval.findFirst({
+  const existing = await tx.budgetApproval.findFirst({
     where: { budgetId: params.budgetId, status: 'pending' },
   })
   if (existing) return
-  await db.budgetApproval.create({
+  await tx.budgetApproval.create({
     data: {
       budgetId: params.budgetId,
       requesterId: params.requesterId,
@@ -228,10 +228,10 @@ async function ensureBudgetApproval(params: {
       semaphore: trigger.semaphore,
     },
   })
-  const maestros = await db.user.findMany({ where: { active: true, role: 'maestro' }, select: { id: true } })
+  const maestros = await tx.user.findMany({ where: { active: true, role: 'maestro' }, select: { id: true } })
   if (maestros.length) {
-    await db.notification.createMany({
-      data: maestros.map(({ id }) => ({
+    await tx.notification.createMany({
+      data: maestros.map(({ id }: { id: string }) => ({
         userId: id,
         type: 'approval_requested',
         title: `Presupuesto ${params.budgetCode} pendiente de aprobación`,
@@ -450,15 +450,14 @@ export async function POST(request: NextRequest) {
         data: { budgetId: budget.id },
       })
       const artifact = await sealPersistedBudget(tx, budget.id, auth.id, costingQuote.snapshot as string, sealedAt)
-      return { budget, artifact, quoteSnapshot: costingQuote.snapshot as string }
-    })
-
-    await ensureBudgetApproval({
-      budgetId: result.budget.id,
-      budgetCode: result.budget.code,
-      requesterId: auth.id,
-      requesterRole: auth.role,
-      snapshot: result.quoteSnapshot,
+      await ensureBudgetApproval(tx, {
+        budgetId: budget.id,
+        budgetCode: budget.code,
+        requesterId: auth.id,
+        requesterRole: auth.role,
+        snapshot: costingQuote.snapshot as string,
+      })
+      return { budget, artifact }
     })
 
     exportBudgetLightweight(result.budget.id, {
@@ -602,18 +601,17 @@ export async function PUT(request: NextRequest) {
         ?? await latestUsedQuoteSnapshot(tx, id)
       if (!quoteSnapshot) throw new BudgetSealConflict('El presupuesto no conserva una cotización económica auditable')
       const artifact = await sealPersistedBudget(tx, id, auth.id, quoteSnapshot, sealedAt)
-      return { updated, artifact, quoteSnapshot }
+      if (costingQuote) {
+        await ensureBudgetApproval(tx, {
+          budgetId: updated.id,
+          budgetCode: updated.code,
+          requesterId: auth.id,
+          requesterRole: auth.role,
+          snapshot: quoteSnapshot,
+        })
+      }
+      return { updated, artifact }
     })
-
-    if (previewQuote) {
-      await ensureBudgetApproval({
-        budgetId: result.updated.id,
-        budgetCode: result.updated.code,
-        requesterId: auth.id,
-        requesterRole: auth.role,
-        snapshot: result.quoteSnapshot,
-      })
-    }
 
     exportBudgetLightweight(result.updated.id, {
       id: auth.id, email: auth.email, name: auth.name, role: auth.role,
