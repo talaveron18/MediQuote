@@ -77,7 +77,10 @@ jobs:
       - name: Synthetic backup and destructive restore drill
         id: restore_drill
         continue-on-error: true
-        run: bash scripts/qa-synthetic-backup-restore.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/qa-synthetic-backup-restore.sh 2>&1 | tee restore-drill.log
 
       - name: TypeScript check
         id: typecheck
@@ -122,6 +125,7 @@ jobs:
         with:
           name: mediquote-isolated-qa-evidence
           path: |
+            restore-drill.log
             typecheck.log
             playwright-report/
             test-results/
