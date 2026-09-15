@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
       if (type === 'download' || type === 'export') {
         const backup = await exportCentralDatabase();
         const filename = `gasi-central-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        await logAudit({ action: 'backup_exported', entity: 'system', userId: auth.id, userName: auth.name, userRole: auth.role, summary: `Copia central exportada: ${filename}` });
         return privateNoStoreResponse(JSON.stringify(backup), { headers: { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="${filename}"` } });
       }
     }
@@ -42,13 +43,19 @@ export async function POST(request: NextRequest) {
     if (!process.env.DATABASE_URL?.startsWith('file:')) {
       if (type === 'now') {
         const backup = await exportCentralDatabase();
-        return privateNoStoreJson({ success: true, central: true, filename: `gasi-central-${backup.createdAt.slice(0, 10)}.json`, downloadUrl: '/api/backup?type=export' });
+        const filename = `gasi-central-${backup.createdAt.slice(0, 10)}.json`;
+        await logAudit({ action: 'backup_created', entity: 'system', userId: auth.id, userName: auth.name, userRole: auth.role, summary: `Copia central manual preparada: ${filename}` });
+        return privateNoStoreJson({ success: true, central: true, filename, downloadUrl: '/api/backup?type=export' });
       }
       if (type === 'import') {
-        const form = await request.formData(); const file = form.get('database');
+        const form = await request.formData();
+        const file = form.get('database');
         if (!(file instanceof File)) return privateNoStoreJson({ error: 'Falta el archivo de copia' }, { status: 400 });
         if (file.size > 100 * 1024 * 1024) return privateNoStoreJson({ error: 'El archivo supera 100 MB' }, { status: 413 });
         const result = await importCentralDatabase(JSON.parse(await file.text()));
+        // importCentralDatabase replaces auditLogs from the supplied snapshot. Log only after
+        // the transaction commits so the restore itself remains visible in the restored DB.
+        await logAudit({ action: 'backup_restored', entity: 'system', userId: auth.id, userName: auth.name, userRole: auth.role, summary: `Copia central restaurada (${result.restored} registros)` });
         return privateNoStoreJson({ success: true, central: true, ...result });
       }
     }
