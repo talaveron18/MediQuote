@@ -59,16 +59,21 @@ function decodeCostAuditDocuments(rows: unknown[]) {
 }
 
 export async function exportCentralDatabase() {
-  const costAudits = await db.costAudit.findMany();
-  const data = {
-    users: await db.user.findMany(), clients: await db.client.findMany(), budgets: await db.budget.findMany(), serviceBlocks: await db.serviceBlock.findMany(),
-    budgetHistory: await db.budgetHistory.findMany(), internalMessages: await db.internalMessage.findMany(), budgetApprovals: await db.budgetApproval.findMany(),
-    notifications: await db.notification.findMany(), costAudits: encodeCostAuditDocuments(costAudits as unknown as Array<Record<string, unknown>>),
-    budgetSignatureRequests: await db.budgetSignatureRequest.findMany(), professionalCategories: await db.professionalCategory.findMany(),
-    surchargeConfigs: await db.surchargeConfig.findMany(), holidays: await db.holiday.findMany(), laborRules: await db.laborRule.findMany(), appConfigs: await db.appConfig.findMany(),
-    costingQuotes: await db.costingQuote.findMany(), auditLogs: await db.auditLog.findMany(), legalRecords: await db.legalRecord.findMany(),
-    legalParameters: await db.legalParameter.findMany(), configAuditLogs: await db.configAuditLog.findMany(),
-  } satisfies BackupData;
+  // All collections must belong to one database snapshot. Sequential reads outside a
+  // transaction can mix pre/post-write states and produce a structurally valid but
+  // referentially inconsistent backup under concurrent production traffic.
+  const data = await db.$transaction(async (tx) => {
+    const costAudits = await tx.costAudit.findMany();
+    return {
+      users: await tx.user.findMany(), clients: await tx.client.findMany(), budgets: await tx.budget.findMany(), serviceBlocks: await tx.serviceBlock.findMany(),
+      budgetHistory: await tx.budgetHistory.findMany(), internalMessages: await tx.internalMessage.findMany(), budgetApprovals: await tx.budgetApproval.findMany(),
+      notifications: await tx.notification.findMany(), costAudits: encodeCostAuditDocuments(costAudits as unknown as Array<Record<string, unknown>>),
+      budgetSignatureRequests: await tx.budgetSignatureRequest.findMany(), professionalCategories: await tx.professionalCategory.findMany(),
+      surchargeConfigs: await tx.surchargeConfig.findMany(), holidays: await tx.holiday.findMany(), laborRules: await tx.laborRule.findMany(), appConfigs: await tx.appConfig.findMany(),
+      costingQuotes: await tx.costingQuote.findMany(), auditLogs: await tx.auditLog.findMany(), legalRecords: await tx.legalRecord.findMany(),
+      legalParameters: await tx.legalParameter.findMany(), configAuditLogs: await tx.configAuditLog.findMany(),
+    } satisfies BackupData;
+  }, { isolationLevel: 'Serializable', timeout: 120_000 });
   return { format: FORMAT, createdAt: new Date().toISOString(), data };
 }
 
