@@ -31,7 +31,7 @@ SQL
 
 snapshot_schema() {
   pg_dump "$DATABASE_URL" --schema-only --no-owner --no-acl \
-    | sed -E '/^--/d; /^SET /d; /^SELECT pg_catalog\.set_config/d; /^\\restrict /d; /^\\unrestrict /d; /^[[:space:]]*$/d'
+    | sed -E '/^--/d; /^SET /d; /^SELECT pg_catalog\.set_config/d; /^\\restrict /d; /^\\unrestrict /d; /^COMMENT ON SCHEMA public IS '\''\'\'';$/d; /^[[:space:]]*$/d'
 }
 
 snapshot_sequences() {
