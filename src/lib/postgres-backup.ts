@@ -19,6 +19,22 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function assertValidAndUniqueIds(data: Record<string, unknown>) {
+  for (const key of REQUIRED_COLLECTIONS) {
+    const seen = new Set<string>();
+    for (const [index, value] of (data[key] as unknown[]).entries()) {
+      const row = value as Record<string, unknown>;
+      if (typeof row.id !== 'string' || row.id.trim().length === 0) {
+        throw new Error(`La copia contiene un identificador inválido en ${key}[${index}]`);
+      }
+      if (seen.has(row.id)) {
+        throw new Error(`La copia contiene un identificador duplicado en ${key}: ${row.id}`);
+      }
+      seen.add(row.id);
+    }
+  }
+}
+
 function assertCompleteBackup(value: unknown): asserts value is { format: string; createdAt: string; data: BackupData } {
   if (!isPlainRecord(value)) throw new Error('La copia no es una exportación válida de GASI');
   const backup = value as { format?: unknown; createdAt?: unknown; data?: unknown };
@@ -35,6 +51,7 @@ function assertCompleteBackup(value: unknown): asserts value is { format: string
     const invalidIndex = (data[key] as unknown[]).findIndex((row) => !isPlainRecord(row));
     if (invalidIndex !== -1) throw new Error(`La copia contiene un registro inválido en ${key}[${invalidIndex}]`);
   }
+  assertValidAndUniqueIds(data);
 }
 
 function encodeCostAuditDocuments(rows: Array<Record<string, unknown>>) {
@@ -59,9 +76,6 @@ function decodeCostAuditDocuments(rows: unknown[]) {
 }
 
 export async function exportCentralDatabase() {
-  // All collections must belong to one database snapshot. Sequential reads outside a
-  // transaction can mix pre/post-write states and produce a structurally valid but
-  // referentially inconsistent backup under concurrent production traffic.
   const data = await db.$transaction(async (tx) => {
     const costAudits = await tx.costAudit.findMany();
     return {
@@ -80,7 +94,6 @@ export async function exportCentralDatabase() {
 export async function importCentralDatabase(value: unknown) {
   assertCompleteBackup(value);
   const d = value.data;
-  // Decode and validate all binary evidence before opening the destructive transaction.
   const costAudits = decodeCostAuditDocuments(d.costAudits);
 
   await db.$transaction(async (tx) => {
